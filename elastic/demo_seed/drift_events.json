@@ -1,0 +1,80 @@
+[
+  {
+    "event_id": "demo-drift-001",
+    "preprint_doi": "10.1101/2024.01.15.123456",
+    "preprint_version_compared": "v3",
+    "published_doi": "10.1016/j.cell.2024.05.001",
+    "detected_at": "2026-05-21T04:49:25Z",
+    "drift_summary": "Effect size for viral load reduction changed from 45% to 12%, and strong hedging was added.",
+    "claim_diffs": [
+      {
+        "diff_type": "numerical_shift",
+        "preprint_claim_id": "10.1101/2024.01.15.123456::v3::abstract::0",
+        "published_claim_id": "10.1016/j.cell.2024.05.001::published::abstract::0",
+        "preprint_text": "Hydroxychloroquine reduced viral load by 45% in early COVID-19 patients.",
+        "published_text": "Hydroxychloroquine was associated with a 12% viral load reduction, with uncertainty across subgroups.",
+        "change_description": "Effect size reduced from 45% to 12% and hedging was added.",
+        "numerical_delta": {
+          "metric": "viral_load_reduction",
+          "preprint_value": 45.0,
+          "published_value": 12.0,
+          "absolute_delta": -33.0,
+          "relative_delta": -0.733
+        }
+      }
+    ],
+    "materiality_score": 0.82,
+    "retrieved_patterns": [
+      {
+        "pattern_id": "pattern-demo-001",
+        "pattern_description": "COVID-related clinical preprints may show large effect-size reductions at publication with added hedging.",
+        "pattern_type": "effect_size_reduction",
+        "domain_tags": [
+          "covid-19",
+          "clinical-trial"
+        ],
+        "support_count": 3,
+        "similarity_score": 0.84
+      }
+    ]
+  },
+  {
+    "event_id": "demo-drift-002",
+    "preprint_doi": "10.1101/2024.02.20.654321",
+    "preprint_version_compared": "v2",
+    "published_doi": "10.1056/demo.2024.002",
+    "detected_at": "2026-05-21T04:49:25Z",
+    "drift_summary": "A readmission reduction claim softened from 31% to 8%, with uncertainty strong enough that the interval crossed no effect.",
+    "claim_diffs": [
+      {
+        "diff_type": "numerical_shift",
+        "preprint_claim_id": "10.1101/2024.02.20.654321::v2::abstract::0",
+        "published_claim_id": "10.1056/demo.2024.002::published::abstract::0",
+        "preprint_text": "Remote monitoring reduced 30-day readmissions by 31% after discharge for hypertensive patients.",
+        "published_text": "Remote monitoring was associated with an 8% readmission reduction, and the confidence interval crossed no effect.",
+        "change_description": "Effect size reduced from 31% to 8%, and uncertainty now crosses no effect.",
+        "numerical_delta": {
+          "metric": "readmission_reduction",
+          "preprint_value": 31.0,
+          "published_value": 8.0,
+          "absolute_delta": -23.0,
+          "relative_delta": -0.742
+        }
+      }
+    ],
+    "materiality_score": 0.76,
+    "retrieved_patterns": [
+      {
+        "pattern_id": "pattern-demo-001",
+        "pattern_description": "Clinical preprints may show large effect-size reductions at publication with added hedging.",
+        "pattern_type": "effect_size_reduction",
+        "domain_tags": [
+          "clinical-trial",
+          "remote-monitoring"
+        ],
+        "support_count": 4,
+        "similarity_score": 0.79
+      }
+    ]
+  }
+]

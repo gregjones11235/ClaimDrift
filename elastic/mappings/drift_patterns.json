@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "index.default_pipeline": "claimdrift_elser_v1",
+    "refresh_interval": "1s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "pattern_id": { "type": "keyword" },
+      "pattern_description": { "type": "semantic_text" },
+      "pattern_type": { "type": "keyword" },
+      "domain_tags": { "type": "keyword" },
+      "source_event_ids": { "type": "keyword" },
+      "support_count": { "type": "integer" },
+      "created_at": { "type": "date" },
+      "last_updated_at": { "type": "date" }
+    }
+  }
+}
+

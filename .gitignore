@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Windows zone identifier sidecar files
+*Zone.Identifier
+*:Zone.Identifier
+
+# ADK local session/state
+.adk/
+*.adk/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example

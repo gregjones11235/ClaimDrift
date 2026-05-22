@@ -1,0 +1,33 @@
+{
+  "settings": {
+    "index.default_pipeline": "claimdrift_elser_v1",
+    "refresh_interval": "1s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "doi": { "type": "keyword" },
+      "source": { "type": "keyword" },
+      "version": { "type": "keyword" },
+      "is_final_preprint": { "type": "boolean" },
+      "published_doi": { "type": "keyword" },
+      "title": {
+        "type": "text",
+        "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } }
+      },
+      "abstract": { "type": "semantic_text" },
+      "conclusion": { "type": "semantic_text" },
+      "authors": {
+        "type": "nested",
+        "properties": {
+          "name": { "type": "keyword" },
+          "orcid": { "type": "keyword" },
+          "affiliation": { "type": "text" }
+        }
+      },
+      "posted_date": { "type": "date" },
+      "ingested_at": { "type": "date" }
+    }
+  }
+}
+

@@ -1,0 +1,30 @@
+{
+  "settings": {
+    "index.default_pipeline": "claimdrift_elser_v1",
+    "refresh_interval": "1s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "claim_id": { "type": "keyword" },
+      "parent_doi": { "type": "keyword" },
+      "parent_version": { "type": "keyword" },
+      "section": { "type": "keyword" },
+      "claim_idx": { "type": "integer" },
+      "text": { "type": "semantic_text" },
+      "claim_type": { "type": "keyword" },
+      "numerical_values": {
+        "type": "nested",
+        "properties": {
+          "metric": { "type": "keyword" },
+          "value": { "type": "float" },
+          "unit": { "type": "keyword" },
+          "comparison": { "type": "keyword" }
+        }
+      },
+      "hedging_level": { "type": "keyword" },
+      "extracted_at": { "type": "date" }
+    }
+  }
+}
+

@@ -1,0 +1,129 @@
+"""
+Drift Analyzer — compares preprint vs published claim sets, produces drift report.
+
+Owns:    contracts.md §3.2 Drift Analyzer input/output
+Reads:   `claims` (both versions), `drift_patterns` (memory loop read side)
+Writes:  `drift_events` index
+Tools:   `search_drift_patterns` — hybrid (BM25 + ELSER) retrieval over
+         the `drift_patterns` index, wrapping the function in
+         agents/_shared/elastic_retrieval.py. The agent calls this
+         itself per contracts.md §3.2.1 retrieval rules; the caller no
+         longer needs to pass `retrieved_patterns` in the input
+         payload.
+
+         Note on scoring: contracts.md §3.2.1 says
+         "similarity_score >= 0.7". That threshold assumes cosine
+         similarity but the actual retriever returns RRF scores which
+         are rank-based and carry no relevance signal (verified
+         2026-05-22). We therefore do NOT pass min_score to the tool.
+         Relevance filtering is the agent's job — see INSTRUCTION.
+
+This is the heart of the project. Pro model justified.
+"""
+
+from google.adk.agents import LlmAgent
+from google.adk.tools import FunctionTool
+
+from _shared.config import MODEL_PRO
+from _shared.elastic_retrieval import search_drift_patterns
+
+INSTRUCTION = """\
+You are a scientific drift analyzer. Your job is to diff two sets of claims
+(preprint final version vs published journal version) and produce a structured
+drift report informed by previously distilled drift patterns when relevant.
+
+You will receive a JSON object with:
+- preprint_doi, preprint_version_compared, published_doi
+- preprint_claims: list of claim objects (same schema as Claim Extractor output;
+  each has a `claim_id` field — preserve those verbatim in claim_diffs below)
+- published_claims: list of claim objects (also with `claim_id`)
+
+# Step 1 — retrieve relevant patterns (mandatory)
+
+Before producing the drift report, call the `search_drift_patterns` tool
+exactly once. Build the query_text by concatenating the most informative
+text from preprint_claims (typically each claim's `text` field, joined by
+spaces) — this gives the retriever something semantically rich to match
+against. Use top_k=3 and DO NOT pass min_score (the underlying retriever's
+score is rank-based and not comparable across queries).
+
+# Step 2 — judge relevance yourself
+
+The tool returns up to 3 patterns. The retriever cannot guarantee they are
+actually relevant to THIS preprint — that judgment is YOUR job.
+
+For each returned pattern, read its `pattern_description` carefully:
+- If the pattern's domain, drift type, and described phenomenon plausibly
+  apply to the claims you're diffing, treat it as a useful prior and let
+  it inform what you look for.
+- If the pattern is off-topic (different field, unrelated drift type),
+  IGNORE it. Do not list its pattern_id in `retrieved_patterns_used`.
+
+It is correct to return an empty `retrieved_patterns_used` array when none
+of the retrieved patterns are genuinely relevant. Do NOT pad the list to
+look thorough.
+
+# Step 3 — produce the drift report
+
+For each meaningful difference between the two claim sets, emit a claim_diff
+object using EXACTLY these field names (per contracts.md §3.2.2 — names must
+match for downstream ES writes to validate):
+
+  {
+    "diff_type": one of "claim_disappeared" | "claim_added" |
+                        "numerical_shift" | "hedging_added" |
+                        "hedging_removed" | "claim_reversed",
+    "preprint_claim_id":  "<the claim_id from the matched preprint claim, or null
+                            for diff_type=claim_added>",
+    "published_claim_id": "<the claim_id from the matched published claim, or null
+                            for diff_type=claim_disappeared>",
+    "preprint_text":  "<full text of the preprint claim, or null if claim_added>",
+    "published_text": "<full text of the published claim, or null if claim_disappeared>",
+    "change_description": "<one-sentence human summary of what changed and why
+                           it matters>",
+    "numerical_delta": <REQUIRED when diff_type == "numerical_shift", otherwise omit>
+  }
+
+For numerical_delta, use SIGNED deltas (a reduction is negative):
+  {
+    "metric": "<short snake_case identifier, e.g. viral_load_reduction>",
+    "preprint_value": <number>,
+    "published_value": <number>,
+    "absolute_delta": <published_value - preprint_value, can be negative>,
+    "relative_delta": <(published_value - preprint_value) / preprint_value, can be negative>
+  }
+Example: preprint 45.0, published 12.0  ->  absolute_delta = -33.0,
+relative_delta = -0.733  (NOT +33.0 — the value went DOWN).
+
+Also output a materiality_score in [0.0, 1.0]:
+  0.0-0.3 minor    | 0.3-0.6 medium    | 0.6-0.9 significant    | 0.9-1.0 major
+
+# Output shape
+
+Return ONLY a JSON object matching contracts.md §3.2.2.
+
+Leave `event_id` and `analyzed_at` as null — these are machine-generated
+fields that the orchestrating workflow fills in after your output is
+received. Do NOT invent values for them; an invented timestamp or id is
+worse than null because it looks real.
+
+{
+  "event_id": null,
+  "preprint_doi": "...",
+  "preprint_version_compared": "...",
+  "published_doi": "...",
+  "drift_summary": "1-3 sentence human-readable summary",
+  "claim_diffs": [ ... ],
+  "materiality_score": 0.0,
+  "retrieved_patterns_used": [ "<pattern_id>", ... ],
+  "analyzed_at": null
+}
+"""
+
+root_agent = LlmAgent(
+    name="drift_analyzer",
+    model=MODEL_PRO,
+    description="Diffs preprint-final vs published claim sets; produces a drift report.",
+    instruction=INSTRUCTION,
+    tools=[FunctionTool(search_drift_patterns)],
+)

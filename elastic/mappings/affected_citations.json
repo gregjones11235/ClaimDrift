@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "refresh_interval": "1s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "affected_citation_id": { "type": "keyword" },
+      "drift_event_id": { "type": "keyword" },
+      "citing_paper_doi": { "type": "keyword" },
+      "citing_paper_title": { "type": "text" },
+      "citing_paper_authors": {
+        "type": "nested",
+        "properties": {
+          "name": { "type": "keyword" },
+          "orcid": { "type": "keyword" },
+          "email": { "type": "keyword" }
+        }
+      },
+      "citation_context": { "type": "text" },
+      "severity_tier": { "type": "keyword" },
+      "severity_reasoning": { "type": "text" },
+      "scored_at": { "type": "date" }
+    }
+  }
+}
+

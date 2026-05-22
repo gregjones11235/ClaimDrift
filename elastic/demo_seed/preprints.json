@@ -1,0 +1,78 @@
+[
+  {
+    "doi": "10.1101/2024.01.15.123456",
+    "source": "biorxiv",
+    "version": "v3",
+    "is_final_preprint": true,
+    "published_doi": "10.1016/j.cell.2024.05.001",
+    "title": "Hydroxychloroquine and viral load dynamics in early COVID-19",
+    "abstract": "Hydroxychloroquine reduced viral load by 45% in early COVID-19 patients.",
+    "conclusion": "The treatment reduced viral load substantially in the studied cohort.",
+    "authors": [
+      {
+        "name": "Demo Author",
+        "orcid": null,
+        "affiliation": "Demo Lab"
+      }
+    ],
+    "posted_date": "2024-01-15T00:00:00Z",
+    "ingested_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "doi": "10.1016/j.cell.2024.05.001",
+    "source": "biorxiv",
+    "version": "published",
+    "is_final_preprint": false,
+    "published_doi": "10.1016/j.cell.2024.05.001",
+    "title": "Hydroxychloroquine and viral load dynamics in early COVID-19",
+    "abstract": "Hydroxychloroquine was associated with a 12% viral load reduction, with uncertainty across subgroups.",
+    "conclusion": "The treatment may reduce viral load modestly in selected patients.",
+    "authors": [
+      {
+        "name": "Demo Author",
+        "orcid": null,
+        "affiliation": "Demo Lab"
+      }
+    ],
+    "posted_date": "2024-05-01T00:00:00Z",
+    "ingested_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "doi": "10.1101/2024.02.20.654321",
+    "source": "medrxiv",
+    "version": "v2",
+    "is_final_preprint": true,
+    "published_doi": "10.1056/demo.2024.002",
+    "title": "Remote blood-pressure monitoring after hospital discharge",
+    "abstract": "Remote monitoring reduced 30-day readmissions by 31% after discharge for hypertensive patients.",
+    "conclusion": "Remote monitoring meaningfully lowered short-term readmission risk.",
+    "authors": [
+      {
+        "name": "Example Clinician",
+        "orcid": null,
+        "affiliation": "Demo Hospital"
+      }
+    ],
+    "posted_date": "2024-02-20T00:00:00Z",
+    "ingested_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "doi": "10.1056/demo.2024.002",
+    "source": "medrxiv",
+    "version": "published",
+    "is_final_preprint": false,
+    "published_doi": "10.1056/demo.2024.002",
+    "title": "Remote blood-pressure monitoring after hospital discharge",
+    "abstract": "Remote monitoring was associated with an 8% readmission reduction, and the confidence interval crossed no effect.",
+    "conclusion": "The intervention may help selected patients, but evidence for broad readmission reduction was limited.",
+    "authors": [
+      {
+        "name": "Example Clinician",
+        "orcid": null,
+        "affiliation": "Demo Hospital"
+      }
+    ],
+    "posted_date": "2024-06-12T00:00:00Z",
+    "ingested_at": "2026-05-21T04:49:25Z"
+  }
+]

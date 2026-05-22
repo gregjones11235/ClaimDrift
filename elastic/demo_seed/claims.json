@@ -1,0 +1,78 @@
+[
+  {
+    "claim_id": "10.1101/2024.01.15.123456::v3::abstract::0",
+    "parent_doi": "10.1101/2024.01.15.123456",
+    "parent_version": "v3",
+    "section": "abstract",
+    "claim_idx": 0,
+    "text": "Hydroxychloroquine reduced viral load by 45% in early COVID-19 patients.",
+    "claim_type": "quantitative",
+    "numerical_values": [
+      {
+        "metric": "viral_load_reduction",
+        "value": 45.0,
+        "unit": "percent",
+        "comparison": "reduction"
+      }
+    ],
+    "hedging_level": "none",
+    "extracted_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "claim_id": "10.1016/j.cell.2024.05.001::published::abstract::0",
+    "parent_doi": "10.1016/j.cell.2024.05.001",
+    "parent_version": "published",
+    "section": "abstract",
+    "claim_idx": 0,
+    "text": "Hydroxychloroquine was associated with a 12% viral load reduction, with uncertainty across subgroups.",
+    "claim_type": "quantitative",
+    "numerical_values": [
+      {
+        "metric": "viral_load_reduction",
+        "value": 12.0,
+        "unit": "percent",
+        "comparison": "reduction"
+      }
+    ],
+    "hedging_level": "strong",
+    "extracted_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "claim_id": "10.1101/2024.02.20.654321::v2::abstract::0",
+    "parent_doi": "10.1101/2024.02.20.654321",
+    "parent_version": "v2",
+    "section": "abstract",
+    "claim_idx": 0,
+    "text": "Remote monitoring reduced 30-day readmissions by 31% after discharge for hypertensive patients.",
+    "claim_type": "quantitative",
+    "numerical_values": [
+      {
+        "metric": "readmission_reduction",
+        "value": 31.0,
+        "unit": "percent",
+        "comparison": "reduction"
+      }
+    ],
+    "hedging_level": "none",
+    "extracted_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "claim_id": "10.1056/demo.2024.002::published::abstract::0",
+    "parent_doi": "10.1056/demo.2024.002",
+    "parent_version": "published",
+    "section": "abstract",
+    "claim_idx": 0,
+    "text": "Remote monitoring was associated with an 8% readmission reduction, and the confidence interval crossed no effect.",
+    "claim_type": "quantitative",
+    "numerical_values": [
+      {
+        "metric": "readmission_reduction",
+        "value": 8.0,
+        "unit": "percent",
+        "comparison": "reduction"
+      }
+    ],
+    "hedging_level": "strong",
+    "extracted_at": "2026-05-21T04:49:25Z"
+  }
+]

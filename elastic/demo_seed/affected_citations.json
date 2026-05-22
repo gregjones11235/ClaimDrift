@@ -1,0 +1,36 @@
+[
+  {
+    "affected_citation_id": "demo-drift-001::10.1038/demo.2024.100",
+    "drift_event_id": "demo-drift-001",
+    "citing_paper_doi": "10.1038/demo.2024.100",
+    "citing_paper_title": "Antiviral treatment strategies in early respiratory infection",
+    "citing_paper_authors": [
+      {
+        "name": "Jane Doe",
+        "orcid": "0000-0000-0000-0000",
+        "email": "test+jane@team-mailbox.com"
+      }
+    ],
+    "citation_context": null,
+    "severity_tier": "central",
+    "severity_reasoning": "The citing paper relies on the original 45% effect size as a central argument.",
+    "scored_at": "2026-05-21T04:49:25Z"
+  },
+  {
+    "affected_citation_id": "demo-drift-002::10.1001/demo.2024.200",
+    "drift_event_id": "demo-drift-002",
+    "citing_paper_doi": "10.1001/demo.2024.200",
+    "citing_paper_title": "Digital follow-up programs for cardiovascular readmission prevention",
+    "citing_paper_authors": [
+      {
+        "name": "Alex Smith",
+        "orcid": null,
+        "email": "test+alex@team-mailbox.com"
+      }
+    ],
+    "citation_context": null,
+    "severity_tier": "comparative",
+    "severity_reasoning": "The citing paper compares several interventions and uses the original 31% effect as favorable evidence.",
+    "scored_at": "2026-05-21T04:49:25Z"
+  }
+]

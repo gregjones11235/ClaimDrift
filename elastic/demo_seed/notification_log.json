@@ -1,0 +1,22 @@
+[
+  {
+    "affected_citation_id": "demo-drift-001::10.1038/demo.2024.100",
+    "drift_event_id": "demo-drift-001",
+    "recipient_email": "test+jane@team-mailbox.com",
+    "subject": "Update on preprint cited in your paper: HCQ viral load study",
+    "body": "Dear Dr. Doe,\\n\\nWe noticed that a preprint cited in your paper has changed in its published version. The reported viral load reduction changed from 45% to 12%, with additional hedging in the published text.\\n\\nThis is an automated informational notice for your review.",
+    "status": "drafted",
+    "sent_at": null,
+    "error_message": null
+  },
+  {
+    "affected_citation_id": "demo-drift-002::10.1001/demo.2024.200",
+    "drift_event_id": "demo-drift-002",
+    "recipient_email": "test+alex@team-mailbox.com",
+    "subject": "Update on preprint cited in your paper: remote monitoring readmission study",
+    "body": "Dear Dr. Smith,\\n\\nWe noticed that a preprint cited in your paper has changed in its published version. The reported readmission reduction changed from 31% to 8%, with uncertainty crossing no effect in the published text.\\n\\nThis is an automated informational notice for your review.",
+    "status": "drafted",
+    "sent_at": null,
+    "error_message": null
+  }
+]

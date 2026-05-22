@@ -1,0 +1,30 @@
+{
+  "description": "ClaimDrift ELSER ingest pipeline v1. Attach this to semantic_text-capable fields/indexes.",
+  "processors": [
+    {
+      "inference": {
+        "model_id": ".elser_model_2",
+        "input_output": [
+          {
+            "input_field": "abstract",
+            "output_field": "abstract"
+          },
+          {
+            "input_field": "conclusion",
+            "output_field": "conclusion"
+          },
+          {
+            "input_field": "text",
+            "output_field": "text"
+          },
+          {
+            "input_field": "pattern_description",
+            "output_field": "pattern_description"
+          }
+        ],
+        "ignore_missing": true
+      }
+    }
+  ]
+}
+

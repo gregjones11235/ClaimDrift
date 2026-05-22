@@ -1,0 +1,19 @@
+{
+  "settings": {
+    "refresh_interval": "1s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "affected_citation_id": { "type": "keyword" },
+      "drift_event_id": { "type": "keyword" },
+      "recipient_email": { "type": "keyword" },
+      "subject": { "type": "text" },
+      "body": { "type": "text" },
+      "status": { "type": "keyword" },
+      "sent_at": { "type": "date" },
+      "error_message": { "type": "text" }
+    }
+  }
+}
+
