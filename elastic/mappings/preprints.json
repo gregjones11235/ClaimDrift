@@ -1,11 +1,11 @@
 {
   "settings": {
-    "index.default_pipeline": "claimdrift_elser_v1",
-    "refresh_interval": "1s"
+    "refresh_interval": "5s"
   },
   "mappings": {
     "dynamic": "strict",
     "properties": {
+      "record_source": { "type": "keyword" },
       "doi": { "type": "keyword" },
       "source": { "type": "keyword" },
       "version": { "type": "keyword" },
@@ -15,8 +15,8 @@
         "type": "text",
         "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } }
       },
-      "abstract": { "type": "semantic_text" },
-      "conclusion": { "type": "semantic_text" },
+      "abstract": { "type": "semantic_text", "inference_id": ".elser-2-elastic" },
+      "conclusion": { "type": "semantic_text", "inference_id": ".elser-2-elastic" },
       "authors": {
         "type": "nested",
         "properties": {
@@ -30,4 +30,3 @@
     }
   }
 }
-

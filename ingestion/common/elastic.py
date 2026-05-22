@@ -21,25 +21,16 @@ class ElasticsearchHttpClient:
         username: Optional[str] = None,
         password: Optional[str] = None,
     ):
-        self.base_url = (
-            base_url
-            or os.getenv("ELASTIC_ENDPOINT")
-            or os.getenv("ELASTICSEARCH_URL")
-            or ""
-        ).rstrip("/")
-        self.api_key = (
-            api_key
-            or os.getenv("ELASTIC_API_KEY")
-            or os.getenv("ELASTICSEARCH_API_KEY")
-        )
-        self.username = username or os.getenv("ELASTICSEARCH_USERNAME")
-        self.password = password or os.getenv("ELASTICSEARCH_PASSWORD")
+        self.base_url = (base_url or os.getenv("ELASTIC_ENDPOINT") or "").rstrip("/")
+        self.api_key = api_key or os.getenv("ELASTIC_API_KEY")
+        self.username = username or os.getenv("ELASTIC_USERNAME")
+        self.password = password or os.getenv("ELASTIC_PASSWORD")
 
         if not self.base_url:
-            raise ElasticsearchConfigError("ELASTIC_ENDPOINT (or legacy ELASTICSEARCH_URL) is required for --apply.")
+            raise ElasticsearchConfigError("ELASTIC_ENDPOINT is required for --apply.")
         if not self.api_key and not (self.username and self.password):
             raise ElasticsearchConfigError(
-                "Set ELASTIC_API_KEY (or legacy ELASTICSEARCH_API_KEY), or ELASTICSEARCH_USERNAME/ELASTICSEARCH_PASSWORD for --apply."
+                "Set ELASTIC_API_KEY or ELASTIC_USERNAME/ELASTIC_PASSWORD for --apply."
             )
 
     def _headers(self, content_type: str = "application/json") -> Dict[str, str]:

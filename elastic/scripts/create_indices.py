@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from urllib.parse import quote
 
 
 SCRIPT_ROOT = Path(__file__).resolve().parents[2]
@@ -12,8 +13,28 @@ from ingestion.common.elastic import ElasticsearchHttpClient
 
 ROOT = Path(__file__).resolve().parents[1]
 MAPPINGS = ROOT / "mappings"
-INGEST_PIPELINES = ROOT / "pipelines"
-PIPELINE_ID = "claimdrift_elser_v1"
+STALE_DEFAULT_PIPELINE_INDEXES = {"claims", "drift_patterns", "preprints"}
+
+
+def normalize_index_settings(settings: dict) -> dict:
+    normalized = {}
+    for key, value in settings.items():
+        normalized[key.removeprefix("index.")] = value
+    return normalized
+
+
+def update_existing_index_settings(client: ElasticsearchHttpClient, index_name: str, settings: dict) -> None:
+    normalized = normalize_index_settings(settings)
+    if index_name in STALE_DEFAULT_PIPELINE_INDEXES:
+        normalized["default_pipeline"] = "_none"
+    if normalized:
+        client.request("PUT", f"/{quote(index_name)}/_settings", {"index": normalized})
+
+
+def update_existing_index_mapping(client: ElasticsearchHttpClient, index_name: str, mapping: dict) -> None:
+    properties = mapping.get("properties", {})
+    if properties:
+        client.request("PUT", f"/{quote(index_name)}/_mapping", {"properties": properties})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,14 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     try:
-        pipeline = json.loads((INGEST_PIPELINES / "elser_ingest_pipeline.json").read_text())
         mappings = [(path.stem, json.loads(path.read_text())) for path in sorted(MAPPINGS.glob("*.json"))]
 
         if not args.apply:
             print("Dry run. Pass --apply to create resources in Elasticsearch.")
             print()
-            print(f"Would create ingest pipeline: {PIPELINE_ID}")
-            print(f"  processors: {len(pipeline.get('processors', []))}")
+            print("No ingest pipeline is created.")
+            print("  semantic_text fields explicitly use the .elser-2-elastic inference endpoint.")
             print()
 
             for index_name, body in mappings:
@@ -43,8 +63,7 @@ def main() -> None:
             return
 
         client = ElasticsearchHttpClient()
-        client.put_pipeline(PIPELINE_ID, pipeline)
-        print(f"Created ingest pipeline: {PIPELINE_ID}")
+        print("Skipped ingest pipeline creation for semantic_text ELSER mode.")
 
         for index_name, body in mappings:
             properties = body.get("mappings", {}).get("properties", {})
@@ -54,6 +73,14 @@ def main() -> None:
             except RuntimeError as exc:
                 if args.skip_existing and "resource_already_exists_exception" in str(exc):
                     print(f"Skipped existing index: {index_name}")
+                    settings = body.get("settings", {})
+                    update_existing_index_settings(client, index_name, settings)
+                    update_existing_index_mapping(client, index_name, body.get("mappings", {}))
+                    updated_keys = list(settings.keys())
+                    if index_name in STALE_DEFAULT_PIPELINE_INDEXES:
+                        updated_keys.append("index.default_pipeline=_none")
+                    print(f"  updated settings: {', '.join(updated_keys)}")
+                    print("  updated mapping properties")
                     continue
                 raise
             print(f"  fields: {', '.join(properties.keys())}")

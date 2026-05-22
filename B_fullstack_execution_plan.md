@@ -1,14 +1,14 @@
 # ClaimDrift — B Full-stack Execution Plan
 
 Owner: B / Jeremy  
-Scope: ingestion pipeline, Elasticsearch mappings + ELSER pipeline, BFF/SSE, notifier dispatch.
+Scope: ingestion pipeline, Elasticsearch mappings + ELSER semantic retrieval, BFF/SSE, notifier dispatch.
 
 ## 0. Core Goal
 
 Turn the inter-component contract into runnable backend and data infrastructure:
 
 1. Data can be ingested from arXiv, bioRxiv, medRxiv, Crossref, and OpenAlex.
-2. Data can be read consistently by Agent Builder and the frontend through six Elasticsearch indexes, mappings, and the ELSER ingest pipeline.
+2. Data can be read consistently by Agent Builder and the frontend through six Elasticsearch indexes, mappings, and ELSER-backed semantic fields.
 3. Agent execution can be streamed to the frontend through the BFF and Server-Sent Events.
 4. Notifier outputs can be drafted, persisted, and optionally dispatched through a notification adapter.
 
@@ -70,7 +70,7 @@ Deliverables:
 - Keep the source contract in `docs/contracts.md`.
 - Generate or maintain shared TypeScript types for backend and frontend.
 - Define the first complete mapping version for all six indexes.
-- Define the ELSER ingest pipeline name, currently `claimdrift_elser_v1`.
+- Use `semantic_text` directly for semantic fields on Elastic Serverless.
 
 Highest-priority semantic fields:
 
@@ -86,7 +86,7 @@ These fields must support semantic retrieval. Otherwise, Agent Builder retrieval
 Required outputs:
 
 - `elastic/mappings/*.json`
-- `elastic/pipelines/elser_ingest_pipeline.json`
+- `elastic/pipelines/elser_ingest_pipeline.json` as a deprecated placeholder only
 - `elastic/scripts/create_indices.py`
 - A one-command demo environment initialization path
 
@@ -104,7 +104,7 @@ Suggested implementation order:
 1. `crossref_puller`: bridge preprint DOI to published DOI first.
 2. `biorxiv_puller` / `medrxiv_puller`: these APIs are direct and useful for demo data quickly.
 3. `arxiv_puller`: handle OAI-PMH and the 3-second polite rate limit.
-4. `openalex_client`: start as a Citation Finder utility, not necessarily a direct ES writer.
+4. `openalex_client`: Citation Finder utility that returns citing works from OpenAlex; it does not directly write ES.
 
 Common puller interface:
 
@@ -211,7 +211,7 @@ Coordinate with D on:
 
 | Risk | B-side mitigation |
 |------|-------------------|
-| ELSER pipeline is not ready | Keep a plain `text` query fallback so the demo is not blocked |
+| ELSER inference endpoint is not ready | Keep a plain `text` query fallback so the demo is not blocked |
 | Crossref cannot resolve the published DOI | Seed published DOI values manually for demo cases |
 | OpenAlex citation data is incomplete | Expose `processed` and `total_found` clearly to the frontend |
 | Agent Builder events are not connected yet | Use mock SSE to unblock D |
