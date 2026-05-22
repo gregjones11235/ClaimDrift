@@ -8,12 +8,12 @@ from typing import Any, Dict
 from .common.elastic import ElasticsearchHttpClient
 from .common.doi import preprint_id
 from .common.records import crossref_record_from_puller, preprint_record_from_puller, utc_now
-from .pullers import BioRxivPuller, CrossrefPuller, MedRxivPuller
+from .pullers import BioRxivPuller, CrossrefPuller, MedRxivPuller, OpenAlexClient
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a ClaimDrift data puller.")
-    parser.add_argument("--source", required=True, choices=["biorxiv", "medrxiv", "crossref"])
+    parser.add_argument("--source", required=True, choices=["biorxiv", "medrxiv", "crossref", "openalex"])
     parser.add_argument("--since", help="Start date for bioRxiv/medRxiv pulls, YYYY-MM-DD.")
     parser.add_argument("--limit", type=int, help="Maximum records to pull.")
     parser.add_argument("--doi", help="DOI to look up when --source crossref is used.")
@@ -45,15 +45,20 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         result = MedRxivPuller().run_pull("medrxiv", since=args.since, limit=args.limit)
         ts = utc_now()
         normalized = [preprint_record_from_puller(row, ingested_at=ts) for row in result["payload"]]
-    else:
+    elif args.source == "crossref":
         if not args.doi:
             raise ValueError("--doi is required when --source crossref is used.")
         result = CrossrefPuller().run_pull(args.doi, limit=args.limit)
         normalized = [crossref_record_from_puller(row) for row in result["payload"]]
+    else:
+        if not args.doi:
+            raise ValueError("--doi is required when --source openalex is used.")
+        result = OpenAlexClient().run_pull(args.doi, limit=args.limit)
+        normalized = result["payload"]
 
     upserted = 0
     if args.apply:
-        if args.source == "crossref":
+        if args.source in ("crossref", "openalex"):
             raise ValueError("--apply currently supports biorxiv and medrxiv preprint writes only.")
         upserted = upsert_preprints(normalized)
 
@@ -62,13 +67,18 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         "mode": "apply" if args.apply else "dry_run" if args.dry_run else "preview",
         "fetched": result["fetched"],
         "upserted": upserted,
-        "would_upsert": 0 if args.apply or args.source == "crossref" else len(normalized),
+        "would_upsert": 0 if args.apply or args.source in ("crossref", "openalex") else len(normalized),
         "skipped": result["skipped"],
         "errors": result["errors"],
         "items": normalized,
     }
     if args.raw:
         output["raw_items"] = result["payload"]
+    if args.source == "openalex":
+        output["total_found"] = result.get("total_found", len(normalized))
+        output["processed"] = result.get("processed", len(normalized))
+        output["skipped_without_doi"] = result.get("skipped_without_doi", 0)
+        output["source_openalex_id"] = result.get("source_openalex_id")
     return output
 
 

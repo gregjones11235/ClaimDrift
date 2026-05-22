@@ -1,10 +1,11 @@
 {
   "settings": {
-    "refresh_interval": "1s"
+    "refresh_interval": "5s"
   },
   "mappings": {
     "dynamic": "strict",
     "properties": {
+      "record_source": { "type": "keyword" },
       "event_id": { "type": "keyword" },
       "preprint_doi": { "type": "keyword" },
       "preprint_version_compared": { "type": "keyword" },
@@ -46,4 +47,3 @@
     }
   }
 }
-

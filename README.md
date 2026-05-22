@@ -13,7 +13,7 @@ Submission for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devp
 | [`agents/`](./agents) | C | 5 Gemini agents built on Google ADK |
 | [`ingestion/`](./ingestion) | B | Python pullers for arXiv / bioRxiv / medRxiv / Crossref / OpenAlex |
 | [`apps/bff/`](./apps/bff) | B | Mock BFF and SSE endpoints for frontend development |
-| [`elastic/`](./elastic) | B | Elasticsearch mappings, ELSER ingest pipeline, and demo seed data |
+| [`elastic/`](./elastic) | B | Elasticsearch mappings, ELSER semantic configuration, and demo seed data |
 | [`contracts/`](./contracts) | B/D | Shared TypeScript contract types |
 | [`prompts/`](./prompts) | A | Versioned prompts for the 5 agents |
 | [`frontend/`](./frontend) | D | Next.js + Tailwind dashboard |
@@ -27,6 +27,15 @@ Submission for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devp
 - **Orchestration**: Elastic Workflows
 - **Frontend**: Next.js 15, Tailwind, shadcn/ui, deployed on Vercel
 - **Data sources**: arXiv, bioRxiv, medRxiv, Crossref, OpenAlex
+
+## Quick Start
+
+Each component keeps its setup instructions in its own README:
+
+- Agents: [`agents/README.md`](./agents/README.md)
+- Ingestion and Elastic setup: [`ingestion/README.md`](./ingestion/README.md)
+- BFF: [`apps/bff/README.md`](./apps/bff/README.md)
+- JSON construction notes: [`docs/json_build_notes_CN.md`](./docs/json_build_notes_CN.md)
 
 ## License
 

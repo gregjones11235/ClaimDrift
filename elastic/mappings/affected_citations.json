@@ -1,10 +1,11 @@
 {
   "settings": {
-    "refresh_interval": "1s"
+    "refresh_interval": "5s"
   },
   "mappings": {
     "dynamic": "strict",
     "properties": {
+      "record_source": { "type": "keyword" },
       "affected_citation_id": { "type": "keyword" },
       "drift_event_id": { "type": "keyword" },
       "citing_paper_doi": { "type": "keyword" },
@@ -24,4 +25,3 @@
     }
   }
 }
-
