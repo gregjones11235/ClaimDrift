@@ -23,7 +23,7 @@
 ```text
 contract 文档
   -> elastic/mappings/*.json
-  -> elastic/pipelines/elser_ingest_pipeline.json
+  -> elastic/pipelines/elser_ingest_pipeline.json（legacy 占位）
   -> elastic/demo_seed/*.json
   -> BFF API response
   -> frontend TypeScript types
@@ -46,8 +46,7 @@ contract 文档
 ```json
 {
   "settings": {
-    "index.default_pipeline": "claimdrift_elser_v1",
-    "refresh_interval": "1s"
+    "refresh_interval": "5s"
   },
   "mappings": {
     "dynamic": "strict",
@@ -57,7 +56,7 @@ contract 文档
         "type": "text",
         "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } }
       },
-      "abstract": { "type": "semantic_text" }
+      "abstract": { "type": "semantic_text", "inference_id": ".elser-2-elastic" }
     }
   }
 }
@@ -65,11 +64,15 @@ contract 文档
 
 这里的 `dynamic: strict` 很重要：它会阻止未知字段悄悄写进 ES，方便早期发现 contract drift。
 
-## 3. ELSER pipeline JSON 是怎么来的
+## 3. semantic_text / ELSER 是怎么来的
 
-`elastic/pipelines/elser_ingest_pipeline.json` 是 ingest pipeline 配置。
+当前映射直接使用 Elasticsearch 的 `semantic_text` 字段。
 
-它的作用是：当文档写入带有 `index.default_pipeline = claimdrift_elser_v1` 的 index 时，把指定文本字段交给 ELSER 模型做 inference。
+在 Elastic Serverless 9.x 上，`semantic_text` 会通过 inference endpoint 完成向量化/语义索引。ClaimDrift 显式指定 `.elser-2-elastic`，避免系统默认 endpoint 在不同版本里漂移到 Jina 等其他模型。
+
+这里不要再配置 `index.default_pipeline` 把 ELSER inference 结果写回同一个 `semantic_text` 字段。`semantic_text` 写入时期望收到原始字符串；如果 ingest pipeline 把字段改成 embedding 对象，写入会失败。
+
+`elastic/pipelines/elser_ingest_pipeline.json` 仅保留为 legacy 占位，正常路径下 `create_indices.py` 不会创建它。
 
 当前接入的语义字段是：
 
@@ -154,4 +157,4 @@ mock BFF 不重新计算这些东西，它只是读取 `elastic/demo_seed/*.json
 - Agent Builder 的输出记录
 - Notifier 的 `notification_log`
 
-下一步比较自然的是把 `create_indices.py` 从 dry-run 变成真实执行脚本，让这些 mapping/pipeline JSON 可以一键写入 Elasticsearch。
+`elastic/scripts/seed_demo_to_es.py` 可以把 demo seed records 写入真实 Elasticsearch, 用于让 BFF 在 Elastic 模式下读取完整 demo 链路。脚本会给所有 seed records 加上 `record_source=demo_seed`, 方便真实数据视图默认过滤掉 demo 数据。

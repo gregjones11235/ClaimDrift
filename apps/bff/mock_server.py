@@ -1,15 +1,23 @@
 import json
+import os
+import sys
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Protocol, Optional
 from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT))
+
+from ingestion.common.elastic import ElasticsearchHttpClient
+
+
 SEED_DIR = ROOT / "elastic" / "demo_seed"
-PORT = 8787
+PORT = int(os.getenv("BFF_PORT", "8787"))
+INCLUDE_DEMO_RECORDS = os.getenv("BFF_INCLUDE_DEMO", "").lower() in {"1", "true", "yes"}
 
 
 def now() -> str:
@@ -21,6 +29,143 @@ def load_rows(name: str) -> list[dict]:
     if not path.exists():
         return []
     return json.loads(path.read_text())
+
+
+def es_hits(response: dict) -> list[dict]:
+    return [hit.get("_source", {}) for hit in response.get("hits", {}).get("hits", [])]
+
+
+class DataSource(Protocol):
+    mode: str
+
+    def drift_events(self) -> list[dict]:
+        ...
+
+    def drift_event(self, event_id: str) -> Optional[dict]:
+        ...
+
+    def claims_for_event(self, event: dict) -> list[dict]:
+        ...
+
+    def affected_citations(self, event_id: str) -> list[dict]:
+        ...
+
+    def notifications(self, event_id: str) -> list[dict]:
+        ...
+
+    def patterns(self) -> list[dict]:
+        ...
+
+
+class SeedDataSource:
+    mode = "seed"
+
+    def drift_events(self) -> list[dict]:
+        return load_rows("drift_events")
+
+    def drift_event(self, event_id: str) -> Optional[dict]:
+        return next((row for row in self.drift_events() if row["event_id"] == event_id), None)
+
+    def claims_for_event(self, event: dict) -> list[dict]:
+        claim_ids = claim_ids_for_event(event)
+        return [row for row in load_rows("claims") if row["claim_id"] in claim_ids]
+
+    def affected_citations(self, event_id: str) -> list[dict]:
+        return [row for row in load_rows("affected_citations") if row["drift_event_id"] == event_id]
+
+    def notifications(self, event_id: str) -> list[dict]:
+        return [row for row in load_rows("notification_log") if row["drift_event_id"] == event_id]
+
+    def patterns(self) -> list[dict]:
+        return load_rows("drift_patterns")
+
+
+class ElasticDataSource:
+    mode = "elastic"
+
+    def __init__(self) -> None:
+        self.client = ElasticsearchHttpClient()
+
+    def visible_query(self, query: dict) -> dict:
+        if INCLUDE_DEMO_RECORDS:
+            return query
+        return {
+            "bool": {
+                "must": [query],
+                "must_not": [{"term": {"record_source": "demo_seed"}}],
+            }
+        }
+
+    def search(self, index_name: str, body: dict) -> list[dict]:
+        return es_hits(self.client.request("POST", f"/{index_name}/_search", body))
+
+    def drift_events(self) -> list[dict]:
+        return self.search(
+            "drift_events",
+            {
+                "query": self.visible_query({"match_all": {}}),
+                "size": 100,
+                "sort": [{"detected_at": {"order": "desc", "unmapped_type": "date"}}],
+            },
+        )
+
+    def drift_event(self, event_id: str) -> Optional[dict]:
+        rows = self.search(
+            "drift_events",
+            {"query": self.visible_query({"term": {"event_id": event_id}}), "size": 1},
+        )
+        return rows[0] if rows else None
+
+    def claims_for_event(self, event: dict) -> list[dict]:
+        claim_ids = sorted(claim_ids_for_event(event))
+        if not claim_ids:
+            return []
+        return self.search(
+            "claims",
+            {"query": self.visible_query({"terms": {"claim_id": claim_ids}}), "size": len(claim_ids)},
+        )
+
+    def affected_citations(self, event_id: str) -> list[dict]:
+        return self.search(
+            "affected_citations",
+            {"query": self.visible_query({"term": {"drift_event_id": event_id}}), "size": 100},
+        )
+
+    def notifications(self, event_id: str) -> list[dict]:
+        return self.search(
+            "notification_log",
+            {"query": self.visible_query({"term": {"drift_event_id": event_id}}), "size": 100},
+        )
+
+    def patterns(self) -> list[dict]:
+        return self.search(
+            "drift_patterns",
+            {
+                "query": self.visible_query({"match_all": {}}),
+                "size": 100,
+                "sort": [{"support_count": {"order": "desc", "unmapped_type": "long"}}],
+            },
+        )
+
+
+def claim_ids_for_event(event: dict) -> set[str]:
+    claim_ids = set()
+    for diff in event.get("claim_diffs", []):
+        if diff.get("preprint_claim_id"):
+            claim_ids.add(diff["preprint_claim_id"])
+        if diff.get("published_claim_id"):
+            claim_ids.add(diff["published_claim_id"])
+    return claim_ids
+
+
+def build_data_source() -> DataSource:
+    has_basic_auth = os.getenv("ELASTIC_USERNAME") and os.getenv("ELASTIC_PASSWORD")
+    if os.getenv("ELASTIC_ENDPOINT") and (os.getenv("ELASTIC_API_KEY") or has_basic_auth):
+        return ElasticDataSource()
+    return SeedDataSource()
+
+
+DATA_SOURCE = build_data_source()
 
 
 def send_json(handler: BaseHTTPRequestHandler, status: int, body: object) -> None:
@@ -48,35 +193,49 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/")
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/")
 
-        if path == "/api/events/stream":
-            self.stream_events(parse_qs(parsed.query))
-            return
+            if path == "/api/health":
+                send_json(
+                    self,
+                    200,
+                    {
+                        "status": "ok",
+                        "data_source": DATA_SOURCE.mode,
+                        "include_demo_records": INCLUDE_DEMO_RECORDS,
+                    },
+                )
+                return
 
-        if path == "/api/drift-events":
-            events = load_rows("drift_events")
-            send_json(self, 200, {"items": events, "count": len(events)})
-            return
+            if path == "/api/events/stream":
+                self.stream_events(parse_qs(parsed.query))
+                return
 
-        if path.startswith("/api/drift-events/"):
-            parts = path.split("/")
-            event_id = parts[3]
-            suffix = parts[4] if len(parts) > 4 else None
-            self.handle_drift_event(event_id, suffix)
-            return
+            if path == "/api/drift-events":
+                events = DATA_SOURCE.drift_events()
+                send_json(self, 200, {"items": events, "count": len(events)})
+                return
 
-        if path == "/api/patterns":
-            rows = load_rows("drift_patterns")
-            send_json(self, 200, {"items": rows, "count": len(rows)})
-            return
+            if path.startswith("/api/drift-events/"):
+                parts = path.split("/")
+                event_id = parts[3]
+                suffix = parts[4] if len(parts) > 4 else None
+                self.handle_drift_event(event_id, suffix)
+                return
 
-        send_json(self, 404, {"error": "not_found"})
+            if path == "/api/patterns":
+                rows = DATA_SOURCE.patterns()
+                send_json(self, 200, {"items": rows, "count": len(rows)})
+                return
+
+            send_json(self, 404, {"error": "not_found"})
+        except RuntimeError as exc:
+            send_json(self, 502, {"error": "elasticsearch_error", "message": str(exc)})
 
     def handle_drift_event(self, event_id: str, suffix: Optional[str]) -> None:
-        events = load_rows("drift_events")
-        event = next((row for row in events if row["event_id"] == event_id), None)
+        event = DATA_SOURCE.drift_event(event_id)
         if event is None:
             send_json(self, 404, {"error": "drift_event_not_found"})
             return
@@ -86,24 +245,17 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if suffix == "claims":
-            claim_ids = {
-                diff["preprint_claim_id"]
-                for diff in event.get("claim_diffs", [])
-            } | {
-                diff["published_claim_id"]
-                for diff in event.get("claim_diffs", [])
-            }
-            rows = [row for row in load_rows("claims") if row["claim_id"] in claim_ids]
+            rows = DATA_SOURCE.claims_for_event(event)
             send_json(self, 200, {"items": rows, "count": len(rows)})
             return
 
         if suffix == "affected-citations":
-            rows = [row for row in load_rows("affected_citations") if row["drift_event_id"] == event_id]
+            rows = DATA_SOURCE.affected_citations(event_id)
             send_json(self, 200, {"items": rows, "count": len(rows)})
             return
 
         if suffix == "notifications":
-            rows = [row for row in load_rows("notification_log") if row["drift_event_id"] == event_id]
+            rows = DATA_SOURCE.notifications(event_id)
             send_json(self, 200, {"items": rows, "count": len(rows)})
             return
 
@@ -165,7 +317,7 @@ def main() -> None:
     if not (SEED_DIR / "drift_events.json").exists():
         print("Demo seed data is missing. Run: python3 elastic/scripts/seed_demo_cases.py")
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Mock BFF running at http://127.0.0.1:{PORT}")
+    print(f"Mock BFF running at http://127.0.0.1:{PORT} ({DATA_SOURCE.mode} data source)")
     server.serve_forever()
 
 

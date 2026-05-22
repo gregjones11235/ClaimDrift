@@ -136,7 +136,7 @@ ClaimDrift consists of **1 ingestion pipeline + 5 Gemini agents**, orchestrated 
 
 ### 2.2 Mapping details
 
-B fills in the mapping for each index. Below are the minimum field constraints — B adds analyzers, index options, and the ELSER pipeline hookup on top.
+B fills in the mapping for each index. Below are the minimum field constraints — B adds analyzers, index options, and the ELSER semantic hookup on top.
 
 #### 2.2.1 `preprints` index
 
@@ -148,13 +148,13 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `is_final_preprint`: boolean
 - `published_doi`: keyword | null (the final published DOI from Crossref; null means not yet published)
 - `title`: text + keyword subfield
-- `abstract`: semantic_text (routed through ELSER pipeline)
+- `abstract`: semantic_text (routed through ELSER)
 - `conclusion`: semantic_text | null
 - `authors`: nested, containing `name` (keyword), `orcid` (keyword | null), `affiliation` (text)
 - `posted_date`: date (ISO 8601)
 - `ingested_at`: date
 
-**TODO B (Day 3-4)**: Full mapping JSON, including ELSER pipeline name, shards/replicas, refresh interval.
+**TODO B (Day 3-4)**: Full mapping JSON, including ELSER inference endpoint, shards/replicas, refresh interval.
 
 ```json
 // TODO B: fill in complete mapping JSON
@@ -228,7 +228,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `created_at`: date
 - `last_updated_at`: date
 
-**TODO B (Day 3-4)**: Full mapping JSON. **Especially**: `pattern_description` must be wired through the ELSER pipeline — Drift Analyzer's retrieval depends on it.
+**TODO B (Day 3-4)**: Full mapping JSON. **Especially**: `pattern_description` must be wired through ELSER semantic retrieval — Drift Analyzer's retrieval depends on it.
 
 #### 2.2.6 `notification_log` index
 
@@ -622,11 +622,11 @@ Each puller's job: pull data → normalize → bulk write to `preprints` index (
 
 **TODO B (Day 3-5)**: Implementation details per puller (batch size, error handling, retry policy, log format).
 
-### 5.3 ELSER Pipeline hookup
+### 5.3 ELSER semantic hookup
 
-The `semantic_text` fields in `preprints` and `claims` must be wired through an ELSER ingest pipeline.
+The `semantic_text` fields in `preprints`, `claims`, and `drift_patterns` must be wired through ELSER semantic retrieval.
 
-**TODO B (Day 3)**: Provide the ingest pipeline JSON definition and how each mapping references it.
+**Serverless implementation note (B)**: Use `semantic_text` with an explicit `.elser-2-elastic` `inference_id`. Do not attach an ingest inference pipeline that writes ELSER output back into the same `semantic_text` field, because `semantic_text` expects the indexed document field to remain a scalar text value.
 
 ---
 
@@ -724,10 +724,3 @@ After the skeleton is locked, field details will keep evolving. The rules below 
   - §3.1.2 / §3.2.2 / §3.3.2 / §3.4 / §3.5: added v0-finding NOTEs for prompt-iteration items (A to address); see `agents/README.md` for issue tracker
   - §3.2.2: tentative proposal — add `scope_restricted` to `diff_type` enum (pending team discussion per §8.1)
   - §3.3: v0 Citation Finder fabricates DOIs; output must not be persisted until openalex_puller is wired
-- 2026-05-22 [Jiayu Zhu] B-side ES infrastructure verified end-to-end:
-  - All 6 indices live on cluster; 3 semantic_text fields (preprints.abstract/conclusion, claims.text, drift_patterns.pattern_description) backed by inference_id `.elser-2-elastic` (sparse_embedding)
-  - `default_pipeline` explicitly set to `_none` on each index (the §2.2 mapping JSON's ingest-pipeline scaffolding turned out unnecessary on serverless 9.5 — `semantic_text` performs inference natively; pipeline + same-field output caused shape conflicts in early testing)
-  - ELSER semantic search confirmed working on `preprints.abstract` (7 docs ingested via medrxiv puller + demo seed); `retriever.rrf` (BM25 + ELSER hybrid) confirmed working — this is the production query shape for §3.2 drift_patterns retrieval
-  - `drift_patterns` demo seed (`pattern-demo-001`) retrievable; memory loop read path is live
-  - §3.2 retrieval rule "similarity_score >= 0.7" needs revisit — RRF scores are rank-based (0.01–0.05 range), not cosine. Threshold to be re-tuned once MCP retrieval tool runs against real drift_patterns. Tracked as TODO C.
-  - **New field `record_source` (keyword)** added by Jeremy on `preprints`, `claims`, `drift_patterns`. Purpose: distinguish demo-seed documents from real puller data. Values seen: `"demo_seed"`; real puller-ingested docs leave the field unset (nullable / optional).
