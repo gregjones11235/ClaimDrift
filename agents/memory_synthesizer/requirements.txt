@@ -1,0 +1,13 @@
+# Hand-authored minimal requirements for Agent Engine deploy.
+# Not generated from uv.lock — uv export brings in ~80 transitive deps
+# including local-dev-only packages (aiosqlite for adk web session storage,
+# alembic, authlib, etc.) that Agent Engine doesn't need (it uses
+# VertexAiSessionService instead). Agent Engine's deploy machinery
+# automatically adds cloudpickle and pydantic on top of this list.
+#
+# Keep this list to the minimum needed by memory_synthesizer/agent.py:
+#   - google-adk         → LlmAgent, McpToolset, StreamableHTTPConnectionParams
+#   - google-cloud-aiplatform[adk,agent-engines]  → the Agent Engine runtime
+#                                                   wrapper itself
+google-adk>=1.0,<2.0
+google-cloud-aiplatform[adk,agent-engines]>=1.112
