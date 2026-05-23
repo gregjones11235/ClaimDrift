@@ -1,0 +1,69 @@
+name: update_drift_pattern
+enabled: true
+description: |
+  Appends a new supporting drift_event to an existing pattern in the
+  `drift_patterns` index. Called by Memory Synthesizer (contracts.md §3.5)
+  when retrieval surfaced an existing pattern that describes the same
+  underlying phenomenon as the new drift_event.
+
+  v0 scope is intentionally minimum — append-evidence-only. The painless
+  script:
+    1. de-dups source_event_id into source_event_ids (set-union),
+    2. recomputes support_count = source_event_ids.size(),
+    3. refreshes last_updated_at,
+    4. leaves pattern_description, pattern_type, domain_tags untouched.
+  Refining description / tags as a pattern accumulates evidence across
+  domains is deferred (see contracts.md §3.5.1 post-v0 TODO).
+
+  Why painless (single-step) instead of GET→merge→PUT (two-step): the
+  read-modify-write is done atomically on the ES side with version-token
+  protection, mirroring the same behavior the Phase-3 Python reference
+  implementation in agents/_shared/elastic_write.py:update_drift_pattern
+  guarantees. A separate GET + PUT in Workflow YAML would not get the
+  same atomicity, and Workflows expression language is not documented
+  to support array set-union transforms between steps.
+
+  If pattern_id does not exist, ES returns 404, which `elasticsearch.request`
+  surfaces as a step failure rather than silently falling back to create
+  — exactly the §3.5.1 contract ("unknown ids raise rather than fall
+  back to create, to keep the create-vs-update decision honest").
+
+tags: ["claimdrift", "memory-loop", "write"]
+
+triggers:
+  - type: manual
+    inputs:
+      - name: pattern_id
+        type: string
+        required: true
+        description: "The pattern_id (= document _id) of an existing pattern, taken verbatim from a search_drift_patterns result. Must exist — unknown ids surface as a 404 step failure rather than silent create."
+      - name: source_event_id
+        type: string
+        required: true
+        description: "The drift_event.event_id being merged into source_event_ids. If already present (re-run on same event), the document is left structurally unchanged but last_updated_at is still refreshed."
+      - name: now_iso
+        type: string
+        required: true
+        description: "ISO 8601 UTC timestamp with Z suffix (e.g. 2026-05-23T12:34:56Z). The LLM generates this from its own clock context. Used to refresh last_updated_at. created_at is preserved by the painless script."
+
+steps:
+  - name: update_pattern_doc
+    type: elasticsearch.request
+    with:
+      method: POST
+      path: "/drift_patterns/_update/{{ inputs.pattern_id }}?refresh=wait_for"
+      body:
+        script:
+          lang: painless
+          source: |
+            if (ctx._source.source_event_ids == null) {
+              ctx._source.source_event_ids = [];
+            }
+            if (!ctx._source.source_event_ids.contains(params.eid)) {
+              ctx._source.source_event_ids.add(params.eid);
+            }
+            ctx._source.support_count = ctx._source.source_event_ids.size();
+            ctx._source.last_updated_at = params.now;
+          params:
+            eid: "{{ inputs.source_event_id }}"
+            now: "{{ inputs.now_iso }}"

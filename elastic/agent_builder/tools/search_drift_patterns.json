@@ -1,0 +1,19 @@
+{
+  "id": "search_drift_patterns",
+  "type": "esql",
+  "description": "Hybrid semantic-text retrieval over the drift_patterns index. Given a natural-language query_text, returns up to top_k previously-distilled drift patterns ranked by ELSER similarity on the pattern_description field. The returned _score is NOT a reliable relevance threshold — the caller (Drift Analyzer or Memory Synthesizer) must read each pattern_description and judge relevance for itself. See contracts.md §3.2.1 (Drift Analyzer retrieval rules) and §3.5.1 (Memory Synthesizer retrieval rules).",
+  "tags": ["claimdrift", "memory-loop", "retrieval"],
+  "configuration": {
+    "query": "FROM drift_patterns METADATA _score | WHERE MATCH(pattern_description, ?query_text) | KEEP pattern_id, pattern_description, pattern_type, domain_tags, source_event_ids, support_count, record_source, _score | SORT _score DESC | LIMIT ?top_k",
+    "params": {
+      "query_text": {
+        "type": "string",
+        "description": "Natural-language text to retrieve patterns against. Drift Analyzer passes the joined preprint claim texts (per §3.2.1). Memory Synthesizer passes the new drift_event's drift_summary (per §3.5.1)."
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "Maximum number of patterns to return. Drift Analyzer uses 3 (per §3.2.1). Memory Synthesizer uses 5 (per §3.5.1)."
+      }
+    }
+  }
+}
