@@ -716,9 +716,9 @@ After the skeleton is locked, field details will keep evolving. The rules below 
 | **Change ES mapping** | Low (~5%) | B pings C before changing; adding fields is fine; type changes require index rebuild (demo data is small, can rerun in hours) |
 | **Change agent invocation order or responsibility** | Very low (~5%) | Architecture-level change, hold a 30-minute meeting, C changes the workflow personally |
 
-## 9. Production deployment architecture (Phase 4)
+## 9. Production deployment architecture (Phase 4 + Phase 5)
 
-§3–§8 describe the **business semantics** of the system. §9 describes the **production deployment shape** required by the Google Cloud Rapid Agent Hackathon — Elastic Track. v0 (Phases 1-3) ran locally via `adk web` against a serverless Elasticsearch project; v1 (Phase 4) moves the same business logic onto managed runtimes without changing it.
+§3–§8 describe the **business semantics** of the system. §9 describes the **production deployment shape** required by the Google Cloud Rapid Agent Hackathon — Elastic Track. v0 (Phases 1-3) ran locally via `adk web` against a serverless Elasticsearch project; Phase 4 moved the memory-loop slice (`memory_synthesizer` + 3 drift tools) onto Elastic MCP + Vertex AI Agent Engine; Phase 5 (§9.6) extends the same pattern to the remaining 4 agents and adds the §4.1 main-flow orchestration.
 
 ### 9.1 Rules-driven constraints
 
@@ -732,22 +732,26 @@ The hackathon rules ([rapid-agent.devpost.com/rules](https://rapid-agent.devpost
 
 ```
 Vertex AI Agent Engine (managed)
-   - drift_analyzer (ADK LlmAgent, gemini-2.5-pro)
-   - memory_synthesizer (ADK LlmAgent, gemini-2.5-pro)
+   - claim_extractor       (ADK LlmAgent, gemini-2.5-flash) ← Phase 5
+   - drift_analyzer        (ADK LlmAgent, gemini-2.5-pro)   ← Phase 5
+   - citation_finder       (ADK LlmAgent, gemini-2.5-flash) ← Phase 5
+   - notifier              (ADK LlmAgent, gemini-2.5-flash) ← Phase 5
+   - memory_synthesizer    (ADK LlmAgent, gemini-2.5-pro)   ✓ deployed (Phase 4b)
         │
         │ MCP protocol (tool calls)
         ▼
 Elastic Agent Builder built-in MCP server
-   - search_drift_patterns       (ES|QL tool)
-   - create_drift_pattern        (Elastic Workflow YAML)
-   - update_drift_pattern        (Elastic Workflow YAML)
+   - search_drift_patterns        (ES|QL tool)              ✓ live (Phase 4a-2)
+   - create_drift_pattern         (Elastic Workflow YAML)   ✓ live (Phase 4a-3)
+   - update_drift_pattern         (Elastic Workflow YAML)   ✓ live (Phase 4a-4)
+   - openalex_citing_works        (ES|QL or Workflow tool)  ← Phase 5 (Citation Finder)
         │
-        │ Elasticsearch APIs
+        │ Elasticsearch APIs / OpenAlex API
         ▼
 Elasticsearch Serverless (drift_patterns / drift_events / claims / ...)
 ```
 
-Other agents in §3 (claim_extractor, citation_finder, notifier) follow the same shape but use simpler tools — they are not part of the memory-loop critical path that Phase 4 prioritizes.
+**Deployment status (2026-05-23)**: 1 of 5 agents on Agent Engine (`memory_synthesizer`); 3 of 4 anticipated MCP tools live. The remaining 4 agents and the main-flow orchestration are Phase 5 scope — see §9.6.
 
 ### 9.3 Tool migration plan (function tool → Elastic Agent Builder tool)
 
@@ -776,6 +780,48 @@ These do NOT migrate — they remain Python utility code in the repo:
 
 - `agents/scripts/probe_rrf_scores.py` — diagnostic, not a runtime path
 - `agents/_shared/elastic_retrieval.py` / `elastic_write.py` — kept as **reference spec + smoke-test harness**. If a future change to the ES\|QL tool or Workflow YAML causes a behavior regression, we run these Python implementations against the same payload to bisect whether the regression is in Elastic-side translation or in the LLM prompt.
+
+### 9.6 Scope re-evaluation & Phase 5 plan
+
+**Trigger (2026-05-23)**: after Phase 4b shipped, the question "is the project ready for the demo video?" surfaced an unresolved assumption: Phase 4 deployed only `memory_synthesizer`, while §1.1 / §4 promise a 5-agent system. C's first instinct was that the hackathon rules allow narrow-deep ("a functional agent" — singular) and that a video focused on the memory loop would be enough. That instinct was wrong.
+
+**Re-read of Devpost judging evidence**:
+
+1. **Rules require runnability, not just demo-watchability.** Quote: the repository "must contain all necessary source code, assets, and instructions required for the project to be functional," with the URL provided "for judging and testing." Judges have stated intent to install and run, not only watch the video.
+2. **Stage One screen requires "reasonably apply both ... Partner and Google Cloud products."** With only 1 of 5 agents on Agent Engine / MCP, the other 4 agents apply neither — they are local-only Python that doesn't touch the partner stack at all. That is hard to defend as "reasonably applied" if a judge clones and inspects.
+3. **Stage Two is four equal-weighted criteria** (Technological Implementation / Design / Potential Impact / Quality of the Idea, 25% each). A claimed-but-undeployed 4/5 of the agents materially hurts the Technological Implementation score, and indirectly the Design / Impact scores (because the demo can't show the full pipeline working).
+4. **Base rate among recent agent-themed Google Cloud hackathon winners is multi-agent breadth.** ADK Hackathon 2025 Grand Prize was a 4-capability multi-agent SDR system; GKE EMEA Winner was 6 specialized agents; narrow-deep single-capability wins exist (GKE Turns 10 Grand Prize) but are the exception. The recurring failure mode in judge interviews is "broad scope claimed in the description, none of it actually runs in the demo."
+
+**Conclusion**: Phase 4 is necessary but not sufficient. The "demo video unblocked" call in the 2026-05-23 Phase-4-complete changelog entry was premature — it correctly captures that the memory loop (the project's hardest engineering bet, and the only piece with non-trivial Elastic Workflow YAML + Painless write-side complexity) is done, but it skipped the requirement that the surrounding 4 agents also need to be on Agent Engine + reachable via MCP for the full §4.1 main flow to run as advertised. **Phase 5 closes that gap before the demo.**
+
+**Phase 5 scope (in order of dependency)**:
+
+| Step | What | Reuses from Phase 4 | New work |
+|---|---|---|---|
+| **5a. `drift_analyzer` MCP-ify + deploy** | Replace direct Python import of `search_drift_patterns` with the same `McpToolset(tool_filter=["search_drift_patterns"])` pattern proven in `memory_synthesizer`. Inline any `_shared` constants. Deploy via `adk deploy agent_engine`. | All of 4b-2's wiring; same Kibana MCP endpoint; same API key | Verify `search_drift_patterns` returns the shape the agent's INSTRUCTION expects (same call site as `memory_synthesizer`, so high confidence; quick E2E smoke test) |
+| **5b. `notifier` deploy (no MCP tools)** | `notifier` has no tools — it just drafts JSON. Inline `_shared.config.MODEL_FLASH` and `adk deploy agent_engine`. | All of 4b-5's deploy machinery (env stripping, requirements pruning) | None |
+| **5c. `claim_extractor` deploy (no MCP tools)** | Same shape as `notifier` — pure LLM extraction, no tools. Inline + deploy. | All of 4b-5 | None |
+| **5d. `openalex_citing_works` MCP tool** | Citation Finder currently fabricates DOIs (§3.3 v0 NOTE) because there's no `openalex_puller` tool wired. Need to expose Jeremy's OpenAlex code as either a Workflow YAML tool (call OpenAlex REST → return citing-works list) or an ES\|QL tool (if Jeremy indexes OpenAlex data into ES first). | Phase 4a-2 `upsert_tool.sh` machinery; Phase 4a workflow YAML templates | Choose Workflow-vs-ES\|QL shape (depends on whether Jeremy's puller already indexes OpenAlex into ES). Decision needs Jeremy. |
+| **5e. `citation_finder` MCP-ify + deploy** | Once 5d's tool exists, point `citation_finder` at it via `McpToolset(tool_filter=["openalex_citing_works"])`. Inline + deploy. Verify it stops fabricating DOIs (§3.3 invariant). | Same as 5a | Smoke-test that real OpenAlex DOIs come back |
+| **5f. Main-flow orchestration (Elastic Workflow YAML)** | Wire §4.1 main flow as one top-level Workflow: trigger on new `published_doi` in `preprints` → call claim_extractor agent (twice: preprint, published) → call drift_analyzer agent → call citation_finder agent → fan-out to notifier agent per affected citation. Use the agent-invocation step type Elastic Workflows exposes for calling Agent Engine reasoning engines. | Phase 4a Workflow YAML authoring pattern; `upsert_tool.sh` (or its workflow analogue) | This is the largest unknown. Workflows YAML may not natively support "call Agent Engine agent" as a step — if not, the orchestrator step has to be an `http.request` to the Agent Engine REST endpoint. Research needed before implementation. |
+| **5g. Async side-flow (§4.2)** | After `drift_events` write, trigger `memory_synthesizer` async. Same step type as 5f. | 5f's research result | Same unknown as 5f |
+
+**What Phase 5 deliberately does NOT do**:
+
+- Doesn't add new business logic to any agent — INSTRUCTIONs and §3 schemas stay frozen.
+- Doesn't promote `update_drift_pattern` past append-evidence-only (still deferred per §3.5.1 post-v0 TODO).
+- Doesn't deploy the pullers to Cloud Run (separate B-side work; tracked in §5.2 status block). Demo can run on `seed_demo_to_es.py` data; whether the demo narrates "live pull" vs. "seeded" depends on whether Jeremy's pullers are scheduled by demo recording day.
+
+**Implications for D (frontend)**:
+
+- Phase 5 is required before the §4.1 end-to-end timeline view can show real activity. Until 5f lands, the frontend can show static history (querying ES indices directly) but cannot drive a live pipeline from a preprint to an email.
+- Memory-loop visualization (the §6.1 highlight event `agent.pattern_retrieved`) can be built against the live `memory_synthesizer` deployment NOW — does not block on Phase 5.
+- §6.1 SSE adapter remains unbuilt; if the demo needs real-time agent trace events in the UI, the adapter is its own work item separate from Phase 5.
+
+**Implications for the demo video**:
+
+- Should not record until 5a–5f done (5g optional for the demo but trivial once 5f works).
+- Pullers (B) on Cloud Run is independent — affects narration ("system continuously monitors arXiv" vs. "we seeded these 2 demo events") but not the recordability of the agent chain itself.
 
 ## Changelog
 
@@ -819,4 +865,5 @@ These do NOT migrate — they remain Python utility code in the repo:
   - **E2E verification on the deployed agent**: identical hydroxychloroquine §3.5.1 envelope used in Phase 4b-3 was submitted via the Agent Engine console Playground. Tool trace (visible in Playground) matched local Phase 4b-3 verbatim: `search_drift_patterns(top_k=5)` → `update_drift_pattern(pattern_id="pattern-demo-001", source_event_id="demo-drift-001", now_iso=…)` → §3.5.2 envelope with `action:"update_existing"`, `_version: 5`, `_shards.successful: 1`. Post-GET of `pattern-demo-001` confirmed: `_version: 5` (+1 from 4b-3's leave-state); `source_event_ids: ["demo-drift-001","demo-drift-002"]` (dedup held — `demo-drift-001` was already a supporting event); `support_count: 2`; `created_at: "2026-05-21T04:49:25Z"` preserved across the painless update; `last_updated_at` refreshed; `record_source: "demo_seed"` preserved (painless doesn't touch this field).
   - **Egress to Elastic Cloud Kibana from Agent Engine worked first try, with no special VPC / PSC configuration.** This confirms the research-agent's read of Vertex AI Agent Engine networking docs: "outbound traffic egresses directly from the secure, Google-managed tenant network" in the default (non-VPC-SC) configuration.
   - **Minor v0 imperfection (does not affect business logic)**: the LLM's chosen `now_iso` was `2026-05-21T05:50:00Z` rather than today's wall-clock (`2026-05-23`). It appears the model anchored to a date already in context (likely `created_at` from a retrieved pattern). `last_updated_at` two days off is harmless for the memory loop (it's an ordering hint, not a precision timestamp), but the demo narration should not promise "the timestamp reflects when the agent ran". **Post-v0 prompt tweak**: instruct Memory Synthesizer to use a placeholder like `"NOW"` and have an orchestrator step substitute the real time, mirroring how `synthesized_at` is left `null` per the existing §3.5.2 design.
-- 2026-05-23 [Jiayu Zhu] **Phase 4 complete.** All three Phase-3 Python tools migrated to Elastic Agent Builder (one ES|QL tool + two Workflow YAML tools; §9.3); `memory_synthesizer` ADK agent deployed to Vertex AI Agent Engine (resource `8580327609152307200`); MCP transport (`POST $KIBANA_URL/api/agent_builder/mcp`) connects the two with `tool_filter` restricting the LLM to our three drift tools. Every §3.5.1 / §3.5.2 invariant verified end-to-end on the deployed runtime. Hackathon rule compliance (§9.1): (a) Gemini-only at runtime ✓ (`gemini-2.5-pro`); (b) Google Cloud Agent Builder ✓ (Agent Engine is the Agent Builder platform's managed ADK runtime); (c) Partner Entity's MCP server ✓ (Elastic's own MCP server, not a self-written shim). The Phase-3 Python implementations at `agents/_shared/elastic_retrieval.py` and `agents/_shared/elastic_write.py` remain in the repo as regression harness per §9.5. Phase 4c (Devpost packaging + demo video + frontend wiring by D) is now unblocked.
+- 2026-05-23 [Jiayu Zhu] **Phase 4 (memory loop) complete.** All three Phase-3 Python tools migrated to Elastic Agent Builder (one ES|QL tool + two Workflow YAML tools; §9.3); `memory_synthesizer` ADK agent deployed to Vertex AI Agent Engine (resource `8580327609152307200`); MCP transport (`POST $KIBANA_URL/api/agent_builder/mcp`) connects the two with `tool_filter` restricting the LLM to our three drift tools. Every §3.5.1 / §3.5.2 invariant verified end-to-end on the deployed runtime. Hackathon rule compliance (§9.1): (a) Gemini-only at runtime ✓ (`gemini-2.5-pro`); (b) Google Cloud Agent Builder ✓ (Agent Engine is the Agent Builder platform's managed ADK runtime); (c) Partner Entity's MCP server ✓ (Elastic's own MCP server, not a self-written shim). The Phase-3 Python implementations at `agents/_shared/elastic_retrieval.py` and `agents/_shared/elastic_write.py` remain in the repo as regression harness per §9.5. **Initial assessment said "Phase 4c demo video unblocked" — that assessment was corrected within hours by the 2026-05-23 scope re-evaluation entry below; demo is now held pending Phase 5 (§9.6).**
+- 2026-05-23 [Jiayu Zhu] **Scope re-evaluation — Phase 4 is necessary but not sufficient for the demo; Phase 5 added (§9.6).** The earlier "Phase 4c demo unblocked" call missed that only 1 of 5 agents is on Agent Engine, while §1.1 / §4.1 promise a 5-agent system. Re-read of Devpost rules shows judges install and test the repo ("for judging and testing"; "must be capable of being successfully installed and run consistently"), and Stage One screen requires "reasonably apply both ... Partner and Google Cloud products" — with 4/5 agents local-only and not touching the partner stack, that screen is at risk. Base rate of recent Google Cloud agent-themed hackathon grand prizes is multi-agent breadth (ADK Hackathon 2025: 4-capability; GKE EMEA: 6 agents); narrow-deep wins exist but are exceptions. **Decision**: hold the demo video and Devpost description until Phase 5 (§9.6) puts the remaining 4 agents on Agent Engine + wires the main-flow orchestration. Phase 5 is mostly mechanical reuse of Phase 4 patterns (`McpToolset` wiring, `adk deploy agent_engine`, `upsert_tool.sh` for any new MCP tool); the one substantive unknown is whether Elastic Workflows YAML can natively invoke an Agent Engine reasoning engine as a step (needed for the §4.1 main flow), or whether the orchestrator step has to be an `http.request` to the Agent Engine REST endpoint — Phase 5f research item. Frontend (D) can start the 60-70% of work that does not depend on the unfinished agents (Tailwind/shadcn layout, TypeScript types from §2.2 / §3.x / §6.1, static views over ES, memory-loop visualization against the already-deployed `memory_synthesizer`); the 30-40% that depends on the full agent chain or the SSE adapter waits for Phase 5 and the BFF adapter respectively.
