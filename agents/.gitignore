@@ -1,2 +1,3 @@
 .env
-test.py
+test.pymemory_synthesizer/.env.deploy
+memory_synthesizer/requirements.txt

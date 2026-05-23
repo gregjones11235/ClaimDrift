@@ -30,14 +30,52 @@ v0 design used `>= 0.75`; that rule was retired 2026-05-22). The LLM judges
 each candidate by reading its description — see INSTRUCTION.
 
 Fires ASYNC after Drift Analyzer writes a new drift_event. Non-blocking.
+
+Phase 4b: the three tools are no longer Python FunctionTools. They live inside
+Elastic Agent Builder (one ES|QL tool + two Workflow YAML tools, see contracts.md
+§9.3) and are exposed to this agent via the Elastic MCP server at
+`${KIBANA_URL}/api/agent_builder/mcp`. The MCP server also exposes ~16 unrelated
+`platform.*` built-in tools (search, ES|QL, Streams, Cases, ...). We use
+`tool_filter` to expose ONLY our three tools — Memory Synthesizer must not be
+able to reach for `platform.core.execute_esql` or `platform.streams.*` writes,
+both because that's out of its §3.5 scope and because it would pollute the
+tool-call trace shown in the demo.
+
+The Phase-3 Python implementations in agents/_shared/elastic_retrieval.py and
+agents/_shared/elastic_write.py are NOT runtime any more — they stay in-repo
+as behavioral reference spec / regression harness per §9.5.
 """
 
-from google.adk.agents import LlmAgent
-from google.adk.tools import FunctionTool
+import os
 
-from _shared.config import MODEL_PRO
-from _shared.elastic_retrieval import search_drift_patterns
-from _shared.elastic_write import create_drift_pattern, update_drift_pattern
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
+
+# Inlined from agents/_shared/config.py:MODEL_PRO. The Agent Engine deploy
+# packages only this subdirectory, so the `_shared` sibling package is not
+# importable in the deployed runtime. Keep this constant in sync with
+# _shared/config.py if it ever changes (it hasn't since v0).
+MODEL_PRO = "gemini-2.5-pro"
+
+_KIBANA_URL = os.environ["KIBANA_URL"].rstrip("/")
+_ELASTIC_API_KEY = os.environ["ELASTIC_API_KEY"]
+
+elastic_mcp_tools = McpToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url=f"{_KIBANA_URL}/api/agent_builder/mcp",
+        headers={
+            "Authorization": f"ApiKey {_ELASTIC_API_KEY}",
+            "Accept": "application/json, text/event-stream",
+            "kbn-xsrf": "claimdrift",
+        },
+    ),
+    tool_filter=[
+        "search_drift_patterns",
+        "create_drift_pattern",
+        "update_drift_pattern",
+    ],
+)
 
 INSTRUCTION = """\
 You distill drift events into reusable patterns. This is the write side of the
@@ -125,9 +163,5 @@ root_agent = LlmAgent(
     model=MODEL_PRO,
     description="Distills drift_events into reusable, retrievable drift patterns (memory loop write side).",
     instruction=INSTRUCTION,
-    tools=[
-        FunctionTool(search_drift_patterns),
-        FunctionTool(create_drift_pattern),
-        FunctionTool(update_drift_pattern),
-    ],
+    tools=[elastic_mcp_tools],
 )
