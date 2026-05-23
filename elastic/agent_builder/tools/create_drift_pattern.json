@@ -1,0 +1,9 @@
+{
+  "id": "create_drift_pattern",
+  "type": "workflow",
+  "description": "Create a brand-new drift pattern in the drift_patterns index. Call this when retrieval (search_drift_patterns) surfaced NO existing pattern similar enough to the new drift_event. The caller (you, the LLM) must generate two values yourself before invoking: (1) pattern_id — a fresh UUID v4 string, (2) now_iso — the current ISO 8601 UTC timestamp with Z suffix (e.g. 2026-05-23T12:34:56Z). Do NOT call this if you intend to extend an existing pattern's evidence — use update_drift_pattern instead. See contracts.md §3.5, §3.5.2 (pattern_description writing guide), and §2.2.5 (pattern_type enum).",
+  "tags": ["claimdrift", "memory-loop", "write"],
+  "configuration": {
+    "workflow_id": "create-drift-pattern"
+  }
+}

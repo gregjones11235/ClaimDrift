@@ -1,0 +1,9 @@
+{
+  "id": "update_drift_pattern",
+  "type": "workflow",
+  "description": "Append the current drift_event to an existing drift pattern's source_event_ids. Call this (instead of create_drift_pattern) when search_drift_patterns surfaced a pattern that describes the same underlying phenomenon as the new drift_event. The caller (you, the LLM) must generate now_iso — the current ISO 8601 UTC timestamp with Z suffix (e.g. 2026-05-23T12:34:56Z). v0 is append-evidence-only: pattern_description, pattern_type, and domain_tags are NOT modified by this tool — if you feel the existing description is too narrow for the new event, prefer create_drift_pattern (a sibling pattern) over silently overwriting. If pattern_id does not exist, the call fails — do NOT use this tool as a fallback for create. See contracts.md §3.5.1 and §3.5.2.",
+  "tags": ["claimdrift", "memory-loop", "write"],
+  "configuration": {
+    "workflow_id": "update-drift-pattern"
+  }
+}

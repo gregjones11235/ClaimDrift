@@ -142,6 +142,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 **Minimum fields** (B must include):
 
+- `record_source`: keyword | null (`"demo_seed"` for records written by `elastic/scripts/seed_demo_to_es.py`; real puller-ingested docs leave it unset; see §2.3)
 - `doi`: keyword
 - `source`: keyword (`arxiv` | `biorxiv` | `medrxiv`)
 - `version`: keyword (e.g. `v1`, `v2`)
@@ -168,6 +169,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 **Minimum fields**:
 
+- `record_source`: keyword | null (see §2.3)
 - `claim_id`: keyword (= _id, format `{doi}::{version}::{claim_idx}`)
 - `parent_doi`: keyword
 - `parent_version`: keyword
@@ -185,6 +187,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 **Minimum fields**:
 
+- `record_source`: keyword | null (see §2.3)
 - `event_id`: keyword (UUID)
 - `preprint_doi`: keyword
 - `preprint_version_compared`: keyword (which version was compared against published)
@@ -201,6 +204,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 **Minimum fields**:
 
+- `record_source`: keyword | null (see §2.3)
 - `affected_citation_id`: keyword (= _id, `{drift_event_id}::{citing_doi}`)
 - `drift_event_id`: keyword
 - `citing_paper_doi`: keyword
@@ -219,6 +223,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 **Minimum fields**:
 
+- `record_source`: keyword | null (see §2.3)
 - `pattern_id`: keyword (UUID)
 - `pattern_description`: semantic_text (human-readable + ELSER searchable, **this is the memory loop's retrieval field**)
 - `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `other`) // TODO A: may expand after Memory Synthesizer prompt iteration
@@ -234,6 +239,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 **Minimum fields**:
 
+- `record_source`: keyword | null (see §2.3)
 - `affected_citation_id`: keyword (= _id)
 - `drift_event_id`: keyword
 - `recipient_email`: keyword
@@ -244,6 +250,15 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `error_message`: text | null
 
 **TODO B (Day 3-4)**: Full mapping JSON.
+
+### 2.3 Demo seed vs real-data tagging (`record_source`)
+
+To keep demo records visually inspectable in ES while still letting real-data views exclude them, every index carries an optional `record_source` keyword field.
+
+- **Real puller-ingested docs**: field left **unset**. No code path should ever write `record_source` for real data.
+- **Demo records**: tagged with `record_source="demo_seed"`. The tag is **not** written into the seed JSON files under `elastic/demo_seed/*.json` — those files contain only business fields. Instead, [elastic/scripts/seed_demo_to_es.py](../elastic/scripts/seed_demo_to_es.py) injects the constant at bulk-index time (see `DEMO_RECORD_SOURCE` and the `tagged_row = {"record_source": DEMO_RECORD_SOURCE, **row}` line). This keeps the seed files clean and guarantees no demo record can be written without the tag.
+- **Real-data views** (BFF in Elasticsearch mode, agent retrieval against real data) exclude demo records with `must_not: [{"term": {"record_source": "demo_seed"}}]`. See `apps/bff/mock_server.py` for the canonical filter.
+- **Values seen so far**: `"demo_seed"`. New values (e.g. a future `"backfill_2026q3"`) require a §8.1 add-field notice.
 
 ---
 
@@ -527,10 +542,19 @@ The `0.7` threshold is a v0 guess; tune after Week 2 once we see how it works.
 
 **existing_similar_patterns retrieval rules**:
 
-- Before firing, Memory Synthesizer uses the drift_event's `drift_summary` to search `drift_patterns`
-- Take top-5, filter for `similarity_score >= 0.75`
-- If matches exist, Memory Synthesizer **updates** the existing pattern's `support_count` instead of creating new
-- If none, **creates** a new pattern
+- Memory Synthesizer calls `search_drift_patterns` itself (no longer pre-injected by the orchestrator) using `drift_event.drift_summary` as the query, `top_k=5`.
+- **No score threshold.** The RRF score returned by `retriever.rrf` over our small index is rank-based (typically 0.01–0.05) and does not measure semantic similarity in a way that supports a fixed cutoff — see probe results in `agents/scripts/probe_rrf_scores.py`. The original §3.5.1 v0 design used `similarity_score >= 0.75` as a hard rule; that rule has been retired.
+- The agent is instead instructed to **read** each retrieved pattern's description and judge "is this the same underlying phenomenon as the new drift_event?" per-candidate. Decision is made by the LLM, not by the score.
+- If yes → call `update_drift_pattern(pattern_id, source_event_id)`. If no candidate qualifies → call `create_drift_pattern(...)`. The two-tool shape (rather than a single upsert) keeps the create-vs-update decision visible in the tool the LLM chooses.
+
+**v0 update scope** (intentional minimum):
+
+- `update_drift_pattern` only appends `source_event_id` to `source_event_ids` and refreshes `last_updated_at`. `pattern_description` / `domain_tags` are not refined.
+- **TODO (post-v0)**: extend `update_drift_pattern` with optional `pattern_description_refinement` and `domain_tags_to_add` parameters, so a long-lived pattern can broaden its description as new domains accumulate (e.g. "COVID-related" → "COVID-related and other respiratory virus" once cross-domain events show up). Defer until prompt iteration shows v0's narrow-description failure mode is hurting retrieval quality.
+
+**drift_event ← pattern back-link** (out of scope for this agent):
+
+- Memory Synthesizer does NOT write `pattern_id` back into `drift_event.retrieved_patterns`. That double-link is the orchestrator's job (Elastic Workflows step running after the agent), so the agent stays single-purpose.
 
 #### 3.5.2 Output
 
@@ -713,6 +737,67 @@ After the skeleton is locked, field details will keep evolving. The rules below 
 | **Change ES mapping** | Low (~5%) | B pings C before changing; adding fields is fine; type changes require index rebuild (demo data is small, can rerun in hours) |
 | **Change agent invocation order or responsibility** | Very low (~5%) | Architecture-level change, hold a 30-minute meeting, C changes the workflow personally |
 
+## 9. Production deployment architecture (Phase 4)
+
+§3–§8 describe the **business semantics** of the system. §9 describes the **production deployment shape** required by the Google Cloud Rapid Agent Hackathon — Elastic Track. v0 (Phases 1-3) ran locally via `adk web` against a serverless Elasticsearch project; v1 (Phase 4) moves the same business logic onto managed runtimes without changing it.
+
+### 9.1 Rules-driven constraints
+
+The hackathon rules ([rapid-agent.devpost.com/rules](https://rapid-agent.devpost.com/rules)) impose three hard constraints that determine the deployment shape:
+
+1. **Gemini-only for project-runtime AI.** All other AI tools are not permitted in the running project. (Auxiliary dev tooling like AI-assisted code editors is not in scope.)
+2. **Project must use Google Cloud Agent Builder.** The Agent Builder platform now bundles a code-first SDK (ADK), a managed runtime (Vertex AI Agent Engine), and Agent Studio. **ADK code deployed to Agent Engine satisfies this requirement** — confirmed via the official "Agent Builder → ADK overview" docs ([cloud.google.com/products/agent-builder](https://cloud.google.com/products/agent-builder)). We do NOT have to rewrite the Phases 1-3 ADK agents.
+3. **Elastic track requires integrating the Partner Entity's MCP server.** Elastic Agent Builder ships a built-in MCP server that natively exposes whatever custom tools we define inside it. We MUST route tool calls through this server (not a self-written MCP shim) to satisfy the rule literally.
+
+### 9.2 Target architecture
+
+```
+Vertex AI Agent Engine (managed)
+   - drift_analyzer (ADK LlmAgent, gemini-2.5-pro)
+   - memory_synthesizer (ADK LlmAgent, gemini-2.5-pro)
+        │
+        │ MCP protocol (tool calls)
+        ▼
+Elastic Agent Builder built-in MCP server
+   - search_drift_patterns       (ES|QL tool)
+   - create_drift_pattern        (Elastic Workflow YAML)
+   - update_drift_pattern        (Elastic Workflow YAML)
+        │
+        │ Elasticsearch APIs
+        ▼
+Elasticsearch Serverless (drift_patterns / drift_events / claims / ...)
+```
+
+Other agents in §3 (claim_extractor, citation_finder, notifier) follow the same shape but use simpler tools — they are not part of the memory-loop critical path that Phase 4 prioritizes.
+
+### 9.3 Tool migration plan (function tool → Elastic Agent Builder tool)
+
+Phases 1-3 implemented the three tools as Python functions in `agents/_shared/elastic_retrieval.py` and `agents/_shared/elastic_write.py`. The behavioral contract (top-k retrieval surfaces candidates; LLM does its own rerank by reading `pattern_description`; UUID v4 mint on create; GET-then-merge-dedup-then-PUT on update; 404-raises-loudly) is spec-frozen — Phase 4a re-expresses them inside Elastic Agent Builder while preserving every observable behavior.
+
+| Python tool | Target shape in Elastic Agent Builder | Notes |
+|---|---|---|
+| `search_drift_patterns` | **ES\|QL tool** — single-`MATCH` query against `pattern_description` (semantic_text, ELSER-routed). Parameters: `query_text`, `top_k`, `exclude_demo_seed`. | No `retriever.rrf` wrapper — see 2026-05-23 changelog finding. The Phase 1 RRF design was the same source fused with itself on this index, so single-`MATCH` is strictly simpler and not less expressive. The Python implementation in `agents/_shared/elastic_retrieval.py` stays in the repo as reference spec (not runtime). |
+| `create_drift_pattern` | **Elastic Workflow** (YAML) — single `elasticsearch.request` step: `PUT _doc/{id}?op_type=create&refresh=wait_for`. UUID v4 and ISO 8601 `now_iso` are pushed up to the caller (the LLM) because Workflows YAML has no native `uuid()` / `now()` step in the current preview. `record_source` left unset per §2.3. | `op_type=create` makes (vanishingly rare) UUID collisions surface as an ES error instead of silent overwrite. Array inputs (`domain_tags`) MUST use Liquid type-preserving syntax `"${{ inputs.domain_tags }}"` — bare `{{ }}` stringifies arrays/objects/numbers/booleans (caught and fixed during Phase 4a-5; see 2026-05-23 changelog). |
+| `update_drift_pattern` | **Elastic Workflow** (YAML) — single `elasticsearch.request` step: `POST _update/{id}?refresh=wait_for` with a painless script that performs the read-modify-write atomically on the ES side: set-union dedup of `source_event_ids`, recompute `support_count = source_event_ids.size()`, refresh `last_updated_at`, preserve `created_at` / `pattern_description` / `pattern_type` / `domain_tags`. 404 on the underlying `_update` surfaces as a workflow step failure (`document_missing_exception`), not a silent fallback to create. | Painless was chosen over a two-step GET→PUT to (a) keep atomicity / version-token protection, and (b) avoid relying on Workflows YAML expression language to do array set-union between steps (Liquid doesn't expose set ops). v0 append-evidence-only scope held: `pattern_description` / `domain_tags` are intentionally NOT refined here — see §3.5.1 post-v0 TODO. |
+
+### 9.4 Agent migration plan (ADK local → Agent Engine)
+
+| Phase 3 (local) | Phase 4 (managed) |
+|---|---|
+| `adk web` running `agents/memory_synthesizer/agent.py` | `adk deploy agent_engine agents/memory_synthesizer` |
+| `LlmAgent(tools=[FunctionTool(search_drift_patterns), ...])` — direct Python imports | `LlmAgent(tools=[<MCP tool reference to Elastic Agent Builder server>, ...])` — same INSTRUCTIONs, same model, same business semantics |
+| Sessions live in-process | Sessions persisted by `VertexAiSessionService` (auto-wired by `reasoning_engines.AdkApp`) |
+| Auth: `.env` API key on the developer machine | Auth: Workload Identity for Agent Engine → Vertex; Elasticsearch API key passed through MCP client config |
+
+INSTRUCTIONs do not change. Tool *names and schemas* do not change. The decision-quality experiments validated in Phase 3 (LLM-judged create-vs-update, no score threshold) carry over unmodified.
+
+### 9.5 What stays Python forever
+
+These do NOT migrate — they remain Python utility code in the repo:
+
+- `agents/scripts/probe_rrf_scores.py` — diagnostic, not a runtime path
+- `agents/_shared/elastic_retrieval.py` / `elastic_write.py` — kept as **reference spec + smoke-test harness**. If a future change to the ES\|QL tool or Workflow YAML causes a behavior regression, we run these Python implementations against the same payload to bisect whether the regression is in Elastic-side translation or in the LLM prompt.
+
 ## Changelog
 
 - 2026-05-20 [Jiayu Zhu] [§1-§8] v0 created
@@ -724,3 +809,25 @@ After the skeleton is locked, field details will keep evolving. The rules below 
   - §3.1.2 / §3.2.2 / §3.3.2 / §3.4 / §3.5: added v0-finding NOTEs for prompt-iteration items (A to address); see `agents/README.md` for issue tracker
   - §3.2.2: tentative proposal — add `scope_restricted` to `diff_type` enum (pending team discussion per §8.1)
   - §3.3: v0 Citation Finder fabricates DOIs; output must not be persisted until openalex_puller is wired
+- 2026-05-22 [Jiayu Zhu] [§2.2.1-§2.2.6, §2.3] documented `record_source` field (added to all 6 index mappings by Jeremy in the B-side port; tagging strategy via `seed_demo_to_es.py` rather than seed JSON files; real-data views filter demo records via `must_not term`)
+- 2026-05-22 [Jiayu Zhu] [§3.5.1] retired the `similarity_score >= 0.75` create-vs-update rule (RRF score not usable as a fixed cutoff in our index size; verified via `probe_rrf_scores.py`); replaced with LLM-judged per-candidate decision routed through two function tools `create_drift_pattern` / `update_drift_pattern` (Memory Synthesizer now self-retrieves rather than being fed `existing_similar_patterns` by the orchestrator). v0 `update_drift_pattern` is append-evidence-only; description / domain_tags refinement deferred to a post-v0 TODO listed in §3.5.1.
+- 2026-05-22 [Jiayu Zhu] **Phase 3 complete — memory loop closed end-to-end.** Read side (Drift Analyzer + `search_drift_patterns`) and write side (Memory Synthesizer + `create_drift_pattern` / `update_drift_pattern`) both verified against the live cluster:
+  - Smoke tests: create (UUID v4 minted, support_count=1), update (append + dedup, support_count=2 after two distinct event_ids, stable at 2 on a repeat), 404 path (unknown pattern_id raises loudly rather than silent-fallback to create), DELETE confirmed. See `agents/_shared/elastic_write.py`.
+  - End-to-end agent run: fed the hydroxychloroquine drift_event (the same payload that validated Drift Analyzer in Phase 2) into `memory_synthesizer` via `adk web`. Tool trace: 1× `search_drift_patterns(top_k=5, no min_score)` → 1× `update_drift_pattern(pattern_id="pattern-demo-001", source_event_id=...)`. No `create_drift_pattern` call (correctly chose update over create since the COVID effect-size-reduction phenomenon already had a matching pattern). Output `action="update_existing"`, returned pattern has `support_count: 3`, `source_event_ids` correctly appended, `last_updated_at` is now-time, `created_at` preserved.
+  - LLM rerank held: read each candidate's `pattern_description` to judge "same phenomenon?" — did not rely on RRF score (confirms the Phase 1 finding that RRF is unusable as a fixed threshold).
+  - v0 append-only update constraint held: agent did NOT attempt to refine `pattern_description` or extend `domain_tags` during update (deferred per the §3.5.1 post-v0 TODO).
+  - Cleanup: re-seeded `pattern-demo-001` from `elastic/demo_seed/drift_patterns.json` via `seed_demo_to_es.py` to restore demo state.
+- 2026-05-23 [Jiayu Zhu] [§9 new] documented the Phase 4 deployment architecture after auditing the hackathon rules. Three constraints determine the shape: (a) Gemini-only at project runtime → keeps us on ADK + Vertex; (b) "must use Agent Builder" → satisfied by deploying ADK agents to Vertex AI Agent Engine (the Agent Builder platform's managed ADK runtime), so Phases 1-3 code is reusable as-is; (c) Elastic track must use the Partner's MCP server → we will NOT self-write an MCP server. The three Phase-3 Python tools (`search_drift_patterns`, `create_drift_pattern`, `update_drift_pattern`) will be re-expressed inside Elastic Agent Builder as one ES|QL tool + two Workflow YAML tools, naturally exposed through Elastic's built-in MCP server. Python implementations stay in the repo as the behavioral reference spec / regression harness. Phase 4a (tool migration) begins next; Phase 4b (`adk deploy agent_engine`) follows.
+- 2026-05-23 [Jiayu Zhu] **Finding — RRF over `pattern_description` was fusing the same source twice.** During Phase 4a planning, ran three Kibana Dev Tools probes against the live serverless 9.5 cluster: (1) ES|QL `MATCH(pattern_description, "vaccine trial results weakened")`; (2) Search-DSL `semantic { field: pattern_description, query: ... }`; (3) Search-DSL `match { pattern_description: { query: ... } }`. All three returned **byte-identical results** — same documents, same ranks, same `_score` (neuro 10.5949, demo 9.4961, agri 6.2885). Because `pattern_description` is mapped as `semantic_text`, Elasticsearch routes any query on this field through ELSER inference and does not retain a raw-token BM25 index. **Implication for Phase 1's RRF design:** the v0 `retriever.rrf` over BM25 + ELSER, on this field, was ELSER fused with ELSER — two identical sub-rankings. That explains the Phase 1 finding that RRF scores were stuck at a handful of mechanical values (`1/(60+1)+1/(60+1)`, `1/(60+1)+1/(60+2)`, …): with two identical inputs, RRF degenerates to a pure function of rank. The Phase 1 conclusion — "score is unreliable, the LLM must rerank by reading the description" — remains correct (ES|QL `MATCH` scores spread wider but still misrank: in this probe, neuro outranks the truly-relevant demo by `_score`). What changes: §9.3 now specifies a single-`MATCH` ES|QL tool for `search_drift_patterns`; no RRF wrapper is needed. `agents/_shared/elastic_retrieval.py` stays in-repo as v0 reference / regression harness.
+- 2026-05-23 [Jiayu Zhu] **Phase 4a-2 complete — `search_drift_patterns` ES|QL tool created and verified on the live cluster.** Tool definition committed at `elastic/agent_builder/tools/search_drift_patterns.json`; idempotent upsert script at `elastic/agent_builder/scripts/upsert_tool.sh` (reads `agents/.env` for `KIBANA_URL` + `ELASTIC_API_KEY`; auto-detects create vs update by checking existence). After fixing one schema mismatch (Agent Builder ES|QL tools reject `params.{name}.default`; removed it — both params are now required), `POST /api/agent_builder/tools` succeeded with `readonly:false`, `experimental:false`. End-to-end verification via `POST /api/agent_builder/tools/_execute` with query "covid clinical effect size reduction with hedging", top_k=3: returned 3 patterns with `pattern-demo-001` ranked top-1 (`_score=32.75`), `probe-neuro-001` second (9.78), `probe-econ-001` third (6.16). Response envelope includes both the parameter-substituted ES|QL string and an `esql_results` data block with columns + row arrays — the shape MCP clients will consume in Phase 4b. Note: the in-repo `agents/_shared/elastic_retrieval.py` Python function is no longer the runtime; it remains as v0 reference / regression harness per §9.5.
+- 2026-05-23 [Jiayu Zhu] **Phase 4a-3 complete — `create_drift_pattern` workflow + workflow tool deployed and verified end-to-end.** Workflow YAML at `elastic/agent_builder/workflows/create_drift_pattern.yaml` (single `elasticsearch.request` step: `PUT _doc/{id}?op_type=create`); workflow tool spec at `elastic/agent_builder/tools/create_drift_pattern.json` (`type:"workflow"`, `configuration.workflow_id:"create-drift-pattern"`). Three non-obvious findings worth recording for future tools:
+  - **Slug conversion gotcha**: Kibana auto-slugs workflow `name:` from snake_case to kebab-case for the workflow `id`. `name: create_drift_pattern` → `id: "create-drift-pattern"`. Tool spec's `configuration.workflow_id` MUST use the kebab form or the POST returns 400 `Workflow '...' not found`. Found via `GET /api/workflows` which returns the canonical id. Apply the same rule when authoring `update-drift-pattern` and any future workflow tool.
+  - **`_execute` endpoint shape**: `POST /api/agent_builder/tools/_execute` with body `{"tool_id": "...", "tool_params": {...}}` — NOT `/tools/{id}/_execute` (returns 404) and NOT `"params"` instead of `"tool_params"` (returns 400). Same envelope for both ES|QL tools and workflow tools.
+  - **Schema auto-derivation**: Kibana derives the JSON-schema `params` of a workflow tool from the workflow's `triggers[].inputs` automatically — we do NOT declare `params` in the tool JSON. Returned schema in our case correctly mapped 6 inputs with `required: [...]` populated and `domain_tags` typed as `array` (though with empty `items: {}` since YAML `type: array` has no sub-type).
+- 2026-05-23 [Jiayu Zhu] **Phase 4a-4 complete — `update_drift_pattern` workflow + workflow tool deployed and verified end-to-end.** Workflow YAML at `elastic/agent_builder/workflows/update_drift_pattern.yaml` (single `elasticsearch.request` step: `POST _update/{id}` with painless script doing atomic set-union dedup + support_count recompute + last_updated_at refresh). Tool spec at `elastic/agent_builder/tools/update_drift_pattern.json` (`configuration.workflow_id:"update-drift-pattern"`). All three §3.5.1 invariants verified via `_execute`:
+  - **Append new event** (`evt-alpha` already in fixture, add `evt-beta`): `output.result:"updated"`, `_version` bumped to 2.
+  - **Repeat-event dedup** (re-send `evt-beta`): `output.result:"updated"` (painless touched `last_updated_at`) but post-GET confirms `source_event_ids` stays at length 2 and `support_count=2` — set-union held.
+  - **404 fails loudly** (unknown `pattern_id`): `execution.status:"failed"` with `error_message:"document_missing_exception"`. No silent fallback to create — the §3.5.1 contract holds at the Workflows layer just like it did at the Python layer.
+  - Post-GET confirms `created_at` preserved (14:00:00Z, set on create), `last_updated_at` refreshed (14:10:00Z), `pattern_description` / `pattern_type` / `domain_tags` untouched (v0 append-evidence-only scope).
+- 2026-05-23 [Jiayu Zhu] **Phase 4a-5 (bugfix) — Workflows YAML stringifies non-string interpolations unless you use the Liquid type-preserving syntax `${{ }}`.** During 4a-4 verification, the post-update GET on `smoke-test-update-fixture` revealed `domain_tags` stored as the STRING `"smoke-test"` instead of the ARRAY `["smoke-test"]` that was passed in. Root cause: `create_drift_pattern.yaml` used `domain_tags: "{{ inputs.domain_tags }}"`, and Elastic Workflows' templating engine (Liquid; https://liquidjs.com/) renders bare `{{ }}` as a STRING regardless of input type. The fix is the dollar-prefixed `${{ }}` form documented at https://www.elastic.co/docs/explore-analyze/workflows/templating: *"Use the dollar-sign prefix (`${{ }}`) when you need to preserve the original data type (array, object, number, boolean). The type-preserving syntax must occupy the entire string value."* Patched `create_drift_pattern.yaml:59` to `domain_tags: "${{ inputs.domain_tags }}"`; re-verified with multi-element input `["tag-a", "tag-b", "tag-c"]`: stored as native array. **Generalize**: every future workflow that interpolates an `inputs.X` or `steps.X.output` of type array/object/number/boolean into an `elasticsearch.request` body MUST use `${{ }}`. String inputs are safe with either form. Audit checklist for new workflows added: grep `\{\{[^$]` across workflows/ should match only string-typed interpolations.
+- 2026-05-23 [Jiayu Zhu] **Phase 4a complete.** All three tools live on the cluster, each verified end-to-end via the MCP-facing `_execute` endpoint, with all Phase-3 Python-tool behavioral invariants preserved (UUID create collision detection; atomic update dedup + support_count recompute + created_at preservation; 404 raises loudly). Phase 4b (deploying ADK `memory_synthesizer` to Vertex AI Agent Engine and wiring the Elastic MCP server in place of the direct Python imports) is now unblocked. `agents/_shared/elastic_retrieval.py` and `elastic_write.py` remain in-repo as regression harness per §9.5.
