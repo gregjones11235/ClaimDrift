@@ -137,6 +137,14 @@ Save Playground link + test envelope + actual output as evidence in the Phase 5 
 
 7. **`--trace_to_cloud` alone does NOT populate the Agent Observability dashboard / trace pages / prompt-response content.** Source check (`google/adk-python` `src/google/adk/cli/cli_deploy.py`): `--trace_to_cloud` only sets `enable_tracing=True` on the generated `AdkApp` wrapper — that just emits ADK spans to Cloud Trace. The UI's dashboard + content capture require **two separate env vars** in `.env.deploy`: `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true` (runtime OTel export pipeline) and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` (prompt/response body capture; off by default per OTel GenAI semconv). Both env vars are independent — neither flag implies them. *(Phase 5b found this: first notifier deploy used only `--trace_to_cloud` and the Vertex console nagged us to set both env vars and re-deploy.)*
 
+8. **Cross-reasoning-engine calls need an explicit IAM grant on the Agent Engine service agent.** A deployed Agent Engine runs as `service-<PROJECT_NUMBER>@gcp-sa-aiplatform-re.iam.gserviceaccount.com` (the AI Platform Reasoning Engine Service Agent — Google-managed, auto-provisioned on first Agent Engine deploy in the project). It holds `roles/aiplatform.reasoningEngineServiceAgent` by default, which covers its own runtime needs (logging, telemetry, model invocation) but does NOT include permission to call OTHER reasoning engines in the same project. Symptom: any deployed agent that does `vertexai.agent_engines.get(<other_id>)` or `.async_stream_query(...)` against another reasoning engine throws `PERMISSION_DENIED: aiplatform.reasoningEngines.get denied on resource ...`. Fix: grant `roles/aiplatform.user` (the canonical predefined role covering `reasoningEngines.get` + `.streamQuery`; there is no narrower `roles/aiplatform.reasoningEngineUser`) on the project to that service agent:
+   ```bash
+   gcloud projects add-iam-policy-binding tensile-topic-496519-i1 \
+     --member="serviceAccount:service-751133713115@gcp-sa-aiplatform-re.iam.gserviceaccount.com" \
+     --role="roles/aiplatform.user"
+   ```
+   Binding is project-level and takes effect immediately at runtime — no redeploy needed. *(Phase 5f found this on first supervisor smoke test: claim_extractor fan-out failed at `agent_engines.get(2286406392413683712)` because supervisor's service agent had no IAM access to call sub-agents.)* Custom per-agent service accounts are configurable via the Python SDK `client.agent_engines.create(..., config={"service_account": "..."})` but NOT via `adk deploy agent_engine` CLI as of `google-adk` 1.34.0 (tracked in [google/adk-python#2951](https://github.com/google/adk-python/issues/2951)).
+
 ---
 
 ## Test envelopes (canonical inputs for each agent)
@@ -167,5 +175,6 @@ Feed the §3.5.1-shaped envelope wrapping `demo-drift-001` (the hydroxychloroqui
 | `claim_extractor` (5c) | ✓ | ✓ | ✓ (telemetry only) | ✓ | ✓ | `2286406392413683712` |
 | `drift_analyzer` (5a) | ✓ + MCP-ified | ✓ | ✓ (MCP + telemetry) | ✓ | ✓ | `5333654490283245568` |
 | `citation_finder` (5e) | ✓ + MCP-ified | ✓ | ✓ (MCP + telemetry) | ✓ | ✓ | `6997171602643222528` |
+| `supervisor_agent` (5f-i) | n/a (custom BaseAgent, no `_shared`) | ✓ | ✓ (telemetry only) | ✓ | ✓ | `7816826734824652800` |
 
 Update this table as deploys complete; resource ids feed into Phase 5f supervisor.
