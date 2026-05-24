@@ -1,0 +1,6 @@
+# Hand-authored minimal requirements for Agent Engine deploy.
+# See agents/_DEPLOY_CHECKLIST.md Step 2 for why this is hand-authored
+# (not uv export'd). drift_analyzer uses the Elastic MCP server for
+# search_drift_patterns; MCP transport is bundled with google-adk.
+google-adk>=1.0,<2.0
+google-cloud-aiplatform[adk,agent-engines]>=1.112
