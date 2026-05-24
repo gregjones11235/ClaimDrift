@@ -104,7 +104,7 @@ Suggested implementation order:
 1. `crossref_puller`: bridge preprint DOI to published DOI first.
 2. `biorxiv_puller` / `medrxiv_puller`: these APIs are direct and useful for demo data quickly.
 3. `arxiv_puller`: handle OAI-PMH and the 3-second polite rate limit.
-4. `openalex_client`: Citation Finder utility that returns citing works from OpenAlex; it does not directly write ES.
+4. `openalex_client`: Citation Finder utility that returns citing works from OpenAlex; B also provides an optional `pending` candidate write path to `affected_citations`.
 
 Common puller interface:
 

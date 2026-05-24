@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .doi import normalize_doi
+from .doi import affected_citation_id
 
 
 def utc_now() -> str:
@@ -97,4 +98,27 @@ def crossref_record_from_puller(row: Dict[str, Any]) -> Dict[str, Any]:
         "published_date": row.get("published_date"),
         "type": row.get("type"),
         "publisher": row.get("publisher"),
+    }
+
+
+def affected_citation_candidate_from_openalex(
+    row: Dict[str, Any],
+    drift_event_id: str,
+    scored_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    citing_doi = normalize_doi(row.get("citing_paper_doi"))
+    if not citing_doi:
+        raise ValueError("OpenAlex candidate requires citing_paper_doi.")
+
+    return {
+        "record_source": "openalex_candidate",
+        "affected_citation_id": affected_citation_id(drift_event_id, citing_doi),
+        "drift_event_id": drift_event_id,
+        "citing_paper_doi": citing_doi,
+        "citing_paper_title": clean_text(row.get("citing_paper_title")),
+        "citing_paper_authors": row.get("citing_paper_authors") or [],
+        "citation_context": clean_text(row.get("citation_context")),
+        "severity_tier": "pending",
+        "severity_reasoning": "OpenAlex citing-work candidate; pending Citation Finder agent scoring.",
+        "scored_at": scored_at or utc_now(),
     }

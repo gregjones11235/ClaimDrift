@@ -37,6 +37,9 @@ For each fabricated citing paper, output:
 - severity_tier: one of "central", "comparative", "peripheral"
 - severity_reasoning: 1-2 sentences justifying the tier
 
+Do not return severity_tier="pending". Pending is reserved for raw
+OpenAlex candidates before this agent scores them.
+
 Severity guide:
 - central:     the drifted claim is the citing paper's main argument
 - comparative: the drifted claim is used as comparison/reference, not core

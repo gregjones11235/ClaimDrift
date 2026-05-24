@@ -14,7 +14,7 @@ export type SseEventType =
   | "agent.completed"
   | "agent.failed";
 
-export type SeverityTier = "central" | "comparative" | "peripheral";
+export type SeverityTier = "pending" | "central" | "comparative" | "peripheral";
 
 export type ClaimType =
   | "qualitative"
@@ -57,4 +57,3 @@ export interface AffectedCitation {
   severity_tier: SeverityTier;
   severity_reasoning: string;
 }
-
