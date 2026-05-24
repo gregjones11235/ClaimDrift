@@ -189,7 +189,7 @@ All 5 agents pass smoke tests as of 2026-05-21. The items below are tracked for 
 |---|---|---|
 | `claim_extractor` | `numerical_values[*].comparison` occasionally returns `null` when sentence has reduction/increase verbs | Prompt must enforce non-null when such verbs are present |
 | `drift_analyzer` | Pro model spontaneously detected scope-narrowing drift but had to shoehorn into `hedging_added` | Propose adding `scope_restricted` to §3.2.2 `diff_type` enum (pending team discussion per §8.1) |
-| `citation_finder` 🚨 | v0 fabricates realistic-looking DOIs using real journal prefixes (`10.1038/...`, `10.1016/...`) | Until openalex_puller is wired, all v0 outputs must use sentinel DOIs (`10.0000/synthetic-v0-NNN`) or set `citation_context = "SYNTHETIC_V0_PLACEHOLDER"`. **v0 output must not be persisted to ES.** |
+| `citation_finder` 🚨 | v0 fabricates realistic-looking DOIs using real journal prefixes (`10.1038/...`, `10.1016/...`) | Until the agent uses the real OpenAlex tool, all v0 fabricated outputs must use sentinel DOIs (`10.0000/synthetic-v0-NNN`) or set `citation_context = "SYNTHETIC_V0_PLACEHOLDER"`. **v0 fabricated output must not be persisted to ES.** B's OpenAlex utility may persist real citing-work candidates separately as `record_source=openalex_candidate`, `severity_tier=pending`. |
 | `notifier` | Quoted phrase fragments ("reduced viral load by 45%") instead of full sentences | Prompt must enforce full-sentence quoting (subject + verb + object + modifiers) |
 | `memory_synthesizer` | Only 2 `domain_tags` returned, contracts.md example shows 3-5 | Prompt should encourage 3-6 tags mixing general + specific |
 

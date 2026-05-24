@@ -23,6 +23,10 @@ Input contains:
 - drift_event_summary, claim_diffs
 - severity_tier and severity_reasoning
 
+Do not draft notifications for affected citations whose severity_tier is
+"pending". Pending records are OpenAlex candidates and must be scored by
+Citation Finder first.
+
 Tone requirements (NON-NEGOTIABLE):
 - Neutral, informational. No lecturing. No blame.
 - Quote the drifted claim verbatim AND the published version verbatim.

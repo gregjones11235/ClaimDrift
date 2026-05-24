@@ -30,7 +30,7 @@ python3 elastic/scripts/create_indices.py --apply
 python3 -m ingestion.run_pull --source medrxiv --since 2024-05-01 --limit 3 --apply
 ```
 
-`--apply` currently writes bioRxiv and medRxiv records to the `preprints` index. Crossref and OpenAlex lookups are dry-run only until the published-version pairing and Citation Finder write flows are wired in.
+`--apply` writes bioRxiv and medRxiv records to the `preprints` index. Crossref lookup remains dry-run only until the published-version pairing flow is wired in. OpenAlex can write `affected_citations` candidate records for a known drift event; Citation Finder still owns final severity scoring.
 
 The mappings use `semantic_text` fields with an explicit `.elser-2-elastic` inference endpoint for ELSER on Elastic Serverless. Do not attach an ingest inference pipeline that writes back into the same `semantic_text` field.
 
@@ -43,3 +43,18 @@ python3 elastic/scripts/seed_demo_to_es.py --apply
 
 This writes the demo records under `elastic/demo_seed` into the six Elasticsearch indexes with stable document ids.
 Seeded records are tagged with `record_source=demo_seed` so they can be filtered out of real-data views.
+
+## OpenAlex Candidate Writes
+
+OpenAlex can write affected-citation candidates for a known drift event:
+
+```bash
+python3 -m ingestion.run_pull \
+  --source openalex \
+  --doi 10.1038/nature12373 \
+  --drift-event-id demo-drift-001 \
+  --limit 3 \
+  --apply
+```
+
+These records are tagged with `record_source=openalex_candidate` and `severity_tier=pending`. Citation Finder still owns final severity scoring.

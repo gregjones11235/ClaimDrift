@@ -128,7 +128,7 @@ ClaimDrift consists of **1 ingestion pipeline + 5 Gemini agents**, orchestrated 
 | `preprints` | All preprint metadata + abstract | DOI (URL-decoded) | Ingestion | Claim Extractor, Drift Analyzer, frontend |
 | `claims` | Claims extracted per preprint version | `{doi}::{version}::{claim_idx}` | Claim Extractor | Drift Analyzer, frontend |
 | `drift_events` | One report per drift detection | UUID (auto-generated) | Drift Analyzer | Citation Finder, Memory Synthesizer, frontend |
-| `affected_citations` | Downstream papers affected by a drift | `{drift_event_id}::{citing_doi}` | Citation Finder | Notifier, Memory Synthesizer, frontend |
+| `affected_citations` | Downstream papers affected by a drift | `{drift_event_id}::{citing_doi}` | Citation Finder, OpenAlex candidate utility (`pending` only) | Notifier, Memory Synthesizer, frontend |
 | `drift_patterns` | Distilled, reusable drift patterns | UUID | Memory Synthesizer | **Drift Analyzer (memory loop core)**, frontend |
 | `notification_log` | Email drafts + send status | `{affected_citation_id}` | Notifier | frontend |
 
@@ -203,7 +203,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `citing_paper_title`: text
 - `citing_paper_authors`: nested (name, orcid, email | null)
 - `citation_context`: text | null (if OpenAlex provides surrounding context; usually null because we don't fetch PDFs)
-- `severity_tier`: keyword (`central` | `comparative` | `peripheral`)
+- `severity_tier`: keyword (`pending` for OpenAlex candidates before agent scoring, then `central` | `comparative` | `peripheral`)
 - `severity_reasoning`: text (Gemini's justification)
 - `scored_at`: date
 
@@ -247,10 +247,11 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 To keep demo records visually inspectable in ES while still letting real-data views exclude them, every index carries an optional `record_source` keyword field.
 
-- **Real puller-ingested docs**: field left **unset**. No code path should ever write `record_source` for real data.
+- **Fully-ingested real docs**: field left **unset**. This is the normal state for real records after the owning agent/puller has completed its final business judgment.
 - **Demo records**: tagged with `record_source="demo_seed"`. The tag is **not** written into the seed JSON files under `elastic/demo_seed/*.json` — those files contain only business fields. Instead, [elastic/scripts/seed_demo_to_es.py](../elastic/scripts/seed_demo_to_es.py) injects the constant at bulk-index time (see `DEMO_RECORD_SOURCE` and the `tagged_row = {"record_source": DEMO_RECORD_SOURCE, **row}` line). This keeps the seed files clean and guarantees no demo record can be written without the tag.
+- **OpenAlex citation candidates**: tagged with `record_source="openalex_candidate"` while `severity_tier="pending"`. These are real citing-work records, but not final Citation Finder judgments yet.
 - **Real-data views** (BFF in Elasticsearch mode, agent retrieval against real data) exclude demo records with `must_not: [{"term": {"record_source": "demo_seed"}}]`. See `apps/bff/mock_server.py` for the canonical filter.
-- **Values seen so far**: `"demo_seed"`. New values (e.g. a future `"backfill_2026q3"`) require a §8.1 add-field notice.
+- **Values seen so far**: `"demo_seed"`, `"openalex_candidate"`. New values (e.g. a future `"backfill_2026q3"`) require a §8.1 add-field notice.
 
 ---
 
@@ -435,11 +436,14 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 }
 ```
 
+OpenAlex candidate records may be written before Citation Finder scoring with `severity_tier = "pending"` and `record_source = "openalex_candidate"`. These are not final notification-ready affected citations; Citation Finder still owns the final `central` / `comparative` / `peripheral` judgment.
+
 **`severity_tier` judgment guide** (reference for A when writing the prompt):
 
 - `central`: the drifted claim is the citing paper's main argument
 - `comparative`: the drifted claim is used for comparison/reference, not core
 - `peripheral`: the drifted claim is only mentioned once in related work
+- `pending`: ingestion-only candidate state; not a Citation Finder final score and not eligible for Notifier
 
 **NOTE (v0 finding, 2026-05-21)**: Citation Finder v0 has no `openalex_puller` tool wired yet and FABRICATES plausible-looking DOIs (using real journal prefixes like `10.1038/...`, `10.1016/...`). Until the OpenAlex tool is wired (Step B/C), v0 outputs must NOT be written to the `affected_citations` index, and any v0 result shown to humans must carry a synthetic marker. Prompt must use sentinel format like `10.0000/synthetic-v0-NNN` OR set `citation_context = "SYNTHETIC_V0_PLACEHOLDER"`.
 
@@ -483,6 +487,8 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 }
 ```
 
+Notifier must only receive affected citations whose `severity_tier` is `central`, `comparative`, or `peripheral`. Records with `severity_tier = "pending"` are OpenAlex candidates and must be scored by Citation Finder before notification drafting or dispatch.
+
 **Email tone guide** (reference for A when writing the prompt):
 
 - Neutral, informational, **no lecturing or blame**
@@ -511,6 +517,8 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
   }
 }
 ```
+
+`affected_citations_summary` counts only Citation Finder-scored citations. OpenAlex candidates with `severity_tier = "pending"` are excluded until scored.
 
 **Retrieval rules** (Memory Synthesizer calls `search_drift_patterns` itself; no patterns are pre-injected):
 
@@ -609,7 +617,7 @@ Each puller's job: pull data → normalize → bulk write to `preprints` index (
 | `biorxiv_puller` | bioRxiv REST | Cloud Scheduler, hourly | `preprints` |
 | `medrxiv_puller` | medRxiv REST | Cloud Scheduler, hourly | `preprints` |
 | `crossref_puller` | Crossref Event Data webhook + REST fallback | Webhook + Cloud Scheduler as backup | updates `published_doi` field of `preprints` |
-| `openalex_puller` | OpenAlex REST | on demand (triggered by Citation Finder) | (does not write ES directly; returns to agent) |
+| `openalex_puller` | OpenAlex REST | on demand (triggered by Citation Finder) | returns citing works to agent; B utility may write `pending` candidates to `affected_citations` |
 
 ### 5.2 General rules (B must follow)
 
@@ -834,6 +842,7 @@ These do NOT migrate — they remain Python utility code in the repo:
   - §3.1.2 / §3.2.2 / §3.3.2 / §3.4 / §3.5: added v0-finding NOTEs for prompt-iteration items (A to address); see `agents/README.md` for issue tracker
   - §3.2.2: tentative proposal — add `scope_restricted` to `diff_type` enum (pending team discussion per §8.1)
   - §3.3: v0 Citation Finder fabricates DOIs; output must not be persisted until openalex_puller is wired
+  - §3.3: real OpenAlex candidate records may be persisted as `severity_tier = "pending"` until Citation Finder scoring; fabricated v0 output must still never be persisted
 - 2026-05-22 [Jiayu Zhu] [§2.2.1-§2.2.6, §2.3] documented `record_source` field (added to all 6 index mappings by Jeremy in the B-side port; tagging strategy via `seed_demo_to_es.py` rather than seed JSON files; real-data views filter demo records via `must_not term`)
 - 2026-05-22 [Jiayu Zhu] [§3.5.1] retired the `similarity_score >= 0.75` create-vs-update rule (RRF score not usable as a fixed cutoff in our index size; verified via `probe_rrf_scores.py`); replaced with LLM-judged per-candidate decision routed through two function tools `create_drift_pattern` / `update_drift_pattern` (Memory Synthesizer now self-retrieves rather than being fed `existing_similar_patterns` by the orchestrator). v0 `update_drift_pattern` is append-evidence-only; description / domain_tags refinement deferred to a post-v0 TODO listed in §3.5.1.
 - 2026-05-22 [Jiayu Zhu] **Phase 3 complete — memory loop closed end-to-end.** Read side (Drift Analyzer + `search_drift_patterns`) and write side (Memory Synthesizer + `create_drift_pattern` / `update_drift_pattern`) both verified against the live cluster:
