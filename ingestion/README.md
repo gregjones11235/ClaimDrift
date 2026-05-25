@@ -17,6 +17,7 @@ It currently supports:
 python3 -m ingestion.run_pull --source medrxiv --since 2024-05-01 --limit 3 --dry-run
 python3 -m ingestion.run_pull --source biorxiv --since 2024-05-01 --limit 3 --dry-run
 python3 -m ingestion.run_pull --source crossref --doi 10.1101/2024.01.15.123456 --dry-run
+python3 -m ingestion.run_pull --source crossref-batch --batch-source all --limit 10 --dry-run
 python3 -m ingestion.run_pull --source openalex --doi 10.1101/2024.01.21.24301585 --limit 5 --dry-run
 ```
 
@@ -36,6 +37,18 @@ whose API payload contains a real published DOI. Crossref `--apply` performs a
 fallback dispatcher pairing step: it looks up the preprint DOI, finds
 `published_doi`, creates a `version=published` row for the published DOI, and
 updates the preprint row's `published_doi`.
+Crossref batch mode finds real `preprints` rows with no `published_doi`,
+looks them up in Crossref, creates any matched `version=published` rows, and
+backfills the original preprint rows:
+
+```bash
+python3 -m ingestion.run_pull \
+  --source crossref-batch \
+  --batch-source all \
+  --limit 25 \
+  --apply
+```
+
 OpenAlex remains a dry-run lookup because Citation Finder now calls the
 `openalex_citing_works` Elastic Workflow tool directly.
 
@@ -90,7 +103,7 @@ gcloud run jobs create claimdrift-medrxiv-puller \
 For Crossref pairing, create a second job with args like:
 
 ```bash
---args "--source,crossref,--doi,10.1101/2023.07.26.23293038,--preprint-source,medrxiv,--apply"
+--args "--source,crossref-batch,--batch-source,all,--limit,25,--apply"
 ```
 
 ## Seed Demo Records To Elasticsearch
