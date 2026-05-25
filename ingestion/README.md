@@ -49,6 +49,20 @@ python3 -m ingestion.run_pull \
   --apply
 ```
 
+bioRxiv and medRxiv pulls page through the API in 100-record cursor steps until
+`--limit` is reached or the date range is exhausted. Elasticsearch writes are
+split into bulk requests controlled by `--bulk-batch-size` (default: 500):
+
+```bash
+python3 -m ingestion.run_pull \
+  --source biorxiv \
+  --since 2023-01-01 \
+  --limit 500 \
+  --include-published \
+  --bulk-batch-size 250 \
+  --apply
+```
+
 OpenAlex remains a dry-run lookup because Citation Finder now calls the
 `openalex_citing_works` Elastic Workflow tool directly.
 
