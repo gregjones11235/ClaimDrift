@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .common.elastic import ElasticsearchHttpClient
 from .common.doi import preprint_id
@@ -18,7 +18,11 @@ from .pullers import BioRxivPuller, CrossrefPuller, MedRxivPuller, OpenAlexClien
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a ClaimDrift data puller.")
-    parser.add_argument("--source", required=True, choices=["biorxiv", "medrxiv", "crossref", "openalex"])
+    parser.add_argument(
+        "--source",
+        required=True,
+        choices=["biorxiv", "medrxiv", "crossref", "crossref-batch", "openalex"],
+    )
     parser.add_argument("--since", help="Start date for bioRxiv/medRxiv pulls, YYYY-MM-DD.")
     parser.add_argument("--limit", type=int, help="Maximum records to pull.")
     parser.add_argument("--doi", help="DOI to look up when --source crossref is used.")
@@ -27,6 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["biorxiv", "medrxiv", "arxiv"],
         default="medrxiv",
         help="Source label to use when creating a published preprints row from Crossref.",
+    )
+    parser.add_argument(
+        "--batch-source",
+        choices=["all", "biorxiv", "medrxiv", "arxiv"],
+        default="all",
+        help="Source filter for --source crossref-batch.",
     )
     parser.add_argument("--raw", action="store_true", help="Print source-normalized puller payload too.")
     parser.add_argument("--dry-run", action="store_true", help="Print normalized records instead of writing to Elasticsearch.")
@@ -69,6 +79,34 @@ def update_preprint_published_doi(preprint_doi: str, published_doi: str) -> int:
     return int(response.get("updated", 0))
 
 
+def fetch_unpaired_preprints(limit: Optional[int], source: Optional[str] = None) -> list[Dict[str, Any]]:
+    client = ElasticsearchHttpClient()
+    filters: list[Dict[str, Any]] = [{"exists": {"field": "doi"}}]
+    if source:
+        filters.append({"term": {"source": source}})
+
+    response = client.request(
+        "POST",
+        "/preprints/_search",
+        {
+            "size": limit or 25,
+            "_source": ["doi", "source", "version", "title", "ingested_at"],
+            "sort": [{"ingested_at": {"order": "asc", "missing": "_last"}}],
+            "query": {
+                "bool": {
+                    "filter": filters,
+                    "must_not": [
+                        {"exists": {"field": "published_doi"}},
+                        {"term": {"version": "published"}},
+                        {"term": {"record_source": "demo_seed"}},
+                    ],
+                }
+            },
+        },
+    )
+    return [hit.get("_source", {}) for hit in response.get("hits", {}).get("hits", [])]
+
+
 def build_published_rows(rows: list[Dict[str, Any]], source: str) -> list[Dict[str, Any]]:
     published_rows = []
     ts = utc_now()
@@ -91,6 +129,56 @@ def build_published_rows(rows: list[Dict[str, Any]], source: str) -> list[Dict[s
     return published_rows
 
 
+def pair_preprints_with_crossref(
+    candidates: list[Dict[str, Any]],
+    *,
+    apply: bool,
+) -> Dict[str, Any]:
+    crossref = CrossrefPuller()
+    paired: list[Dict[str, Any]] = []
+    no_match: list[str] = []
+    errors: list[str] = []
+    published_upserted = 0
+    updated_preprints = 0
+
+    for candidate in candidates:
+        doi = candidate.get("doi")
+        source = candidate.get("source") or "unknown"
+        if not doi:
+            continue
+
+        lookup = crossref.run_pull(doi, limit=1)
+        errors.extend(lookup.get("errors", []))
+        normalized = [crossref_record_from_puller(row) for row in lookup.get("payload", [])]
+        match = next((row for row in normalized if row.get("published_doi")), None)
+        if not match:
+            no_match.append(doi)
+            continue
+
+        paired.append(
+            {
+                "preprint_doi": doi,
+                "preprint_source": source,
+                "published_doi": match["published_doi"],
+            }
+        )
+        if apply:
+            published_rows = build_published_rows([match], source=source)
+            published_upserted += upsert_preprints(published_rows)
+            updated_preprints += update_preprint_published_doi(doi, match["published_doi"])
+
+    return {
+        "processed": len(candidates),
+        "paired": len(paired),
+        "published_upserted": published_upserted,
+        "updated_preprints": updated_preprints,
+        "skipped_without_match": len(no_match),
+        "no_match_dois": no_match,
+        "errors": errors,
+        "items": paired,
+    }
+
+
 def run(args: argparse.Namespace) -> Dict[str, Any]:
     if args.source == "biorxiv":
         result = BioRxivPuller().run_pull("biorxiv", since=args.since, limit=args.limit)
@@ -105,6 +193,26 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             raise ValueError("--doi is required when --source crossref is used.")
         result = CrossrefPuller().run_pull(args.doi, limit=args.limit)
         normalized = [crossref_record_from_puller(row) for row in result["payload"]]
+    elif args.source == "crossref-batch":
+        source = None if args.batch_source == "all" else args.batch_source
+        candidates = fetch_unpaired_preprints(args.limit, source=source)
+        batch_result = pair_preprints_with_crossref(candidates, apply=args.apply)
+        return {
+            "source": args.source,
+            "mode": "apply" if args.apply else "dry_run" if args.dry_run else "preview",
+            "batch_source": args.batch_source,
+            "fetched": len(candidates),
+            "upserted": batch_result["published_upserted"],
+            "published_upserted": batch_result["published_upserted"],
+            "updated_preprints": batch_result["updated_preprints"],
+            "would_upsert": 0 if args.apply else batch_result["paired"],
+            "skipped": batch_result["skipped_without_match"],
+            "errors": batch_result["errors"],
+            "processed": batch_result["processed"],
+            "paired": batch_result["paired"],
+            "no_match_dois": batch_result["no_match_dois"],
+            "items": batch_result["items"],
+        }
     else:
         if not args.doi:
             raise ValueError("--doi is required when --source openalex is used.")
