@@ -6,4 +6,5 @@ WORKDIR /app
 COPY ingestion ./ingestion
 COPY elastic ./elastic
 
-CMD ["python3", "-m", "ingestion.run_pull", "--help"]
+ENTRYPOINT ["python3", "-m", "ingestion.run_pull"]
+CMD ["--help"]
