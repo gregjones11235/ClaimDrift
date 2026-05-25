@@ -1,0 +1,15 @@
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.32,<0.33
+
+# Elasticsearch async client for step (b) reverse-lookup + step (e) bulk-write
+elasticsearch[async]>=8.15,<9.0
+
+# Vertex AI Agent Engine SDK for step (d) supervisor stream_query
+google-cloud-aiplatform[agent-engines]>=1.112,<2.0
+
+# Gmail API for step (f) notification send
+google-api-python-client>=2.150,<3.0
+google-auth>=2.35,<3.0
+
+# Secret Manager for fetching Gmail OAuth secrets at startup
+google-cloud-secret-manager>=2.20,<3.0
