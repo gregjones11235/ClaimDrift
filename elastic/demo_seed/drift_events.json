@@ -24,19 +24,8 @@
       }
     ],
     "materiality_score": 0.82,
-    "retrieved_patterns": [
-      {
-        "pattern_id": "pattern-demo-001",
-        "pattern_description": "COVID-related clinical preprints may show large effect-size reductions at publication with added hedging.",
-        "pattern_type": "effect_size_reduction",
-        "domain_tags": [
-          "covid-19",
-          "clinical-trial"
-        ],
-        "support_count": 3,
-        "similarity_score": 0.84
-      }
-    ]
+    "analyzed_at": "2026-05-21T04:49:25Z",
+    "retrieved_patterns_used": ["pattern-demo-001"]
   },
   {
     "event_id": "demo-drift-002",
@@ -63,18 +52,7 @@
       }
     ],
     "materiality_score": 0.76,
-    "retrieved_patterns": [
-      {
-        "pattern_id": "pattern-demo-001",
-        "pattern_description": "Clinical preprints may show large effect-size reductions at publication with added hedging.",
-        "pattern_type": "effect_size_reduction",
-        "domain_tags": [
-          "clinical-trial",
-          "remote-monitoring"
-        ],
-        "support_count": 4,
-        "similarity_score": 0.79
-      }
-    ]
+    "analyzed_at": "2026-05-21T04:49:25Z",
+    "retrieved_patterns_used": ["pattern-demo-001"]
   }
 ]
