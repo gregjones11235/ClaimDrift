@@ -29,9 +29,29 @@ class CrossrefPuller(PullerBase):
         return None
 
     def _parse_work(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        authors = []
+        for author in message.get("author", []) or []:
+            given = author.get("given")
+            family = author.get("family")
+            name = " ".join(part for part in (given, family) if part)
+            if name:
+                authors.append(
+                    {
+                        "name": name,
+                        "orcid": author.get("ORCID"),
+                        "affiliation": "; ".join(
+                            item.get("name", "")
+                            for item in author.get("affiliation", []) or []
+                            if item.get("name")
+                        ) or None,
+                    }
+                )
+
         return {
             "doi": normalize_doi(message.get("DOI")),
             "title": " ".join(message.get("title", [])) if message.get("title") else None,
+            "abstract": message.get("abstract"),
+            "authors": authors,
             "published_doi": self._extract_published_doi(message),
             "published_date": message.get("issued", {}).get("date-parts", [[None]])[0],
             "type": message.get("type"),

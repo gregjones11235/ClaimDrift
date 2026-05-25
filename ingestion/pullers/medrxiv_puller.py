@@ -17,12 +17,15 @@ class MedRxivPuller(PullerBase):
         return f"{self.BASE_URL}/{since}/{until}"
 
     def _normalize_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        published = record.get("published")
+        published_doi = None if not published or str(published).upper() == "NA" else normalize_doi(published)
         return {
             "doi": normalize_doi(record.get("doi")),
             "title": record.get("title"),
             "authors": record.get("authors"),
             "abstract": record.get("abstract"),
             "version": record.get("version"),
+            "published_doi": published_doi,
             "posted_date": record.get("date"),
             "source": "medrxiv",
             "raw": record,
