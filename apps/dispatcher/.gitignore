@@ -1,0 +1,12 @@
+# Dispatcher local + capture state (NOT committed)
+.env
+.env.local
+_stub_stream.json
+__pycache__/
+*.pyc
+
+# OAuth client secret downloaded for Step 0 (scripts/gmail_oauth_setup.py).
+# NEVER commit this — it has client_secret in plain text.
+scripts/client_secret*.json
+scripts/credentials.json
+scripts/token.json

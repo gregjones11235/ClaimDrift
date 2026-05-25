@@ -24,3 +24,8 @@ env/
 .env.*
 !.env.example
 
+# tool scripts
+scripts/
+
+# tmp files
+.tmp*

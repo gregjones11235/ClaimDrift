@@ -11,6 +11,7 @@
       "preprint_version_compared": { "type": "keyword" },
       "published_doi": { "type": "keyword" },
       "detected_at": { "type": "date" },
+      "analyzed_at": { "type": "date" },
       "drift_summary": { "type": "text" },
       "claim_diffs": {
         "type": "nested",
@@ -33,17 +34,7 @@
         }
       },
       "materiality_score": { "type": "float" },
-      "retrieved_patterns": {
-        "type": "nested",
-        "properties": {
-          "pattern_id": { "type": "keyword" },
-          "pattern_description": { "type": "text" },
-          "pattern_type": { "type": "keyword" },
-          "domain_tags": { "type": "keyword" },
-          "support_count": { "type": "integer" },
-          "similarity_score": { "type": "float" }
-        }
-      }
+      "retrieved_patterns_used": { "type": "keyword" }
     }
   }
 }

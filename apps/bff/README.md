@@ -52,8 +52,6 @@ Demo seed records written to Elasticsearch are tagged with `record_source=demo_s
 BFF_INCLUDE_DEMO=1 python3 apps/bff/mock_server.py
 ```
 
-OpenAlex candidate records use `record_source=openalex_candidate` and remain visible in Elasticsearch mode. Their `severity_tier` is `pending` until Citation Finder scores them.
-
 Verified behaviour (Elastic Cloud, 2026-05-22):
 
 | `BFF_INCLUDE_DEMO` | `data_source` | `drift-events` count |

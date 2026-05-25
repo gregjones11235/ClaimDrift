@@ -1,0 +1,5 @@
+# Hand-authored minimal requirements for Agent Engine deploy.
+# See agents/_DEPLOY_CHECKLIST.md Step 2 for why this is hand-authored
+# (not uv export'd). notifier has no tools — just the ADK runtime itself.
+google-adk>=1.0,<2.0
+google-cloud-aiplatform[adk,agent-engines]>=1.112

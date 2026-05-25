@@ -1,0 +1,23 @@
+# Don't upload these to Cloud Build (for `gcloud run deploy --source .`).
+# Mirrors .gitignore but is what gcloud actually reads.
+
+.env
+.env.local
+_stub_stream.json
+__pycache__/
+*.pyc
+.venv/
+.gcloudignore
+
+# OAuth client secret (only used by local Step 0 setup script)
+scripts/client_secret*.json
+scripts/credentials.json
+scripts/token.json
+
+# Local helpers not needed at runtime
+scripts/test_gmail_send.py
+
+# Local dev docs (Cloud Run doesn't read these)
+ONBOARDING.md
+ONBOARDING.en.md
+README.md

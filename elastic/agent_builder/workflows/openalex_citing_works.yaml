@@ -1,0 +1,72 @@
+name: openalex_citing_works
+enabled: true
+description: |
+  Phase 5d (B) Spike — looks up papers that cite a given DOI via the OpenAlex
+  REST API. Two-step http chain: first GET resolves the source paper's
+  OpenAlex work id; second GET filters all works that cite it.
+
+  Used by `citation_finder` (contracts.md §3.3) to populate the
+  `affected_citations` list with REAL citing-paper DOIs (replacing the v0
+  fabrication scaffold).
+
+  Why two http steps instead of one: OpenAlex's `/works?filter=cites:{id}`
+  filter wants the SHORT OpenAlex id (e.g. `W3045712398`), not the DOI.
+  The only way to map DOI → short id is to call `/works/{doi}` first and
+  read back the `id` field. The two-hop pattern is the canonical
+  OpenAlex usage for "find works citing this DOI" per their docs.
+
+  URL-encoding note: OpenAlex's `/works/{id}` accepts the path segment as
+  the full URL-encoded form of `https://doi.org/{doi}`. Standard Liquid
+  `url_encode` does NOT escape `/` or `:` (Shopify semantics); LiquidJS's
+  `cgi_escape` DOES escape them and is what we use here. Elastic's
+  Workflows docs state non-listed filters are "standard LiquidJS", which
+  includes `cgi_escape`.
+
+  Auth: OpenAlex is a public unauthenticated API; we send only a polite
+  User-Agent header per https://docs.openalex.org/how-to-use-the-api/api-overview.
+
+tags: ["claimdrift", "citation-finder", "openalex"]
+
+triggers:
+  - type: manual
+    inputs:
+      - name: source_doi
+        type: string
+        required: true
+        description: "The DOI of the paper we want to find citations for, e.g. '10.1101/2024.01.15.123456'. Pass the bare DOI — the workflow prepends 'https://doi.org/' and URL-encodes internally."
+      - name: per_page
+        type: number
+        required: true
+        description: "Number of citing works to fetch (1-200). 25 is a sensible default; the LLM caller should pass an explicit value. Workflows YAML's input type enum is string|number|boolean|choice|array (no integer); use number and let OpenAlex's parser coerce."
+
+steps:
+  # http step output shape (verified Phase 5d Spike 2, 2026-05-24):
+  #   { status: <int>, statusText: <str>, headers: {...},
+  #     data: <parsed JSON body — already deserialized> }
+  # i.e. reference the JSON body fields as `steps.<name>.output.data.<field>`,
+  # NOT `.body` (that key doesn't exist) and NOT via `json_parse`
+  # (the body is already parsed when Content-Type is application/json).
+  #
+  # URL note: the `cgi_escape` filter appears non-functional in this Workflows
+  # build (Spike 1 returned 404 with it; Spike 2/3 return 200 without it).
+  # OpenAlex's server tolerates the unencoded `https://doi.org/` path
+  # segment. For v0 demo DOIs this is fine; if a future DOI contains
+  # reserved chars (`?`, `#`, `&`, `%`), revisit by chaining `replace`
+  # filters.
+  - name: fetch_source
+    type: http
+    with:
+      method: GET
+      url: "https://api.openalex.org/works/https://doi.org/{{ inputs.source_doi }}?select=id,doi,display_name"
+      headers:
+        Accept: "application/json"
+        User-Agent: "ClaimDrift/0.1 (https://github.com/yourorg/claimdrift; mailto:test@example.com)"
+
+  - name: fetch_citing
+    type: http
+    with:
+      method: GET
+      url: "https://api.openalex.org/works?filter=cites:{{ steps.fetch_source.output.data.id | split: '/' | last }}&per-page={{ inputs.per_page }}&select=id,doi,title,display_name,authorships,publication_year,cited_by_count"
+      headers:
+        Accept: "application/json"
+        User-Agent: "ClaimDrift/0.1 (https://github.com/yourorg/claimdrift; mailto:test@example.com)"
