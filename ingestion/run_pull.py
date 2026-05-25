@@ -46,20 +46,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="When source records contain published_doi, also create version=published rows via Crossref.",
     )
+    parser.add_argument(
+        "--bulk-batch-size",
+        type=int,
+        default=500,
+        help="Maximum Elasticsearch documents per bulk request.",
+    )
     return parser
 
 
-def upsert_preprints(rows: list[Dict[str, Any]]) -> int:
+def _chunked(rows: list[Any], size: int) -> list[list[Any]]:
+    if size <= 0:
+        raise ValueError("--bulk-batch-size must be greater than 0.")
+    return [rows[index:index + size] for index in range(0, len(rows), size)]
+
+
+def upsert_preprints(rows: list[Dict[str, Any]], batch_size: int = 500) -> int:
     client = ElasticsearchHttpClient()
     bulk_rows = [
         (preprint_id(row["doi"], row["version"]), row)
         for row in rows
         if row.get("doi") and row.get("version")
     ]
-    response = client.bulk_index("preprints", bulk_rows)
-    if response.get("errors"):
-        raise RuntimeError(json.dumps(response.get("items", [])[:3], indent=2))
-    return int(response.get("count", len(bulk_rows)))
+    upserted = 0
+    for batch in _chunked(bulk_rows, batch_size):
+        response = client.bulk_index("preprints", batch)
+        if response.get("errors"):
+            raise RuntimeError(json.dumps(response.get("items", [])[:3], indent=2))
+        upserted += int(response.get("count", len(batch)))
+    return upserted
 
 
 def update_preprint_published_doi(preprint_doi: str, published_doi: str) -> int:
@@ -133,6 +148,7 @@ def pair_preprints_with_crossref(
     candidates: list[Dict[str, Any]],
     *,
     apply: bool,
+    bulk_batch_size: int = 500,
 ) -> Dict[str, Any]:
     crossref = CrossrefPuller()
     paired: list[Dict[str, Any]] = []
@@ -164,7 +180,7 @@ def pair_preprints_with_crossref(
         )
         if apply:
             published_rows = build_published_rows([match], source=source)
-            published_upserted += upsert_preprints(published_rows)
+            published_upserted += upsert_preprints(published_rows, batch_size=bulk_batch_size)
             updated_preprints += update_preprint_published_doi(doi, match["published_doi"])
 
     return {
@@ -196,7 +212,11 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     elif args.source == "crossref-batch":
         source = None if args.batch_source == "all" else args.batch_source
         candidates = fetch_unpaired_preprints(args.limit, source=source)
-        batch_result = pair_preprints_with_crossref(candidates, apply=args.apply)
+        batch_result = pair_preprints_with_crossref(
+            candidates,
+            apply=args.apply,
+            bulk_batch_size=args.bulk_batch_size,
+        )
         return {
             "source": args.source,
             "mode": "apply" if args.apply else "dry_run" if args.dry_run else "preview",
@@ -227,16 +247,16 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             raise ValueError("--apply currently supports biorxiv/medrxiv preprint writes and crossref pairing.")
         if args.source == "crossref":
             published_rows = build_published_rows(normalized, source=args.preprint_source)
-            published_upserted = upsert_preprints(published_rows)
+            published_upserted = upsert_preprints(published_rows, batch_size=args.bulk_batch_size)
             for row in normalized:
                 if row.get("published_doi"):
                     updated_preprints += update_preprint_published_doi(args.doi, row["published_doi"])
             upserted = published_upserted
         else:
-            upserted = upsert_preprints(normalized)
+            upserted = upsert_preprints(normalized, batch_size=args.bulk_batch_size)
             if args.include_published:
                 published_rows = build_published_rows(normalized, source=args.source)
-                published_upserted = upsert_preprints(published_rows)
+                published_upserted = upsert_preprints(published_rows, batch_size=args.bulk_batch_size)
 
     output: Dict[str, Any] = {
         "source": args.source,
