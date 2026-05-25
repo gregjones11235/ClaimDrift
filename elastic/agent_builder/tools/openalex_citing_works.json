@@ -1,0 +1,9 @@
+{
+  "id": "openalex_citing_works",
+  "type": "workflow",
+  "description": "Find papers that cite a given source DOI by querying the OpenAlex API. Returns up to per_page citing works with their DOIs, titles, authorships (name + orcid), publication years, and OpenAlex citation counts. Used by citation_finder (contracts.md §3.3) to populate affected_citations with REAL citing-paper DOIs (replacing the v0 fabrication scaffold). Call with the source DOI in bare form (e.g. '10.1101/2024.01.15.123456') and per_page=25 unless you have a reason to pull more. The tool does NOT score severity — that judgment is the calling agent's job per §3.3.",
+  "tags": ["claimdrift", "citation-finder", "openalex"],
+  "configuration": {
+    "workflow_id": "openalex-citing-works"
+  }
+}

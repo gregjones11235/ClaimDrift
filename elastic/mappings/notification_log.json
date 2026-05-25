@@ -11,7 +11,9 @@
       "recipient_email": { "type": "keyword" },
       "subject": { "type": "text" },
       "body": { "type": "text" },
+      "reasoning_trace": { "type": "text" },
       "status": { "type": "keyword" },
+      "drafted_at": { "type": "date" },
       "sent_at": { "type": "date" },
       "error_message": { "type": "text" }
     }

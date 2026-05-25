@@ -11,7 +11,13 @@ Tools:   v0 has none — the agent only DRAFTS the email and returns it as
 """
 
 from google.adk.agents import LlmAgent
-from _shared.config import MODEL_FLASH
+
+# Inlined from agents/_shared/config.py:MODEL_FLASH. The Agent Engine deploy
+# packages only this subdirectory, so the `_shared` sibling package is not
+# importable in the deployed runtime. Keep this constant in sync with
+# _shared/config.py if it ever changes (it hasn't since v0). See
+# agents/_DEPLOY_CHECKLIST.md Pitfall #1.
+MODEL_FLASH = "gemini-2.5-flash"
 
 INSTRUCTION = """\
 You draft notification emails to authors of papers whose citations are
@@ -22,10 +28,6 @@ Input contains:
 - recipient: { name, email, is_first_author }
 - drift_event_summary, claim_diffs
 - severity_tier and severity_reasoning
-
-Do not draft notifications for affected citations whose severity_tier is
-"pending". Pending records are OpenAlex candidates and must be scored by
-Citation Finder first.
 
 Tone requirements (NON-NEGOTIABLE):
 - Neutral, informational. No lecturing. No blame.
@@ -41,13 +43,18 @@ Return ONLY a JSON object matching contracts.md §3.4.2:
   "subject": "...",
   "body": "...",
   "reasoning_trace": "1-2 sentences on why you wrote it this way",
-  "drafted_at": "<ISO 8601 UTC>",
+  "drafted_at": null,
   "dispatch": {
     "status": "drafted",
     "sent_at": null,
     "error_message": null
   }
 }
+
+Leave `drafted_at` as null — like `analyzed_at` in §3.2.2 and `synthesized_at`
+in §3.5.2, this is a wall-clock field filled in by the orchestrating Cloud Run
+dispatcher (§9.6.1) when it receives your output. LLMs cannot read a real
+clock, and an invented timestamp is worse than null because it looks real.
 """
 
 root_agent = LlmAgent(

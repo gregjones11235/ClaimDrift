@@ -4,12 +4,16 @@ Drift Analyzer — compares preprint vs published claim sets, produces drift rep
 Owns:    contracts.md §3.2 Drift Analyzer input/output
 Reads:   `claims` (both versions), `drift_patterns` (memory loop read side)
 Writes:  `drift_events` index
-Tools:   `search_drift_patterns` — hybrid (BM25 + ELSER) retrieval over
-         the `drift_patterns` index, wrapping the function in
-         agents/_shared/elastic_retrieval.py. The agent calls this
-         itself per contracts.md §3.2.1 retrieval rules; the caller no
-         longer needs to pass `retrieved_patterns` in the input
-         payload.
+Tools:   `search_drift_patterns` — exposed via Elastic Agent Builder's MCP
+         server (the same single-MATCH ES|QL tool that `memory_synthesizer`
+         uses). Phase 5a wired this; Phase 3's `FunctionTool(search_drift_patterns)`
+         that imported from `_shared/elastic_retrieval.py` is no longer the
+         runtime. The Python implementation stays in-repo as regression
+         harness per §9.5.
+
+         The agent calls this tool itself per contracts.md §3.2.1
+         retrieval rules; the caller no longer needs to pass
+         `retrieved_patterns` in the input payload.
 
          Note on scoring: contracts.md §3.2.1 says
          "similarity_score >= 0.7". That threshold assumes cosine
@@ -21,11 +25,33 @@ Tools:   `search_drift_patterns` — hybrid (BM25 + ELSER) retrieval over
 This is the heart of the project. Pro model justified.
 """
 
-from google.adk.agents import LlmAgent
-from google.adk.tools import FunctionTool
+import os
 
-from _shared.config import MODEL_PRO
-from _shared.elastic_retrieval import search_drift_patterns
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
+
+# Inlined from agents/_shared/config.py:MODEL_PRO. The Agent Engine deploy
+# packages only this subdirectory, so the `_shared` sibling package is not
+# importable in the deployed runtime. Keep this constant in sync with
+# _shared/config.py if it ever changes (it hasn't since v0). See
+# agents/_DEPLOY_CHECKLIST.md Pitfall #1.
+MODEL_PRO = "gemini-2.5-pro"
+
+_KIBANA_URL = os.environ["KIBANA_URL"].rstrip("/")
+_ELASTIC_API_KEY = os.environ["ELASTIC_API_KEY"]
+
+elastic_mcp_tools = McpToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url=f"{_KIBANA_URL}/api/agent_builder/mcp",
+        headers={
+            "Authorization": f"ApiKey {_ELASTIC_API_KEY}",
+            "Accept": "application/json, text/event-stream",
+            "kbn-xsrf": "claimdrift",
+        },
+    ),
+    tool_filter=["search_drift_patterns"],
+)
 
 INSTRUCTION = """\
 You are a scientific drift analyzer. Your job is to diff two sets of claims
@@ -92,6 +118,11 @@ For numerical_delta, use SIGNED deltas (a reduction is negative):
     "absolute_delta": <published_value - preprint_value, can be negative>,
     "relative_delta": <(published_value - preprint_value) / preprint_value, can be negative>
   }
+All four numeric fields (preprint_value, published_value, absolute_delta,
+relative_delta) MUST be JSON numbers, NOT strings. Write 45 or 45.0, never
+"45" with quotes. Downstream code (and the orchestrator that writes
+drift_events) treats these as float; a quoted string will cause a type
+error.
 Example: preprint 45.0, published 12.0  ->  absolute_delta = -33.0,
 relative_delta = -0.733  (NOT +33.0 — the value went DOWN).
 
@@ -125,5 +156,5 @@ root_agent = LlmAgent(
     model=MODEL_PRO,
     description="Diffs preprint-final vs published claim sets; produces a drift report.",
     instruction=INSTRUCTION,
-    tools=[FunctionTool(search_drift_patterns)],
+    tools=[elastic_mcp_tools],
 )
