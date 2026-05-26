@@ -13,7 +13,7 @@ from .common.records import (
     published_record_from_crossref,
     utc_now,
 )
-from .pullers import BioRxivPuller, CrossrefPuller, MedRxivPuller, OpenAlexClient
+from .pullers import ArxivPuller, BioRxivPuller, CrossrefPuller, MedRxivPuller, OpenAlexClient
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,9 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--source",
         required=True,
-        choices=["biorxiv", "medrxiv", "crossref", "crossref-batch", "openalex"],
+        choices=["arxiv", "biorxiv", "medrxiv", "crossref", "crossref-batch", "openalex"],
     )
-    parser.add_argument("--since", help="Start date for bioRxiv/medRxiv pulls, YYYY-MM-DD.")
+    parser.add_argument("--since", help="Start date for arXiv/bioRxiv/medRxiv pulls, YYYY-MM-DD.")
     parser.add_argument("--limit", type=int, help="Maximum records to pull.")
     parser.add_argument("--doi", help="DOI to look up when --source crossref is used.")
     parser.add_argument(
@@ -52,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=500,
         help="Maximum Elasticsearch documents per bulk request.",
+    )
+    parser.add_argument(
+        "--arxiv-set",
+        default="q-bio",
+        help="arXiv OAI-PMH set to pull when --source arxiv is used. Use '' for all sets.",
     )
     return parser
 
@@ -197,7 +202,12 @@ def pair_preprints_with_crossref(
 
 
 def run(args: argparse.Namespace) -> Dict[str, Any]:
-    if args.source == "biorxiv":
+    if args.source == "arxiv":
+        arxiv_set = args.arxiv_set or None
+        result = ArxivPuller().run_pull("arxiv", since=args.since, limit=args.limit, arxiv_set=arxiv_set)
+        ts = utc_now()
+        normalized = [preprint_record_from_puller(row, ingested_at=ts) for row in result["payload"]]
+    elif args.source == "biorxiv":
         result = BioRxivPuller().run_pull("biorxiv", since=args.since, limit=args.limit)
         ts = utc_now()
         normalized = [preprint_record_from_puller(row, ingested_at=ts) for row in result["payload"]]

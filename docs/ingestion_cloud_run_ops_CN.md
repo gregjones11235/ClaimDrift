@@ -157,6 +157,7 @@ curl -s -X POST "$ELASTIC_ENDPOINT/preprints/_search?size=0" \
 - 本地调试需要看 records 时可以加 `--include-items`。
 - `crossref-batch` 每个候选 DOI 都要查一次 Crossref，所以 limit 应该比
   bioRxiv/medRxiv 小。
-- arXiv puller 还没有实现。
+- arXiv puller 已经本地实现并通过 dry-run 验证，但 Cloud Run Job 和
+  Scheduler 还没有部署。
 - 后续工业化可以加入 checkpoint-based incremental ingestion，避免长期依赖
   静态 `--since` 窗口。

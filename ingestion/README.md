@@ -10,6 +10,7 @@ commands, see:
 
 It currently supports:
 
+- arXiv pulls
 - bioRxiv pulls
 - medRxiv pulls
 - Crossref DOI lookup
@@ -20,6 +21,7 @@ It currently supports:
 ## Dry Run
 
 ```bash
+python3 -m ingestion.run_pull --source arxiv --since 2024-01-01 --limit 5 --dry-run
 python3 -m ingestion.run_pull --source medrxiv --since 2024-05-01 --limit 3 --dry-run
 python3 -m ingestion.run_pull --source biorxiv --since 2024-05-01 --limit 3 --dry-run
 python3 -m ingestion.run_pull --source crossref --doi 10.1101/2024.01.15.123456 --dry-run
@@ -71,6 +73,20 @@ python3 -m ingestion.run_pull \
   --include-published \
   --bulk-batch-size 250 \
   --apply
+```
+
+arXiv pulls use OAI-PMH XML records and default to the `q-bio` set. They obey
+the contract's polite request interval of at least 3 seconds between paginated
+OAI-PMH requests. arXiv records use `doi=10.48550/arXiv.<arxiv_id>` so they fit
+the shared `preprints` schema:
+
+```bash
+python3 -m ingestion.run_pull \
+  --source arxiv \
+  --since 2024-01-01 \
+  --limit 5 \
+  --dry-run \
+  --include-items
 ```
 
 OpenAlex remains a dry-run lookup because Citation Finder now calls the
