@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Source filter for --source crossref-batch.",
     )
     parser.add_argument("--raw", action="store_true", help="Print source-normalized puller payload too.")
+    parser.add_argument("--include-items", action="store_true", help="Print normalized output items.")
     parser.add_argument("--dry-run", action="store_true", help="Print normalized records instead of writing to Elasticsearch.")
     parser.add_argument("--apply", action="store_true", help="Write normalized preprint records to Elasticsearch.")
     parser.add_argument(
@@ -230,8 +231,9 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             "errors": batch_result["errors"],
             "processed": batch_result["processed"],
             "paired": batch_result["paired"],
-            "no_match_dois": batch_result["no_match_dois"],
-            "items": batch_result["items"],
+            "no_match_count": len(batch_result["no_match_dois"]),
+            **({"no_match_dois": batch_result["no_match_dois"]} if args.include_items else {}),
+            **({"items": batch_result["items"]} if args.include_items else {}),
         }
     else:
         if not args.doi:
@@ -268,8 +270,9 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         "would_upsert": 0 if args.apply or args.source in ("crossref", "openalex") else len(normalized),
         "skipped": result["skipped"],
         "errors": result["errors"],
-        "items": normalized,
     }
+    if args.include_items:
+        output["items"] = normalized
     if args.raw:
         output["raw_items"] = result["payload"]
     if args.source == "openalex":

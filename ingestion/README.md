@@ -21,6 +21,10 @@ python3 -m ingestion.run_pull --source crossref-batch --batch-source all --limit
 python3 -m ingestion.run_pull --source openalex --doi 10.1101/2024.01.21.24301585 --limit 5 --dry-run
 ```
 
+By default, command output prints operational summary fields only. Add
+`--include-items` when you need the normalized records in stdout for local
+inspection.
+
 ## Write To Elasticsearch
 
 ```bash
