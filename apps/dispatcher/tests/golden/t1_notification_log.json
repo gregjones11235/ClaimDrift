@@ -1,0 +1,99 @@
+{
+    "took": 1,
+    "timed_out": false,
+    "_shards": {
+        "total": 6,
+        "successful": 6,
+        "skipped": 0,
+        "failed": 0
+    },
+    "hits": {
+        "total": {
+            "value": 4,
+            "relation": "eq"
+        },
+        "max_score": null,
+        "hits": [
+            {
+                "_index": "notification_log",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1007/978-981-96-4298-4_18",
+                "_score": null,
+                "_source": {
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1007/978-981-96-4298-4_18",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "recipient_email": "claimdriftnotifier@gmail.com",
+                    "subject": "Notification Regarding a Cited Paper's Content Update for Your Work: 10.1007/978-981-96-4298-4_18",
+                    "body": "Dear Xia Liu,\n\nThis automated notification concerns your paper, 'Typical Medical Case Diagnosis with Voting and Answer Discrimination Using Fine-Tuned LLM' (DOI: 10.1007/978-981-96-4298-4_18).\n\nOur system has detected a significant change (a 'drift event') in a paper you cited, which occurred between its preprint and published versions. The upstream paper's published version removed all claims from its abstract, including quantitative performance metrics related to a proposed diagnostic tool for amblyopia using an LLM. This represents a complete retraction of its core findings and novelty claims.\n\nFor instance, a claim from the preprint's abstract stated: 'This study introduces a new multi-view prompting framework for ophthalmology applications that incorporates fine granularity feedback from pediatric ophthalmologist together with in-context learning to report an accuracy of 80% in diagnosing patients with amblyopia.' This specific claim does not appear in the published version of the paper.\n\nThis drift event is categorized as 'central' in severity because your paper's title directly references concepts like LLMs, medical diagnosis, and implicitly, fields like ophthalmology and conditions like amblyopia, which were central to the drifted claims. The disappearance of these core claims from the cited paper's abstract could potentially impact the foundational context or support for aspects of your work.\n\nPlease note, this is an automated detection notice. The decision to assess whether these changes warrant an update or re-evaluation of your own work rests entirely with you.\n\nSincerely,\nThe ClaimDrift Monitoring System Team",
+                    "reasoning_trace": "The email addresses the author by name and neutrally informs them about the drift event in the cited paper. It quotes a representative removed claim verbatim from the preprint and states its absence in the published version. The severity tier and reasoning are explained as provided in the input, and the required disclaimer is included, all while adhering to the word count and tone constraints.",
+                    "status": "sent",
+                    "drafted_at": "2026-05-26T10:36:10.125874+00:00",
+                    "sent_at": "2026-05-26T10:37:13.225262+00:00",
+                    "error_message": null
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1007/978-981-96-4298-4_18"
+                ]
+            },
+            {
+                "_index": "notification_log",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1101/2025.04.01.25325033",
+                "_score": null,
+                "_source": {
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1101/2025.04.01.25325033",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "recipient_email": "claimdriftnotifier@gmail.com",
+                    "subject": "Update regarding a citation in your paper: 'Bridging AI and Healthcare: A Scoping Review of Retrieval-Augmented Generation\u9225\u64e1thics, Bias, Transparency, Improvements, and Applications'",
+                    "body": "Dear David E. Bunnell,\n\nThis notification concerns a citation in your paper, 'Bridging AI and Healthcare: A Scoping Review of Retrieval-Augmented Generation\u9225\u64e1thics, Bias, Transparency, Improvements, and Applications'. Our system has detected a significant content change between the preprint and the published version of a paper you cite.\n\nThe published version of the cited paper removes all claims from the preprint's abstract, including all quantitative performance metrics for the proposed diagnostic tool. This represents a complete retraction of the core findings and novelty claims related to using an LLM for amblyopia diagnosis.\n\nFor example, the preprint contained the following claim:\nPreprint: \"This study introduces a new multi-view prompting framework for ophthalmology applications that incorporates fine granularity feedback from pediatric ophthalmologist together with in-context learning to report an accuracy of 80% in diagnosing patients with amblyopia.\"\nThis specific claim, along with all other claims from the abstract, was removed from the published version of the paper.\n\nThis event is categorized with a 'comparative' severity tier. This indicates that while your paper's core findings are unlikely to be directly invalidated, the substantial changes in the cited paper's content could alter the context or validity of your comparison, reference, or discussion of the original claims. Given your paper's title mentioning AI/RAG in healthcare, the disappearance of these specific findings, particularly on methodology and performance metrics, might impact how your work positions or relates to the cited research.\n\nPlease note that this is an automated detection notice. The decision of whether your work requires any updates based on this information rests entirely with you.\n\nSincerely,\nThe Notifier System",
+                    "reasoning_trace": "Composed a neutral, informational email addressing the author by name. Included a summary of the drift event based on the provided `drift_event_summary`, quoted a representative disappeared claim verbatim from the preprint, and explicitly stated its removal in the published version. Explained the 'comparative' severity tier based on the provided `severity_reasoning`. Concluded with the mandatory automated detection disclaimer and ensured the overall word count was within the specified range (150-300 words).",
+                    "status": "sent",
+                    "drafted_at": "2026-05-26T10:36:10.125874+00:00",
+                    "sent_at": "2026-05-26T10:37:10.125230+00:00",
+                    "error_message": null
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1101/2025.04.01.25325033"
+                ]
+            },
+            {
+                "_index": "notification_log",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.21673/anadoluklin.1653335",
+                "_score": null,
+                "_source": {
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.21673/anadoluklin.1653335",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "recipient_email": "claimdriftnotifier@gmail.com",
+                    "subject": "Notice of Upstream Content Drift Affecting Your Citation in 'LuminaURO: A comprehensive Artificial Intelligence Driven Assistant for enhancing urological diagnostics and patient care'",
+                    "body": "Dear Tuncay Soylu,\n\nThis is an automated notification regarding a detected content drift event in an academic paper you have cited. Our system has identified a change in the published version of a paper compared to its earlier preprint, which may affect your citation in 'LuminaURO: A comprehensive Artificial Intelligence Driven Assistant for enhancing urological diagnostics and patient care'.\n\nThe upstream paper's published version has removed all claims from its preprint's abstract, including quantitative performance metrics for its proposed diagnostic tool. For example, a core claim in the preprint stated: \"This study introduces a new multi-view prompting framework for ophthalmology applications that incorporates fine granularity feedback from pediatric ophthalmologist together with in-context learning to report an accuracy of 80% in diagnosing patients with amblyopia.\" This claim, along with others detailing the core findings and novelty related to using an LLM for amblyopia diagnosis, is not present in the published version.\n\nWe categorize this as a 'peripheral' severity event. This is because your paper's title, 'LuminaURO: A comprehensive Artificial Intelligence Driven Assistant for enhancing urological diagnostics and patient care,' indicates a focus on AI in urological diagnostics, a different medical domain from the drifted claim about LLM for amblyopia diagnosis.\n\nPlease note that this is an automated detection notice. The decision to assess whether your work requires an update due to this change rests entirely with you.\n\nSincerely,\n\nThe Notifier System",
+                    "reasoning_trace": "I drafted the email by first outlining the purpose and addressing the recipient. I then explained the drift using the provided summary, quoted a representative quantitative claim from the preprint, and stated its absence in the published version. Finally, I included the severity explanation and the non-negotiable disclaimer, ensuring the tone was neutral and informational within the specified word count.",
+                    "status": "sent",
+                    "drafted_at": "2026-05-26T10:36:10.125874+00:00",
+                    "sent_at": "2026-05-26T10:37:16.725845+00:00",
+                    "error_message": null
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.21673/anadoluklin.1653335"
+                ]
+            },
+            {
+                "_index": "notification_log",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.2196/76947",
+                "_score": null,
+                "_source": {
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.2196/76947",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "recipient_email": "claimdriftnotifier@gmail.com",
+                    "subject": "Notice of Detected Drift Affecting a Citation in Your Paper: \"Evaluating Large Language Models in Ophthalmology: Systematic Review\"",
+                    "body": "Dear ZITAO ZHANG,\n\nThis email notifies you of an observed drift event concerning a claim cited by your paper, \"Evaluating Large Language Models in Ophthalmology: Systematic Review\" (DOI: 10.2196/76947).\n\nOur automated system detected that the preprint version of a cited paper contained claims that were significantly altered or removed in its subsequent published version. Specifically, the drift event summary indicates that the published version removes all claims from the preprint's abstract, including all quantitative performance metrics for the proposed diagnostic tool. This represents a complete retraction of core findings and novelty claims related to using an LLM for amblyopia diagnosis.\n\nFor example, the preprint version of the abstract stated:\n\"This study introduces a new multi-view prompting framework for ophthalmology applications that incorporates fine granularity feedback from pediatric ophthalmologist together with in-context learning to report an accuracy of 80% in diagnosing patients with amblyopia.\"\nThis claim is not present in the published version of the abstract.\n\nThis event is categorized as 'central' severity because the title of your paper, \"Evaluating Large Language Models in Ophthalmology: Systematic Review,\" directly references key concepts like LLM, amblyopia, and ophthalmology, which were central to the drifted claim. The disappearance of core findings and novelty claims, especially quantitative performance metrics, suggests a potentially significant impact on the context of your citation.\n\nPlease note that this detection is automated. As the author, you are in the best position to determine whether this change necessitates any updates or re-evaluation of your work.\n\nSincerely,\nThe Notifier System",
+                    "reasoning_trace": "The email is structured to be neutral and informational, starting with a direct notification to the author. It explicitly quotes a representative vanished claim (80% accuracy) to illustrate the drift, explains the 'central' severity based on the provided reasoning, and includes the required automated detection disclaimer, all while adhering to the specified word count and tone.",
+                    "status": "sent",
+                    "drafted_at": "2026-05-26T10:36:10.125874+00:00",
+                    "sent_at": "2026-05-26T10:37:02.700018+00:00",
+                    "error_message": null
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.2196/76947"
+                ]
+            }
+        ]
+    }
+}

@@ -1,8 +1,8 @@
 # ClaimDrift — Agents
 
-> **Status (2026-05-21)**: All 5 agents scaffolded with ADK and pass smoke tests via `adk web`. No tools wired yet; tool calling pipeline (Elastic MCP server) lands next. See [v0 status / known limitations](#v0-status--known-limitations) below.
+> **Status (2026-05-26)**: 5/5 sub-agents + 1 supervisor deployed to Vertex AI Agent Engine. Memory loop closed (`memory_synthesizer` retrieves + updates patterns via Elastic MCP). Main §4.1 fan-out wired through supervisor + Cloud Run dispatcher. T1 real N>0 end-to-end verified on `10.1101/2024.05.03.24306688` (4 affected citations, 4 sent emails). See `../docs/contracts.md` changelog for the full deployment trail.
 
-This subdirectory contains the 5 Gemini agents that power ClaimDrift, built on top of [Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/). For the project-wide overview, see the root `README.md`. For cross-component contracts (Elasticsearch indices, SSE event format, agent invocation order), see `../docs/contracts.md`.
+This subdirectory contains the 5 sub-agents + supervisor that power ClaimDrift, built on top of [Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/). For the project-wide overview, see the root `README.md`. For cross-component contracts (Elasticsearch indices, SSE event format, agent invocation order), see `../docs/contracts.md`. For per-agent deploy gotchas accumulated over Phases 4-5, see `_DEPLOY_CHECKLIST.md`.
 
 ## Agents
 
@@ -179,33 +179,33 @@ Each agent directory is independently discoverable by `adk web` / `adk run` via 
 
 > **Tools directory**: Per-agent `tools/` subdirectories are not yet created. They will be added in the next step when wiring the Elastic MCP server (for `drift_analyzer`, `citation_finder`, `memory_synthesizer`). `claim_extractor` and `notifier` may never need tools.
 
-## v0 status / known limitations
+## Deployed status
 
-All 5 agents pass smoke tests as of 2026-05-21. The items below are tracked for the v1 prompt-iteration pass (owned by A) and the tool-wiring pass (owned by C). None block other workstreams from making progress.
+All 6 ADK packages (5 sub-agents + supervisor) ship as separate Vertex AI Agent Engine reasoningEngines:
 
-### Prompt-iteration items (→ A)
-
-| Agent | Finding | Required fix |
+| Agent | reasoningEngine id | Notes |
 |---|---|---|
-| `claim_extractor` | `numerical_values[*].comparison` occasionally returns `null` when sentence has reduction/increase verbs | Prompt must enforce non-null when such verbs are present |
-| `drift_analyzer` | Pro model spontaneously detected scope-narrowing drift but had to shoehorn into `hedging_added` | Propose adding `scope_restricted` to §3.2.2 `diff_type` enum (pending team discussion per §8.1) |
-| `citation_finder` 🚨 | v0 fabricates realistic-looking DOIs using real journal prefixes (`10.1038/...`, `10.1016/...`) | Until openalex_puller is wired, all v0 outputs must use sentinel DOIs (`10.0000/synthetic-v0-NNN`) or set `citation_context = "SYNTHETIC_V0_PLACEHOLDER"`. **v0 output must not be persisted to ES.** |
-| `notifier` | Quoted phrase fragments ("reduced viral load by 45%") instead of full sentences | Prompt must enforce full-sentence quoting (subject + verb + object + modifiers) |
-| `memory_synthesizer` | Only 2 `domain_tags` returned, contracts.md example shows 3-5 | Prompt should encourage 3-6 tags mixing general + specific |
+| `claim_extractor` | `2286406392413683712` | Phase 5c |
+| `drift_analyzer` | `5333654490283245568` | Phase 5a; calls `search_drift_patterns` MCP tool |
+| `citation_finder` | `6997171602643222528` | Phase 5e; calls `openalex_citing_works` MCP tool |
+| `notifier` | `7063036747193516032` | Phase 5b; no tools (pure draft) |
+| `memory_synthesizer` | `8580327609152307200` | Phase 4b; calls `search_drift_patterns` + `create_drift_pattern` + `update_drift_pattern` |
+| `supervisor_agent` | `7816826734824652800` | Phase 5f-i; custom `BaseAgent` orchestrating §4.1 fan-out across the 5 above |
 
-### Tool-wiring items (→ C, next step)
+Deploy-time pitfalls (every one cost ~30 min the first time encountered) are codified in [`_DEPLOY_CHECKLIST.md`](_DEPLOY_CHECKLIST.md) — `_shared/` import inlining, hand-authored `requirements.txt`, `.env.deploy` telemetry vars, MCP `Accept` header, `tool_filter` requirement, cross-reasoning-engine IAM grants, etc. Read that file before deploying a new agent.
 
-- No agent has tools wired yet. v0 inputs are passed as JSON in the chat message.
-- Next: validate ADK tool calling end-to-end with a Python function tool (Step B).
-- After that: replace function tools with Elastic MCP server tools for the agents that need ES retrieval (Step C).
+For the §4.1 main-flow trigger + persistence layer, see [`../apps/dispatcher/`](../apps/dispatcher/).
 
-## Deploying to Cloud Run
+## Open prompt-iteration items (→ A)
 
-(WIP — to be filled in once the first agent is end-to-end functional.)
+Prompts currently live inlined in each agent's `agent.py`. As prompts get iterated, the §3.x findings below from earlier rounds may or may not still apply. Verify against current behavior before fixing:
 
-Outline:
-1. `uv export --no-hashes -o requirements.txt` (Cloud Build buildpacks read `requirements.txt`)
-2. `gcloud run deploy <agent-name> --source . --region us-central1`
+| Agent | Original v0 finding | Status |
+|---|---|---|
+| `claim_extractor` | `numerical_values[*].comparison` occasionally returns `null` when sentence has reduction/increase verbs | Worth re-verifying against current Gemini 2.5 |
+| `drift_analyzer` | Spontaneously detects scope-narrowing drift but shoehorns into `hedging_added` | Pending §8.1 discussion to add `scope_restricted` to `diff_type` enum |
+| `notifier` | Quoted phrase fragments instead of full sentences | T1 round-3 inspection shows full sentences are now used; likely resolved |
+| `memory_synthesizer` | Only 2 `domain_tags` returned; contracts example shows 3-5 | Worth a re-check after T2 produces more drift_patterns |
 
 ## Troubleshooting
 

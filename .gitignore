@@ -24,8 +24,9 @@ env/
 .env.*
 !.env.example
 
-# tool scripts
-scripts/
+# Elastic Workflows with inlined bearer tokens — keep only the
+# .template.yaml versions in git (T2; Elastic 9.3 has no secret store).
+elastic/agent_builder/workflows/dispatch_new_pairs.yaml
 
 # tmp files
 .tmp*

@@ -68,7 +68,7 @@ ClaimDrift consists of **1 ingestion pipeline + 5 Gemini agents**, orchestrated 
 
 | Component | Responsibility |
 |------|------|
-| **Ingestion Pipeline** (non-agent) | Pulls data from arXiv/bioRxiv/medRxiv/Crossref/OpenAlex, writes to `preprints` index |
+| **Ingestion Pipeline** (non-agent) | Pulls data from bioRxiv/medRxiv/Crossref/OpenAlex, writes to `preprints` index |
 | **Claim Extractor** | Decomposes each preprint version into structured claims, writes to `claims` |  //gemini-2.5-flash
 | **Drift Analyzer** | Diffs claim sets between v-final-preprint ↔ published, produces drift report, writes to `drift_events` |  //gemini-2.5-pro
 | **Citation Finder** | Finds downstream papers citing the drifted preprint, scores severity, writes to `affected_citations` |  //gemini-2.5-flash
@@ -78,7 +78,7 @@ ClaimDrift consists of **1 ingestion pipeline + 5 Gemini agents**, orchestrated 
 ### 1.2 Data flow
 
 ```
-   arXiv/bioRxiv/medRxiv/Crossref/OpenAlex
+   bioRxiv/medRxiv/Crossref/OpenAlex
                   ↓ (pull)
               [Ingestion]
                   ↓
@@ -131,6 +131,7 @@ ClaimDrift consists of **1 ingestion pipeline + 5 Gemini agents**, orchestrated 
 | `affected_citations` | Downstream papers affected by a drift | `{drift_event_id}::{citing_doi}` | Citation Finder | Notifier, Memory Synthesizer, frontend |
 | `drift_patterns` | Distilled, reusable drift patterns | UUID | Memory Synthesizer | **Drift Analyzer (memory loop core)**, frontend |
 | `notification_log` | Email drafts + send status | `{affected_citation_id}` | Notifier | frontend |
+| `dispatch_state` | Scheduled-workflow watermark (one row per flow) | `flow_name` | Elastic Scheduled Workflow | Elastic Scheduled Workflow |
 
 **TODO D (Day 5-7)**: While building the frontend, if you find that some index isn't needed, or you need a new aggregated view (e.g., affected_citations grouped by author), or fields are insufficient — ping B and C on chat.
 
@@ -144,7 +145,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 
 - `record_source`: keyword | null (`"demo_seed"` for records written by `elastic/scripts/seed_demo_to_es.py`; real puller-ingested docs leave it unset; see §2.3)
 - `doi`: keyword
-- `source`: keyword (`arxiv` | `biorxiv` | `medrxiv`)
+- `source`: keyword (`biorxiv` | `medrxiv`)
 - `version`: keyword (e.g. `v1`, `v2`)
 - `is_final_preprint`: boolean
 - `published_doi`: keyword | null (the final published DOI from Crossref; null means not yet published)
@@ -242,6 +243,26 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `error_message`: text | null
 
 **Authoritative mapping**: [elastic/mappings/notification_log.json](../elastic/mappings/notification_log.json).
+
+#### 2.2.7 `dispatch_state` index
+
+Watermark for the §9.6.1 scheduled trigger workflow. One document per logical
+flow; the flow uses `last_seen_ingested_at` as the cursor for "what's new
+since last poll" so it never re-dispatches a pair it already saw.
+
+Today there is exactly one row: `flow_name="main_flow"`, tracking new
+`(preprint, published)` pairs landing in `preprints`. A future second flow
+(e.g. a re-process backfill, a re-evaluation of stale drift_events) would add
+its own row with its own `flow_name`.
+
+**Minimum fields**:
+
+- `record_source`: keyword | null (see §2.3 — left unset for production rows)
+- `flow_name`: keyword (= _id, e.g. `main_flow`)
+- `last_seen_ingested_at`: date (the cursor)
+- `last_updated_at`: date (when the workflow last touched this row)
+
+**Authoritative mapping**: [elastic/mappings/dispatch_state.json](../elastic/mappings/dispatch_state.json).
 
 ### 2.3 Demo seed vs real-data tagging (`record_source`)
 
@@ -342,7 +363,7 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 
 ```json
 {
-  "event_id": "uuid-v4-here",
+  "event_id": null,                                    // orchestrator fills on receive (supervisor §9.6.1 mints uuid4); same rationale as analyzed_at — LLM cannot reliably mint a v4 UUID. Dispatcher has a secondary `event_id or uuid()` fallback at main.py:151 in case supervisor is bypassed.
   "preprint_doi": "...",
   "preprint_version_compared": "v3",
   "published_doi": "...",
@@ -605,7 +626,6 @@ Each puller's job: pull data → normalize → bulk write to `preprints` index (
 
 | Puller | Source | Trigger | Target index |
 |--------|--------|---------|-----------|
-| `arxiv_puller` | arXiv OAI-PMH | Cloud Scheduler, daily | `preprints` |
 | `biorxiv_puller` | bioRxiv REST | Cloud Scheduler, hourly | `preprints` |
 | `medrxiv_puller` | medRxiv REST | Cloud Scheduler, hourly | `preprints` |
 | `crossref_puller` | Crossref Event Data webhook + REST fallback | Webhook + Cloud Scheduler as backup | updates `published_doi` field of `preprints` |
@@ -614,12 +634,11 @@ Each puller's job: pull data → normalize → bulk write to `preprints` index (
 ### 5.2 General rules (B must follow)
 
 - All outbound requests carry polite-pool headers (`User-Agent` includes contact email)
-- arXiv rate limit ≥3 seconds/request
 - Use bulk API for ES writes
 - DOI normalization: lowercase, no `https://doi.org/` prefix
 - Writes are upsert (existing DOI is updated)
 
-**Status (2026-05-23)**: code-complete locally (bioRxiv / medRxiv / Crossref / OpenAlex pullers + bulk-upsert path) — see `ingestion/README.md` + `ingestion/run_pull.py`. Dry-run mode verified. **Open**: Cloud Run Job deployment + Cloud Scheduler trigger wiring not yet done; `preprints` index is currently populated by `seed_demo_to_es.py`, not by scheduled pulls. Affects 4c demo narrative (real-time vs. seeded data) — see Open Questions.
+**Status (2026-05-26)**: Live on Cloud Run + Cloud Scheduler. 3 Cloud Run Jobs deployed (`claimdrift-biorxiv-puller`, `claimdrift-medrxiv-puller`, `claimdrift-crossref-puller`) with `us-central1` Schedulers at `0/10/30 * * * *` (staggered hourly). `preprints` index has ~10k real records + ~2.2k real `(preprint, published)` pairs (`record_source != "demo_seed"`). See [docs/ingestion_cloud_run_ops.md](ingestion_cloud_run_ops.md) for the operational runbook (image, args, validation queries). arxiv source removed from scope (2026-05-26) — single-vertical bioRxiv+medRxiv coverage is sufficient for the §3.5 memory-loop demonstration and the §4.1 end-to-end flow, and dropping it keeps the OAI-PMH XML parsing complexity out of the ingest path.
 
 ### 5.3 ELSER semantic hookup
 
@@ -899,3 +918,22 @@ Vertex AI Agent Engine — supervisor_agent (ADK)
   - **`preprints` docid is composite `{normalized_doi}::{version}`**, not raw DOI. ONBOARDING.md §4 Step 2 says `es.get(id=req.preprint_doi)` — wrong. Dispatcher does `term: {doi: X}` + `sort: [is_final_preprint desc, posted_date desc]` + `size: 1` to pick the right version. ONBOARDING.md needs a doc-only patch (followup TODO).
   - **Cloud Run deploy gotchas:** (a) Compute Engine default SA in new-ish projects no longer has Editor — must explicitly grant `roles/cloudbuild.builds.builder` + `roles/logging.logWriter` + `roles/secretmanager.secretAccessor` + `roles/aiplatform.user` to `<PROJECT_NUMBER>-compute@developer.gserviceaccount.com`; (b) `/healthz` is GFE-reserved (and `/_ah/*`) — intercepted before container, returns Google HTML 404 not FastAPI JSON. Renamed to `/health`; (c) `urls` annotation array contains both old-style `*.us-central1.run.app` and new `*-uc.a.run.app` formats — only the second works; `gcloud run services describe --format='value(status.url)'` returns the working one; (d) CRLF in `.env` flows into `os.environ[]` and silently breaks bearer comparison + makes uvicorn 400 the request before FastAPI sees it (`uvicorn --reload` reloads code but not env vars).
 - 2026-05-25 [Jiayu Zhu] **Step 8 (real N>0 e2e) BLOCKED on B's puller.** Cloud Run dispatcher + supervisor + ES + Gmail OAuth all verified independently; the last unverified path is N>0 on real data (real preprint DOI with OpenAlex citing works + real `published_doi` for the pair). Current `preprints` index has 3 real preprints (none has `published_doi` filled — puller doesn't crosswalk to published yet). Once B's puller ingests one real (preprint, published) pair, run one dispatch against it and check: (a) `notification_log` rows for each affected_citation flip `status: drafted -> sent`; (b) emails land in `claimdriftnotifier@gmail.com` (the `DEMO_FALLBACK_EMAIL` configured in the deploy); (c) no errors in Cloud Run logs.
+- 2026-05-26 [Jiayu Zhu] **T1 — real N>0 e2e CLOSED.** Test pair: `10.1101/2024.05.03.24306688` v2 → `10.1007/978-3-031-66535-6_19` (4 OpenAlex citing works). 5 rounds, 4 bugs:
+  - **Bug 1 — supervisor `_extract_final_output` returned MCP wrapper for tool-using sub-agents** (citation_finder, memory_synthesizer). `function_response` reverse-scan grabbed `{"content":[...],"isError":false}` instead of the final text part. Fix: text-part-only path, mirroring dispatcher `main.py:_extract_from_events`. Missed earlier because Phase 5f-i smoke-tested N=0 (no MCP round-trip).
+  - **Bug 2 — supervisor didn't mint `event_id` before fan-out.** drift_analyzer leaves it null per §3.2.2 ("orchestrator fills"); supervisor's notifier envelope at `agent.py:283-285` produced `affected_citation_id="None::<doi>"`. Fix: mint `uuid4()` right after `_extract_final_output(drift_events)`. §3.2.2 example updated: `"event_id": "uuid-v4-here"` → `null`.
+  - **Bug 3 — `DEMO_FALLBACK_EMAIL` env var missing on Cloud Run.** citation_finder v0 returns null author emails (§3.3 NOTE); without the fallback, `send_and_update` took the `skipped` branch for all 4. Fix: `gcloud run services update --update-env-vars`.
+  - **Bug 4 — two distinct UUIDs per dispatch.** Supervisor minted UUID for fan-out envelopes (Bug-2 fix) but never republished to stream; dispatcher parsed drift_analyzer's text (event_id=null) and minted ITS own at `main.py:151`, so `drift_events._id ≠ affected_citations.drift_event_id`. Fix: supervisor yields one `author=supervisor_agent` Event carrying the post-mint drift_event JSON; dispatcher's `extract_final_output("supervisor_agent")` is now the primary source, drift_analyzer is fallback. Initial fix attempt forgot ADK `Event.invocation_id` is required (Pydantic ValidationError silently closed the async generator → 6 events instead of 17, supervisor stranded after drift_analyzer); corrected by passing `ctx.invocation_id`.
+  - **503 noise (open follow-up)** — round 5 first attempt hit `grpc UNAVAILABLE` ~10min in; clean retry. Dispatcher silently aborts on 503. TODO: retry-with-backoff in `get_supervisor_stream`, or write `notification_log.status=failed` for visibility.
+  - **Round-5-retry green** (`drift_event_id 12636161-dccf-4be2-8c23-71c3aedf8cbe`): cross-table UUID consistent across all 4 fields; 4 affected_citations (real OpenAlex DOIs); 4 notification_log rows with `status: sent`; 4 Gmail messages to `claimdriftnotifier@gmail.com`.
+  - **Spike tooling + golden** checked in: `apps/dispatcher/scripts/{replay_supervisor_stream,analyze_stream,verify_fix,inspect_*}.py` + `tests/golden/{stream_amblyopia_v2.jsonl, t1_drift_event.json, t1_affected_citations.json, t1_notification_log.json}`.
+- 2026-05-26 [Jiayu Zhu] **T2 — scheduled trigger workflow live; pipeline self-driving.** Closes the §9.6.1 inverted-topology gap.
+  - **New `dispatch_state` index (§2.2.7)** — watermark row `flow_name="main_flow".last_seen_ingested_at`. Mapping JSON + initial row; `refresh_interval` clamped to 5s (Serverless rejects sub-5s). `audit_schema_drift.py` extended with `has_demo_seed=False` for operational-state indices.
+  - **dispatcher idempotency gate** — `_find_existing_drift_event(preprint_doi, published_doi)` runs before fan-off; existing pair returns 200 `already_processed` instead of 202. `?force=true` for explicit re-runs. Required because a 5min cadence races a ~200s pipeline; without it, a re-fire piles duplicate drift_events. (5 T1 debug duplicates remain in ES; changelog entries reference their UUIDs so not cleaned up.)
+  - **`elastic/agent_builder/workflows/dispatch_new_pairs.template.yaml`** — scheduled `every: 5m`. (1) GET watermark; (2) `elasticsearch.search` filtered `published_doi exists AND is_final_preprint AND ingested_at > watermark AND record_source != demo_seed AND version != published`, sort `ingested_at` DESC, `size: 20`; (3) `foreach` hit → http POST dispatcher; (4) PUT new watermark = `hits[0]._source.ingested_at`, guarded by `if: "...hits.total.value > 0"`. Live + enabled. Noop path verified; fan-out + watermark-write paths deferred (will validate naturally on next ingestion tick producing fresh pairs).
+  - **Bearer secret — split-file workaround** (Elastic Workflows 9.3 has no secret store, `consts` are plaintext): `.template.yaml` in git with `<WF_BEARER_TOKEN>` placeholder, `.yaml` gitignored. `upsert_workflow.sh` ships the latter. Investigated GCP-OIDC alternatives: workflow YAML can't sign GCP SA JWTs (no KMS hook); Kibana webhook connector OAuth2 only supports `client_credentials`, not `jwt-bearer`; token-broker function still needs an HMAC secret. Migrate when Elastic 9.4's "HTTP connector with full secret support" ships.
+  - **Kibana schema-validator pitfalls** found writing the YAML: (i) `${{ }}` type-preserving interpolation rejected in `size:` ("Expected string | __schema67") — use literal int; (ii) `term: { field: <literal> }` short-form flagged as match-query syntax — use long-form `term: { field: { value: <lit> } }`; (iii) `.last` array chain fails `variable-validation` — use bracket index `[0]` with DESC sort.
+- 2026-05-26 [Jiayu Zhu] **T7 — schema-drift audit script + all 7 indices clean.** New [elastic/scripts/audit_schema_drift.py](../elastic/scripts/audit_schema_drift.py) does the three-way check (mapping JSON ↔ live cluster ↔ demo seed JSON) the 2026-05-25 entry warned about. Read-only, stdlib-only, non-zero exit on drift. Verdict: mapping_fields == live_fields for all 7; seed keys are proper subset of mapping (§2.3 `dynamic: strict` invariant); `record_source` present in mapping + live for all 6 business indices.
+- 2026-05-26 [Jiayu Zhu] **Scope reduction — arxiv dropped.** §5.1 `arxiv_puller` removed; OAI-PMH XML complexity unjustified given bioRxiv + medRxiv coverage. Cleaned §1.1 / §1.2 / §2.2.1 / §5.1 / §5.2 + `ingestion/run_pull.py` `--preprint-source` / `--batch-source` choice lists. Pre-2026-05-26 changelog entries kept (historical state).
+- 2026-05-26 [Jiayu Zhu] **Dispatcher ONBOARDING.md deleted.** Build-time runbook turned drift-prone after dispatcher shipped (2026-05-25 entry's `es.get(id=req.preprint_doi)` doc bug confirmed it was stale). [apps/dispatcher/README.md](../apps/dispatcher/README.md) + `main.py` docstring + §9.6.1 are now the dispatcher's authoritative trail.
+- 2026-05-26 [Jiayu Zhu] **Repo hygiene — `.gitignore` `scripts/` catch-all removed.** Was silently excluding `apps/dispatcher/scripts/*` (T1 spike), `elastic/scripts/audit_schema_drift.py` (T7), `elastic/agent_builder/scripts/upsert_workflow.sh` (Phase 5d). `apps/dispatcher/.gitignore` already covers OAuth secrets so removing the global rule doesn't widen secret exposure.
+- 2026-05-26 [Jiayu Zhu] **T6 — top-level README rewritten; `agents/README.md` un-staled.** Removed WIP disclaimer + broken `workflows/` link + incorrect Cloud Run / Vercel claims. New structure: elevator pitch + ASCII architecture diagram + deployment-state table + reproduce-from-clean-clone 9-step sequence + T1 reference smoke test. `agents/README.md` v0 status + WIP Cloud Run sections replaced with current 6-reasoningEngine deploy table. `frontend/README.md` added (D pending; pointer to BFF / §6.1 contract).

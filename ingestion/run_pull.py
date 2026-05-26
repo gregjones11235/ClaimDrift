@@ -28,13 +28,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--doi", help="DOI to look up when --source crossref is used.")
     parser.add_argument(
         "--preprint-source",
-        choices=["biorxiv", "medrxiv", "arxiv"],
+        choices=["biorxiv", "medrxiv"],
         default="medrxiv",
         help="Source label to use when creating a published preprints row from Crossref.",
     )
     parser.add_argument(
         "--batch-source",
-        choices=["all", "biorxiv", "medrxiv", "arxiv"],
+        choices=["all", "biorxiv", "medrxiv"],
         default="all",
         help="Source filter for --source crossref-batch.",
     )

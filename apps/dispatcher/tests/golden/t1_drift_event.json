@@ -1,0 +1,111 @@
+{
+    "_index": "drift_events",
+    "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+    "_version": 1,
+    "_seq_no": 1,
+    "_primary_term": 1,
+    "found": true,
+    "_source": {
+        "event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+        "preprint_doi": "10.1101/2024.05.03.24306688",
+        "preprint_version_compared": "v2",
+        "published_doi": "10.1007/978-3-031-66535-6_19",
+        "drift_summary": "The published version of this paper removes all claims from the preprint's abstract, including all quantitative performance metrics for the proposed diagnostic tool. This represents a complete retraction of the core findings and novelty claims related to using an LLM for amblyopia diagnosis.",
+        "claim_diffs": [
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-0",
+                "published_claim_id": null,
+                "preprint_text": "Amblyopia is a neurodevelopmental visual disorder that affects approximately 3-5% of children globally and it can lead to vision loss if it is not diagnosed and treated early.",
+                "published_text": null,
+                "change_description": "The introductory claim establishing the prevalence and importance of amblyopia was removed from the published version."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-1",
+                "published_claim_id": null,
+                "preprint_text": "Traditional diagnostic methods, which rely on subjective assessments and expert interpretation of eye movement recordings presents challenges in resource-limited eye care centers.",
+                "published_text": null,
+                "change_description": "The claim outlining the challenges of traditional amblyopia diagnosis methods was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-2",
+                "published_claim_id": null,
+                "preprint_text": "This study introduces a new approach that integrates the Gemini large language model (LLM) with eye-tracking data to develop a classification tool for diagnosis of patients with amblyopia.",
+                "published_text": null,
+                "change_description": "The central claim introducing the study's novel LLM-based diagnostic approach was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-3",
+                "published_claim_id": null,
+                "preprint_text": "LLMs can be successfully applied to the analysis of fixation eye movement data to diagnose patients with amblyopia.",
+                "published_text": null,
+                "change_description": "The claim regarding the successful application of LLMs for analyzing eye movement data was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-3",
+                "published_claim_id": null,
+                "preprint_text": "Input of medical subject matter expertise, introduced in this study in the form of medical expert augmented generation (MEAG), is an effective adaption of the generic retrieval augmented generation (RAG) approach for medical applications using LLMs.",
+                "published_text": null,
+                "change_description": "The claim about the effectiveness of the MEAG approach was removed from the published abstract."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-4",
+                "published_claim_id": null,
+                "preprint_text": "This study introduces a new multi-view prompting framework for ophthalmology applications that incorporates fine granularity feedback from pediatric ophthalmologist together with in-context learning to report an accuracy of 80% in diagnosing patients with amblyopia.",
+                "published_text": null,
+                "change_description": "The specific claim detailing the multi-view prompting framework and its 80% accuracy was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-5",
+                "published_claim_id": null,
+                "preprint_text": "In addition to the binary classification task, the classification tool is generalizable to specific subpopulations of amblyopic patients based on severity of amblyopia, type of amblyopia, and with or without nystagmus.",
+                "published_text": null,
+                "change_description": "The claim about the generalizability of the classification tool to patient subpopulations was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-6",
+                "published_claim_id": null,
+                "preprint_text": "The model reports an accuracy of 83% in classifying patients with moderate or severe amblyopia.",
+                "published_text": null,
+                "change_description": "The specific performance claim of 83% accuracy for moderate/severe amblyopia was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-6",
+                "published_claim_id": null,
+                "preprint_text": "The model reports an accuracy of 81% in classifying patients with mild or treated amblyopia.",
+                "published_text": null,
+                "change_description": "The specific performance claim of 81% accuracy for mild/treated amblyopia was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-6",
+                "published_claim_id": null,
+                "preprint_text": "The model reports an accuracy of 85% in classifying patients with nystagmus.",
+                "published_text": null,
+                "change_description": "The specific performance claim of 85% accuracy for patients with nystagmus was removed."
+            },
+            {
+                "diff_type": "claim_disappeared",
+                "preprint_claim_id": "abstract-7",
+                "published_claim_id": null,
+                "preprint_text": "To the best of our knowledge, this is the first study that defines a multiview prompting framework with MEAG to analyze eye tracking data for the diagnosis of amblyopic patients.",
+                "published_text": null,
+                "change_description": "The claim to novelty as the first study of its kind was removed from the published version."
+            }
+        ],
+        "materiality_score": 1.0,
+        "retrieved_patterns_used": [
+            "c31f4560-611c-4335-a7a2-97b744d014da"
+        ],
+        "analyzed_at": "2026-05-26T10:36:10.125874+00:00",
+        "detected_at": "2026-05-26T10:36:10.125874+00:00"
+    }
+}
