@@ -74,12 +74,13 @@ def clean_text(value: Any) -> Optional[str]:
 
 
 def preprint_record_from_puller(row: Dict[str, Any], ingested_at: Optional[str] = None) -> Dict[str, Any]:
+    published_doi = normalize_doi(row.get("published_doi"))
     return {
         "doi": normalize_doi(row.get("doi")),
         "source": row.get("source"),
         "version": normalize_version(row.get("version")),
-        "is_final_preprint": False,
-        "published_doi": normalize_doi(row.get("published_doi")),
+        "is_final_preprint": bool(published_doi),
+        "published_doi": published_doi,
         "title": clean_text(row.get("title")),
         "abstract": clean_text(row.get("abstract")),
         "conclusion": clean_text(row.get("conclusion")),
@@ -94,7 +95,45 @@ def crossref_record_from_puller(row: Dict[str, Any]) -> Dict[str, Any]:
         "doi": normalize_doi(row.get("doi")),
         "published_doi": normalize_doi(row.get("published_doi")),
         "title": clean_text(row.get("title")),
+        "abstract": clean_text(row.get("abstract")),
+        "authors": normalize_authors(row.get("authors")),
         "published_date": row.get("published_date"),
         "type": row.get("type"),
         "publisher": row.get("publisher"),
     }
+
+
+def published_record_from_crossref(
+    row: Dict[str, Any],
+    source: str,
+    ingested_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    title = clean_text(row.get("title"))
+    abstract = clean_text(row.get("abstract")) or title
+    return {
+        "doi": normalize_doi(row.get("doi")),
+        "source": source,
+        "version": "published",
+        "is_final_preprint": False,
+        "published_doi": normalize_doi(row.get("doi")),
+        "title": title,
+        "abstract": abstract,
+        "conclusion": None,
+        "authors": normalize_authors(row.get("authors")),
+        "posted_date": parse_date(date_parts_to_iso(row.get("published_date"))),
+        "ingested_at": ingested_at or utc_now(),
+    }
+
+
+def date_parts_to_iso(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    if isinstance(value, list):
+        parts = [part for part in value if part is not None]
+        if len(parts) >= 3:
+            return f"{int(parts[0]):04d}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+        if len(parts) == 2:
+            return f"{int(parts[0]):04d}-{int(parts[1]):02d}-01"
+        if len(parts) == 1:
+            return f"{int(parts[0]):04d}-01-01"
+    return str(value)
