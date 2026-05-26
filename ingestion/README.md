@@ -2,6 +2,12 @@
 
 This directory contains B-owned data ingestion code for ClaimDrift.
 
+For the current Cloud Run / Cloud Scheduler deployment state and operational
+commands, see:
+
+- [Ingestion Cloud Run Operations](../docs/ingestion_cloud_run_ops.md)
+- [Ingestion Cloud Run 运维记录](../docs/ingestion_cloud_run_ops_CN.md)
+
 It currently supports:
 
 - bioRxiv pulls
