@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.parse
 from typing import Any, Dict, Optional
 
 from .common.elastic import ElasticsearchHttpClient
@@ -28,13 +29,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--doi", help="DOI to look up when --source crossref is used.")
     parser.add_argument(
         "--preprint-source",
-        choices=["biorxiv", "medrxiv", "arxiv"],
+        choices=["biorxiv", "medrxiv"],
         default="medrxiv",
         help="Source label to use when creating a published preprints row from Crossref.",
     )
     parser.add_argument(
         "--batch-source",
-        choices=["all", "biorxiv", "medrxiv", "arxiv"],
+        choices=["all", "biorxiv", "medrxiv"],
         default="all",
         help="Source filter for --source crossref-batch.",
     )
@@ -84,20 +85,80 @@ def upsert_preprints(rows: list[Dict[str, Any]], batch_size: int = 500) -> int:
 
 
 def update_preprint_published_doi(preprint_doi: str, published_doi: str) -> int:
+    """Pair a preprint DOI with its published DOI, and (per contracts.md §2.2.1)
+    set is_final_preprint=true on EXACTLY ONE row — the highest v\\d+ version
+    of this DOI. All other rows of the same DOI (older versions + the
+    version=published row) are forced to false in the same pass.
+
+    Returns the number of rows touched by the update_by_query (the bulk pass);
+    the targeted true-flip is one additional PUT and is not included in this
+    count because callers historically treat the return as "rows updated by
+    this pairing", and the bulk update_by_query is the closer analog of the
+    pre-fix behavior.
+    """
     client = ElasticsearchHttpClient()
+
+    # Step 1: set published_doi on every row of this DOI; force is_final_preprint
+    # to false unconditionally. The single true-flip happens in step 3.
     response = client.request(
         "POST",
         "/preprints/_update_by_query?refresh=true&conflicts=proceed",
         {
             "script": {
-                "source": "ctx._source.published_doi = params.published_doi; ctx._source.is_final_preprint = true",
+                "source": "ctx._source.published_doi = params.published_doi; ctx._source.is_final_preprint = false",
                 "lang": "painless",
                 "params": {"published_doi": published_doi},
             },
             "query": {"term": {"doi": preprint_doi}},
         },
     )
-    return int(response.get("updated", 0))
+    updated = int(response.get("updated", 0))
+
+    # Step 2: find the highest v\d+ version row for this DOI (exclude the
+    # version=published row). If there is no v\d+ row (e.g. only a published
+    # row exists yet — race condition during ingestion), there is nothing to
+    # flip true and we return.
+    search_resp = client.request(
+        "POST",
+        "/preprints/_search",
+        {
+            "size": 1,
+            "_source": False,
+            "query": {
+                "bool": {
+                    "filter": [{"term": {"doi": preprint_doi}}],
+                    "must_not": [{"term": {"version": "published"}}],
+                }
+            },
+            # version is a keyword like "v1", "v2", ..., "v10". Lexicographic
+            # sort is wrong for two-digit versions; sort by posted_date desc
+            # then version desc as a stable tiebreaker. posted_date is set per
+            # version on bioRxiv/medRxiv (newer versions have later dates).
+            "sort": [
+                {"posted_date": {"order": "desc", "missing": "_last"}},
+                {"version": {"order": "desc"}},
+            ],
+        },
+    )
+    hits = search_resp.get("hits", {}).get("hits", [])
+    if not hits:
+        return updated
+
+    target_id = hits[0]["_id"]
+
+    # Step 3: flip is_final_preprint=true on that single row.
+    # preprints doc_ids are composite "{normalized_doi}::{version}" and contain
+    # "/" (e.g. "10.1101/2021.03.29.437597::v4"). Percent-encode the whole id
+    # so ES routes the URL correctly — otherwise the "/" splits the path and
+    # ES returns "no handler found for uri" (see ElasticsearchHttpClient.request
+    # which does NOT auto-encode path segments).
+    encoded_id = urllib.parse.quote(target_id, safe="")
+    client.request(
+        "POST",
+        f"/preprints/_update/{encoded_id}?refresh=true",
+        {"doc": {"is_final_preprint": True}},
+    )
+    return updated
 
 
 def fetch_unpaired_preprints(limit: Optional[int], source: Optional[str] = None) -> list[Dict[str, Any]]:

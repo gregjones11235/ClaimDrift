@@ -1,0 +1,148 @@
+name: dispatch_new_pairs
+enabled: true
+description: |
+  Phase T2 — the §9.6.1 scheduled trigger. Every 5 min, find newly-ingested
+  (preprint, published) pairs in `preprints` and POST each to the Cloud Run
+  dispatcher to run the §4.1 fan-out (claim_extractor ×2 → drift_analyzer →
+  citation_finder → notifier ×N → memory_synthesizer).
+
+  Watermark cursor lives in `dispatch_state/_doc/main_flow.last_seen_ingested_at`
+  (§2.2.7). After every successful run the workflow PUTs the max ingested_at
+  it just saw, so the next run only scans rows newer than that.
+
+  Idempotency is enforced on the dispatcher side (apps/dispatcher/main.py
+  `_find_existing_drift_event`): if the same (preprint_doi, published_doi)
+  pair already has a drift_event row, dispatcher returns 200 "already_processed"
+  without firing the pipeline. This handles three failure modes safely:
+    1. Workflow re-fires while a previous run is still streaming (~200s
+       pipeline > 5min cadence is possible with many pairs).
+    2. Watermark write fails after dispatch succeeded → next run re-emits
+       the same pair → dispatcher skips it.
+    3. Manual `?force=true` re-runs from CLI don't touch the watermark.
+
+  Bearer-secret note: Elastic Workflows in 9.3 has no secret store (consts
+  are plaintext in the workflow definition; see April-2026 forum thread
+  cited in contracts.md §9.6.1). The token below is therefore inlined into
+  the YAML stored in Kibana — but NOT into the git repo. The gitignored
+  copy of this file lives at `dispatch_new_pairs.yaml` (sibling of this
+  .template.yaml); to generate it locally:
+      sed 's/<WF_BEARER_TOKEN>/'"$WF_BEARER_TOKEN"'/' \
+          dispatch_new_pairs.template.yaml > dispatch_new_pairs.yaml
+  Then upsert via:
+      elastic/agent_builder/scripts/upsert_workflow.sh \
+          elastic/agent_builder/workflows/dispatch_new_pairs.yaml
+  Migrate to a Kibana connector with secret support when Elastic 9.4 ships.
+
+  Foreach is serial in Elastic Workflows (no parallel step type exists);
+  this is fine because dispatcher's POST returns 202 in ~100ms (the actual
+  pipeline runs as a background task on Cloud Run, not inline). Set the
+  search size limit conservatively so a single workflow tick can't fan out
+  to hundreds of dispatches at once.
+
+tags: ["claimdrift", "main-flow", "scheduled"]
+
+triggers:
+  - type: scheduled
+    with:
+      every: 5m
+
+consts:
+  dispatcher_url: "https://claimdrift-dispatcher-3gz4czm2hq-uc.a.run.app/dispatch"
+  bearer_token: "<WF_BEARER_TOKEN>"
+
+steps:
+  # Step 1 — read the watermark from dispatch_state. There is exactly one
+  # document (id=main_flow), so this is a simple GET _doc.
+  - name: read_watermark
+    type: elasticsearch.request
+    with:
+      method: GET
+      path: /dispatch_state/_doc/main_flow
+
+  # Step 2 — find new pairs ingested since the watermark. Filter rules
+  # mirror contracts §2.2.1 + §2.3:
+  #   - published_doi must exist (the pair is closed)
+  #   - is_final_preprint=true (only run on the final preprint version)
+  #   - record_source != demo_seed (only real data per §2.3)
+  #   - version != "published" (the mirror row is not a preprint to process)
+  #   - ingested_at > last_seen_ingested_at (strictly newer than watermark)
+  # Sort DESC so hits[0] holds the newest ingested_at — easier to reference
+  # in Step 4 than `.last` (Kibana's schema validator rejects the chain).
+  #
+  # The Kibana schema validator does NOT understand ES DSL semantics — it
+  # tries to typecheck `term:` values against a generic "Short query syntax
+  # for match query" string-only schema. Using the long-form
+  # `term: { field: { value: ... } }` syntax (Elasticsearch's official
+  # canonical form per their REST docs) bypasses the validator's
+  # short-form heuristic and works at runtime.
+  - name: search_new_pairs
+    type: elasticsearch.search
+    with:
+      index: preprints
+      # Literal 20: `${{ }}` type-preserving interpolation in the size slot
+      # is rejected by the Kibana schema validator. A 5-min tick rarely
+      # produces more than 1-3 new pairs from medRxiv/bioRxiv hourly
+      # ingestion; if we ever miss some, the next tick picks them up.
+      size: 20
+      sort:
+        - ingested_at: desc
+      _source:
+        - doi
+        - published_doi
+        - ingested_at
+      query:
+        bool:
+          filter:
+            - exists:
+                field: published_doi
+            - term:
+                is_final_preprint:
+                  value: true
+            - range:
+                ingested_at:
+                  gt: "{{ steps.read_watermark.output._source.last_seen_ingested_at }}"
+          must_not:
+            - term:
+                record_source:
+                  value: demo_seed
+            - term:
+                version:
+                  value: published
+
+  # Step 3 — dispatch each new pair. Serial foreach; dispatcher returns 202
+  # in ~100ms and runs the §4.1 pipeline as a background task, so even N=20
+  # pairs only adds ~2s of inline workflow time.
+  - name: fan_out_dispatch
+    type: foreach
+    foreach: "{{ steps.search_new_pairs.output.hits.hits }}"
+    steps:
+      - name: post_to_dispatcher
+        type: http
+        with:
+          method: POST
+          url: "{{ consts.dispatcher_url }}"
+          headers:
+            Authorization: "Bearer {{ consts.bearer_token }}"
+            Content-Type: "application/json"
+          body:
+            preprint_doi: "{{ foreach.item._source.doi }}"
+            published_doi: "{{ foreach.item._source.published_doi }}"
+
+  # Step 4 — advance the watermark. Sort was DESC, so hits[0] holds the
+  # max ingested_at. Numeric-indexed access (`[0]`) is the bracket form the
+  # cheat sheet documents (`event.alerts[0].host.name`), avoiding the
+  # `.last` chain that the Kibana schema validator rejects.
+  #
+  # Skip the write if no hits — leaves last_seen at its prior value
+  # (correct behavior). `if:` here is the STEP-LEVEL conditional attribute,
+  # evaluated as KQL — distinct from the standalone `type: if` step.
+  - name: write_new_watermark
+    type: elasticsearch.request
+    if: "steps.search_new_pairs.output.hits.total.value > 0"
+    with:
+      method: PUT
+      path: /dispatch_state/_doc/main_flow
+      body:
+        flow_name: main_flow
+        last_seen_ingested_at: "{{ steps.search_new_pairs.output.hits.hits[0]._source.ingested_at }}"
+        last_updated_at: "{{ now | date: '%Y-%m-%dT%H:%M:%SZ' }}"

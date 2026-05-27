@@ -1,0 +1,239 @@
+{
+    "took": 1,
+    "timed_out": false,
+    "_shards": {
+        "total": 6,
+        "successful": 6,
+        "skipped": 0,
+        "failed": 0
+    },
+    "hits": {
+        "total": {
+            "value": 4,
+            "relation": "eq"
+        },
+        "max_score": null,
+        "hits": [
+            {
+                "_index": "affected_citations",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1007/978-981-96-4298-4_18",
+                "_score": null,
+                "_source": {
+                    "citing_paper_doi": "10.1007/978-981-96-4298-4_18",
+                    "citing_paper_title": "Typical Medical Case Diagnosis with Voting and Answer Discrimination Using Fine-Tuned LLM",
+                    "citing_paper_authors": [
+                        {
+                            "name": "Xia Liu",
+                            "orcid": "0000-0002-3110-9602",
+                            "email": null
+                        },
+                        {
+                            "name": "Wenhui Fu",
+                            "orcid": "0000-0003-3374-1326",
+                            "email": null
+                        },
+                        {
+                            "name": "Guangyu Zhou",
+                            "orcid": "0009-0007-0957-3891",
+                            "email": null
+                        },
+                        {
+                            "name": "Bohan Yu",
+                            "orcid": null,
+                            "email": null
+                        },
+                        {
+                            "name": "Xiaohan Zhao",
+                            "orcid": "0000-0003-3749-2961",
+                            "email": null
+                        },
+                        {
+                            "name": "Yu Song",
+                            "orcid": "0000-0002-0771-7499",
+                            "email": null
+                        },
+                        {
+                            "name": "Kunli Zhang",
+                            "orcid": "0000-0002-9402-1560",
+                            "email": null
+                        }
+                    ],
+                    "citation_context": null,
+                    "severity_tier": "central",
+                    "severity_reasoning": "Title 'Typical Medical Case Diagnosis with Voting and Answer Discrimination Using Fine-Tuned LLM' directly references concepts like LLM, amblyopia, and ophthalmology, which are central to the drifted claim. Likely central. (Inferred from title; no citation context available \u9225\udc94 per project \u64021.3 we do not fetch citing-paper PDFs.)",
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1007/978-981-96-4298-4_18",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "scored_at": "2026-05-26T10:36:10.125874+00:00"
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1007/978-981-96-4298-4_18"
+                ]
+            },
+            {
+                "_index": "affected_citations",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1101/2025.04.01.25325033",
+                "_score": null,
+                "_source": {
+                    "citing_paper_doi": "10.1101/2025.04.01.25325033",
+                    "citing_paper_title": "Bridging AI and Healthcare: A Scoping Review of Retrieval-Augmented Generation\u9225\u64e1thics, Bias, Transparency, Improvements, and Applications",
+                    "citing_paper_authors": [
+                        {
+                            "name": "David E. Bunnell",
+                            "orcid": "0009-0005-6673-4095",
+                            "email": null
+                        },
+                        {
+                            "name": "Mary J. Bondy",
+                            "orcid": "0000-0002-6247-7555",
+                            "email": null
+                        },
+                        {
+                            "name": "Lucy M. Fromtling",
+                            "orcid": null,
+                            "email": null
+                        },
+                        {
+                            "name": "Emilie Ludeman",
+                            "orcid": "0000-0002-1019-3737",
+                            "email": null
+                        },
+                        {
+                            "name": "Krishnaj Gourab",
+                            "orcid": null,
+                            "email": null
+                        }
+                    ],
+                    "citation_context": null,
+                    "severity_tier": "comparative",
+                    "severity_reasoning": "Title 'Bridging AI and Healthcare: A Scoping Review of Retrieval-Augmented Generation\u9225\u64e1thics, Bias, Transparency, Improvements, and Applications' mentions AI or RAG in healthcare, which is related to the methodology used in the drifted claim. Likely comparative. (Inferred from title; no citation context available \u9225\udc94 per project \u64021.3 we do not fetch citing-paper PDFs.)",
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1101/2025.04.01.25325033",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "scored_at": "2026-05-26T10:36:10.125874+00:00"
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.1101/2025.04.01.25325033"
+                ]
+            },
+            {
+                "_index": "affected_citations",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.21673/anadoluklin.1653335",
+                "_score": null,
+                "_source": {
+                    "citing_paper_doi": "10.21673/anadoluklin.1653335",
+                    "citing_paper_title": "LuminaURO: A comprehensive Artificial Intelligence Driven Assistant for enhancing urological diagnostics and patient care",
+                    "citing_paper_authors": [
+                        {
+                            "name": "Tuncay Soylu",
+                            "orcid": "0000-0001-7595-8879",
+                            "email": null
+                        },
+                        {
+                            "name": "\u964cbrahim Top\u83bdu",
+                            "orcid": "0000-0001-7685-8597",
+                            "email": null
+                        },
+                        {
+                            "name": "Muhammet \u964chsan Karaman",
+                            "orcid": "0000-0001-5700-0835",
+                            "email": null
+                        },
+                        {
+                            "name": "Esra Melis Tuzcu",
+                            "orcid": null,
+                            "email": null
+                        },
+                        {
+                            "name": "Abdullah Harun K\u8c0bn\u8c0bk",
+                            "orcid": "0000-0001-8121-1480",
+                            "email": null
+                        },
+                        {
+                            "name": "Mustafa Sacit G\u7709neren",
+                            "orcid": "0009-0000-2411-1096",
+                            "email": null
+                        },
+                        {
+                            "name": "Zeynep Salman",
+                            "orcid": "0000-0002-9864-3156",
+                            "email": null
+                        },
+                        {
+                            "name": "Perihan Demir",
+                            "orcid": "0000-0002-0490-8353",
+                            "email": null
+                        },
+                        {
+                            "name": "Beyzanur KA\u811f",
+                            "orcid": "0000-0002-7461-1942",
+                            "email": null
+                        }
+                    ],
+                    "citation_context": null,
+                    "severity_tier": "peripheral",
+                    "severity_reasoning": "Title 'LuminaURO: A comprehensive Artificial Intelligence Driven Assistant for enhancing urological diagnostics and patient care' mentions AI in urological diagnostics, a different medical domain from the drifted claim about LLM for amblyopia diagnosis. Likely peripheral. (Inferred from title; no citation context available \u9225\udc94 per project \u64021.3 we do not fetch citing-paper PDFs.)",
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.21673/anadoluklin.1653335",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "scored_at": "2026-05-26T10:36:10.125874+00:00"
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.21673/anadoluklin.1653335"
+                ]
+            },
+            {
+                "_index": "affected_citations",
+                "_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.2196/76947",
+                "_score": null,
+                "_source": {
+                    "citing_paper_doi": "10.2196/76947",
+                    "citing_paper_title": "Evaluating Large Language Models in Ophthalmology: Systematic Review",
+                    "citing_paper_authors": [
+                        {
+                            "name": "ZITAO ZHANG",
+                            "orcid": "0009-0001-9259-666X",
+                            "email": null
+                        },
+                        {
+                            "name": "Haiyang Zhang",
+                            "orcid": "0009-0001-2365-7609",
+                            "email": null
+                        },
+                        {
+                            "name": "Zhe Pan",
+                            "orcid": "0009-0005-4402-5511",
+                            "email": null
+                        },
+                        {
+                            "name": "Zhangqian Bi",
+                            "orcid": "0000-0003-2257-9052",
+                            "email": null
+                        },
+                        {
+                            "name": "Yao Wan",
+                            "orcid": "0000-0001-6937-4180",
+                            "email": null
+                        },
+                        {
+                            "name": "Xuefei Song",
+                            "orcid": "0000-0002-5666-6894",
+                            "email": null
+                        },
+                        {
+                            "name": "Xianqun Fan",
+                            "orcid": "0000-0002-9394-3969",
+                            "email": null
+                        }
+                    ],
+                    "citation_context": null,
+                    "severity_tier": "central",
+                    "severity_reasoning": "Title 'Evaluating Large Language Models in Ophthalmology: Systematic Review' directly references concepts like LLM, amblyopia, and ophthalmology, which are central to the drifted claim. Likely central. (Inferred from title; no citation context available \u9225\udc94 per project \u64021.3 we do not fetch citing-paper PDFs.)",
+                    "affected_citation_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.2196/76947",
+                    "drift_event_id": "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+                    "scored_at": "2026-05-26T10:36:10.125874+00:00"
+                },
+                "sort": [
+                    "12636161-dccf-4be2-8c23-71c3aedf8cbe::10.2196/76947"
+                ]
+            }
+        ]
+    }
+}

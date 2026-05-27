@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from typing import Any, AsyncGenerator
 
 from google.adk.agents import BaseAgent
@@ -135,23 +136,22 @@ def _strip_markdown_fence(text: str) -> str:
 def _extract_final_output(events: list[Event]) -> dict | None:
     """Pull the structured §3.x.2 output from a sub-agent's event list.
 
-    Strategy (in order):
-    1. Scan in reverse for a function_response part — the standard ADK shape
-       when an agent surfaces a tool result as its final answer.
-    2. For LlmAgents with no tools (claim_extractor, notifier), the final
-       answer lives in text parts. Walk events in reverse; for each event,
-       concatenate ALL its text parts (Gemini sometimes splits one JSON
-       response across multiple text parts in the final event), strip any
-       markdown code fence, and try json.loads.
+    Walk events in reverse; for each event, concatenate ALL its text parts
+    (Gemini sometimes splits one JSON response across multiple text parts in
+    the final event), strip any markdown code fence, try json.loads.
 
-    Returns None if neither shape produced parseable JSON.
+    Why text-part-only — including for tool-using agents like citation_finder /
+    drift_analyzer / memory_synthesizer: their final §3.x.2 business output is
+    always a *subsequent* text part that follows the tool round-trip. The
+    function_response parts on the way there are MCP-wrapped tool returns
+    shaped {"content":[{"type":"text","text":...}], "isError":bool}, NOT the
+    agent's answer. A first-cut implementation walked function_response first
+    and confidently returned the MCP wrapper as if it were the agent's output,
+    which was silently fine for N=0 runs (the wrapper still has zero
+    affected_citations) but caused supervisor to skip notifier fan-out on the
+    first real N>0 e2e (T1, 2026-05-26). Mirrors the same lesson the
+    dispatcher learned in changelog 2026-05-25.
     """
-    for event in reversed(events):
-        if event.content and event.content.parts:
-            for part in event.content.parts:
-                if getattr(part, "function_response", None):
-                    return dict(part.function_response.response or {})
-
     for event in reversed(events):
         if not (event.content and event.content.parts):
             continue
@@ -255,6 +255,36 @@ class SupervisorAgent(BaseAgent):
         drift_event = _extract_final_output(drift_events)
         if not drift_event:
             raise RuntimeError("drift_analyzer did not return §3.2.2 structured output")
+
+        # Mint event_id here (supervisor IS the §3.2.2 orchestrator). drift_analyzer
+        # returns event_id=null by design — same orchestrator-fills rationale as
+        # analyzed_at / drafted_at / synthesized_at. Without this mint, citation_finder
+        # gets drift_event_id=None and notifier gets affected_citation_id=f"None::{doi}",
+        # poisoning both ES rows and any future BFF join (T1 finding 2026-05-26).
+        if not drift_event.get("event_id"):
+            drift_event["event_id"] = str(uuid.uuid4())
+
+        # Emit the minted drift_event back into the stream so the dispatcher can pick
+        # up the SAME event_id we use for downstream fan-out envelopes. Without this,
+        # dispatcher parses drift_analyzer's text part (event_id=null), mints its own
+        # UUID for `drift_events._id`, and ends up with a different UUID than the one
+        # baked into affected_citations.drift_event_id / notification_log.drift_event_id
+        # — breaking any future BFF join (T1 round-3 finding 2026-05-26 Bug 4).
+        # The event carries the COMPLETE post-mint drift_event JSON so dispatcher can
+        # rely on it as the authoritative §3.2.2 output.
+        #
+        # invocation_id is a Pydantic-required field on Event (ADK 1.34.0). Omitting
+        # it raised ValidationError on yield, which silently terminated the async
+        # generator after drift_analyzer and stranded citation_finder / notifier /
+        # memory_synthesizer (T1 round-4 finding 2026-05-26).
+        yield Event(
+            author="supervisor_agent",
+            invocation_id=ctx.invocation_id,
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text=json.dumps(drift_event, ensure_ascii=False))],
+            ),
+        )
 
         # --- Phase 3: citation_finder -----------------------------------
         citation_env = {

@@ -5,7 +5,8 @@ The handler authenticates via bearer token, then fires off the full pipeline
 (ES reverse-lookup -> supervisor stream -> ES bulk-write -> Gmail send) in the
 background and returns 202 immediately.
 
-See apps/dispatcher/ONBOARDING.md for the full design.
+See apps/dispatcher/README.md for endpoints/config/deploy and
+docs/contracts.md §9.6.1 for the inverted-topology rationale.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from typing import Any, AsyncIterator
 import vertexai
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_bulk
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Response
 from google.cloud import secretmanager
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -75,15 +76,33 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/dispatch", status_code=202)
-async def dispatch(req: DispatchRequest, authorization: str = Header(...)) -> dict:
+@app.post("/dispatch")
+async def dispatch(
+    req: DispatchRequest,
+    authorization: str = Header(...),
+    force: bool = False,
+) -> dict:
     # (a) Bearer auth
     if authorization != f"Bearer {WF_BEARER_TOKEN}":
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
+    # (b) Idempotency check: skip if this (preprint_doi, published_doi) pair
+    # already produced a drift_event. The scheduled Elastic Workflow polls
+    # every 5 min and the pipeline runs ~200s; without this guard the same
+    # pair would be re-dispatched repeatedly while a previous run is still
+    # streaming. Override with ?force=true for debugging / explicit re-runs.
+    if not force:
+        existing = await _find_existing_drift_event(req.preprint_doi, req.published_doi)
+        if existing:
+            log.info(
+                "dispatch skipped (idempotent): pair already processed in drift_event=%s",
+                existing,
+            )
+            return {"status": "already_processed", "drift_event_id": existing}
+
     log.info(
-        "dispatch accepted: preprint=%s published=%s stub=%s",
-        req.preprint_doi, req.published_doi, USE_STUB_STREAM,
+        "dispatch accepted: preprint=%s published=%s stub=%s force=%s",
+        req.preprint_doi, req.published_doi, USE_STUB_STREAM, force,
     )
 
     # Fire-and-forget the pipeline; handler returns 202 immediately.
@@ -91,7 +110,37 @@ async def dispatch(req: DispatchRequest, authorization: str = Header(...)) -> di
     # cannot be returned to the Workflow caller (acceptable per design).
     asyncio.create_task(run_pipeline(req))
 
-    return {"status": "accepted"}
+    return Response(content='{"status":"accepted"}', media_type="application/json", status_code=202)
+
+
+async def _find_existing_drift_event(preprint_doi: str, published_doi: str) -> str | None:
+    """Return the event_id of any prior drift_event for this exact pair, or None.
+
+    Used as the dispatcher's idempotency gate. Matches §2.2.3 schema: the pair
+    `(preprint_doi, published_doi)` is the natural compound key for a drift
+    event even though the document's `_id` is a UUID. We deliberately do NOT
+    exclude `record_source=demo_seed` here — if the demo seed already wrote a
+    drift_event for a pair, that's still "processed" by the system's lights.
+    """
+    try:
+        resp = await get_es().search(
+            index="drift_events",
+            size=1,
+            query={
+                "bool": {
+                    "filter": [
+                        {"term": {"preprint_doi": preprint_doi}},
+                        {"term": {"published_doi": published_doi}},
+                    ]
+                }
+            },
+            _source=["event_id"],
+        )
+    except Exception:
+        log.exception("idempotency check failed; proceeding as if no prior event")
+        return None
+    hits = resp["hits"]["hits"]
+    return hits[0]["_source"].get("event_id") if hits else None
 
 
 async def run_pipeline(req: DispatchRequest) -> None:
@@ -124,8 +173,20 @@ async def run_pipeline(req: DispatchRequest) -> None:
             events.append(event)
         log.info("supervisor stream complete: %d events for preprint=%s", len(events), req.preprint_doi)
 
-        # Step 4: parse stream into 4 structured outputs
-        drift_event = extract_final_output(events, "drift_analyzer")
+        # Step 4: parse stream into 4 structured outputs.
+        # Prefer the supervisor's republished drift_event over drift_analyzer's raw
+        # output: supervisor mints event_id immediately after drift_analyzer returns
+        # (agents/supervisor_agent/agent.py post-Bug-4 fix) and re-yields a final
+        # author=supervisor_agent event carrying the COMPLETE drift_event JSON with
+        # that event_id baked in. Using this as the source of truth keeps
+        # drift_events._id consistent with the drift_event_id supervisor passed to
+        # citation_finder / notifier fan-outs (T1 round-3 finding 2026-05-26).
+        drift_event = extract_final_output(events, "supervisor_agent")
+        if drift_event is None:
+            # Older supervisor build without the republish step — fall back to
+            # drift_analyzer's raw output and dispatcher-side UUID mint (legacy path).
+            log.warning("no supervisor_agent final event; falling back to drift_analyzer parse")
+            drift_event = extract_final_output(events, "drift_analyzer")
         citation_result = extract_final_output(events, "citation_finder")
         notifications = extract_notifier_outputs(events)
         # memory_synthesizer output is logged but not persisted (it self-writes via MCP).

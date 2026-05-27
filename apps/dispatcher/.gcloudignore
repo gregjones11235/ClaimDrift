@@ -18,6 +18,8 @@ scripts/token.json
 scripts/test_gmail_send.py
 
 # Local dev docs (Cloud Run doesn't read these)
-ONBOARDING.md
-ONBOARDING.en.md
 README.md
+
+# T1 golden artifacts + diagnostic scripts (not needed at runtime)
+tests/
+scripts/

@@ -1,0 +1,14 @@
+{
+  "settings": {
+    "refresh_interval": "5s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "record_source": { "type": "keyword" },
+      "flow_name": { "type": "keyword" },
+      "last_seen_ingested_at": { "type": "date" },
+      "last_updated_at": { "type": "date" }
+    }
+  }
+}
