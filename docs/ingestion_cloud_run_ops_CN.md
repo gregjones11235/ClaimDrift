@@ -68,6 +68,26 @@ claimdrift-crossref-puller:
 
 否则会每小时/每天重复跑历史数据，浪费云额度并不断刷新 `ingested_at`。
 
+代码更新后，在 repo root 重新构建并更新三个共用镜像的 Cloud Run Jobs：
+
+```bash
+gcloud builds submit \
+  --config ingestion/cloudbuild.yaml \
+  --substitutions _IMAGE=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller
+
+gcloud run jobs update claimdrift-biorxiv-puller \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller \
+  --region=us-central1
+
+gcloud run jobs update claimdrift-medrxiv-puller \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller \
+  --region=us-central1
+
+gcloud run jobs update claimdrift-crossref-puller \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller \
+  --region=us-central1
+```
+
 ## Cloud Scheduler
 
 三个 Scheduler jobs 已启用，时区使用 `America/New_York`：
@@ -76,7 +96,7 @@ claimdrift-crossref-puller:
 - `claimdrift-medrxiv-daily`
 - `claimdrift-crossref-daily`
 
-名字里仍然带 `daily`，但可以按 contract 使用 hourly cadence。推荐错开
+名字里仍然带 `daily`，但按 contract 应该使用 hourly cadence。推荐错开
 触发时间，避免三个 Cloud Run jobs 同时抢资源：
 
 ```text

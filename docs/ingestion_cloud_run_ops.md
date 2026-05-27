@@ -62,6 +62,27 @@ claimdrift-crossref-puller:
 These are incremental settings. Do not leave historical backfill settings such
 as `--since=2023-01-01 --limit=4000` on the scheduled jobs.
 
+Rebuild and redeploy the shared ingestion image from the repo root after code
+changes:
+
+```bash
+gcloud builds submit \
+  --config ingestion/cloudbuild.yaml \
+  --substitutions _IMAGE=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller
+
+gcloud run jobs update claimdrift-biorxiv-puller \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller \
+  --region=us-central1
+
+gcloud run jobs update claimdrift-medrxiv-puller \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller \
+  --region=us-central1
+
+gcloud run jobs update claimdrift-crossref-puller \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/claimdrift/ingestion-puller \
+  --region=us-central1
+```
+
 ## Cloud Scheduler
 
 The three Scheduler jobs are enabled and use `America/New_York` time zone:
@@ -70,7 +91,7 @@ The three Scheduler jobs are enabled and use `America/New_York` time zone:
 - `claimdrift-medrxiv-daily`
 - `claimdrift-crossref-daily`
 
-The names still say `daily`, but the cadence can be hourly per the contract.
+The names still say `daily`, but the cadence should be hourly per the contract.
 The recommended hourly schedule is staggered to avoid simultaneous Cloud Run
 executions:
 

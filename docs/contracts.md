@@ -889,7 +889,7 @@ Vertex AI Agent Engine — supervisor_agent (ADK)
 **Implications for the demo video**:
 
 - Should not record until 5a–5f done (5g optional for the demo but trivial once 5f works).
-- Pullers (B) on Cloud Run is independent — affects narration ("system continuously monitors arXiv" vs. "we seeded these 2 demo events") but not the recordability of the agent chain itself.
+- Pullers (B) on Cloud Run are independent — affects narration ("system continuously monitors bioRxiv/medRxiv" vs. "we seeded these 2 demo events") but not the recordability of the agent chain itself.
 
 
 ## Changelog

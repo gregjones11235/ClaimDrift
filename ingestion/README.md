@@ -121,13 +121,16 @@ gcloud run jobs create claimdrift-medrxiv-puller \
   --region us-central1 \
   --set-env-vars ELASTIC_ENDPOINT="$ELASTIC_ENDPOINT" \
   --set-secrets ELASTIC_API_KEY=elastic-api-key:latest \
-  --args "--source,medrxiv,--since,2024-05-01,--limit,25,--include-published,--apply"
+  --args=--source=medrxiv,--since=2026-05-25,--limit=300,--include-published,--apply
 ```
+
+Use `--args=--flag=value,...` for Cloud Run Job updates. This avoids gcloud
+parsing bare numeric values like `300` as repeated `--args` values.
 
 For Crossref pairing, create a second job with args like:
 
 ```bash
---args "--source,crossref-batch,--batch-source,all,--limit,25,--apply"
+--args=--source=crossref-batch,--batch-source=all,--limit=100,--apply
 ```
 
 ## Seed Demo Records To Elasticsearch

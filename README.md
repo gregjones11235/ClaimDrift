@@ -15,7 +15,7 @@ The authoritative cross-component specification lives in [docs/contracts.md](doc
                           │                                │
                           ▼                                │
                    Ingestion pipeline                      │
-              (4 Cloud Run Jobs + Cloud Scheduler)         │
+              (3 Cloud Run Jobs + Cloud Scheduler)         │
                           │                                │
                           ▼                                │
               ┌──── Elasticsearch (6 indices) ◄────────────┤
