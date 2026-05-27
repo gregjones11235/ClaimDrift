@@ -152,7 +152,6 @@ curl -s -X POST "$ELASTIC_ENDPOINT/preprints/_search?size=0" \
   record inspection.
 - `crossref-batch` is intentionally smaller because it performs one Crossref
   lookup per candidate DOI.
-- The arXiv puller is implemented locally and dry-run verified, but its Cloud
-  Run Job and Scheduler are not deployed yet.
+- arXiv is out of the current ingestion scope per `docs/contracts.md`.
 - A future production hardening step should add checkpoint-based incremental
   ingestion rather than relying on a static `--since` window.
