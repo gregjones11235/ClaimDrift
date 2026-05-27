@@ -174,6 +174,103 @@ def audit_index(index: str, endpoint: str, api_key: str, has_demo_seed: bool) ->
     return messages
 
 
+def _es_post(endpoint: str, api_key: str, path: str, body: dict) -> dict:
+    """Tiny POST helper for the cross-field semantic invariants below."""
+    url = f"{endpoint.rstrip('/')}{path}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"ApiKey {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def check_is_final_preprint_invariants(endpoint: str, api_key: str) -> list[str]:
+    """Cross-field semantic invariants on the `preprints` index (contracts.md §2.2.1):
+
+      (a) per DOI, at most one version has is_final_preprint=true
+      (b) the version=published row must always have is_final_preprint=false
+
+    These are NOT field-presence drift — they are field-VALUE relationships
+    that field-name diffs cannot catch. Scope: real puller-ingested data only
+    (record_source != "demo_seed"); demo seed is hand-curated and correct.
+
+    Returns a list of drift messages; empty list = clean.
+    """
+    messages: list[str] = []
+
+    # (a) Aggregate: for each DOI, count is_final_preprint=true rows;
+    # bucket_selector filters to those with count > 1.
+    agg_body = {
+        "size": 0,
+        "query": {
+            "bool": {
+                "must_not": [{"term": {"record_source": "demo_seed"}}],
+                "filter": [{"term": {"is_final_preprint": True}}],
+            }
+        },
+        "aggs": {
+            "by_doi": {
+                "terms": {"field": "doi", "size": 1000},
+                "aggs": {
+                    "multi_true": {
+                        "bucket_selector": {
+                            "buckets_path": {"c": "_count"},
+                            "script": "params.c > 1",
+                        }
+                    }
+                },
+            }
+        },
+    }
+    try:
+        resp = _es_post(endpoint, api_key, "/preprints/_search", agg_body)
+        offenders = resp.get("aggregations", {}).get("by_doi", {}).get("buckets", [])
+        if offenders:
+            sample = [(b["key"], b["doc_count"]) for b in offenders[:5]]
+            messages.append(
+                f"  [INVARIANT §2.2.1] {len(offenders)} DOI(s) have >1 row with is_final_preprint=true "
+                f"(sample: {sample})"
+            )
+    except Exception as e:
+        messages.append(f"  [ERROR] could not check is_final_preprint uniqueness invariant: {e}")
+
+    # (b) Any version=published row with is_final_preprint=true is illegal.
+    bad_published_body = {
+        "size": 0,
+        "track_total_hits": True,
+        "query": {
+            "bool": {
+                "must_not": [{"term": {"record_source": "demo_seed"}}],
+                "filter": [
+                    {"term": {"version": "published"}},
+                    {"term": {"is_final_preprint": True}},
+                ],
+            }
+        },
+    }
+    try:
+        resp = _es_post(endpoint, api_key, "/preprints/_search", bad_published_body)
+        total = resp.get("hits", {}).get("total", {}).get("value", 0)
+        if total > 0:
+            messages.append(
+                f"  [INVARIANT §2.2.1] {total} row(s) have version=published AND is_final_preprint=true "
+                "(version=published must always be false)"
+            )
+    except Exception as e:
+        messages.append(f"  [ERROR] could not check version=published invariant: {e}")
+
+    if not messages:
+        messages.append("  OK — is_final_preprint invariants hold (per-DOI uniqueness + published=false)")
+    return messages
+
+
 def main() -> int:
     endpoint = os.environ.get("ELASTIC_ENDPOINT")
     api_key = os.environ.get("ELASTIC_API_KEY")
@@ -191,6 +288,14 @@ def main() -> int:
             if not m.strip().startswith("OK"):
                 any_drift = True
         print()
+
+    # Cross-field semantic invariants (one section per invariant family).
+    print("=== preprints: is_final_preprint invariants ===")
+    for m in check_is_final_preprint_invariants(endpoint, api_key):
+        print(m)
+        if not m.strip().startswith("OK"):
+            any_drift = True
+    print()
 
     if any_drift:
         print("RESULT: drift detected — see above. Fix by batching mapping JSON + live cluster + demo seed JSON updates (contracts.md §8.1 rule).")

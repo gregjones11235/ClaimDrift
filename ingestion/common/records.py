@@ -79,7 +79,11 @@ def preprint_record_from_puller(row: Dict[str, Any], ingested_at: Optional[str] 
         "doi": normalize_doi(row.get("doi")),
         "source": row.get("source"),
         "version": normalize_version(row.get("version")),
-        "is_final_preprint": bool(published_doi),
+        # is_final_preprint is always false on initial write; flipped to true
+        # for exactly one version per DOI by update_preprint_published_doi in
+        # ingestion/run_pull.py once Crossref confirms the published_doi pairing.
+        # See contracts.md §2.2.1.
+        "is_final_preprint": False,
         "published_doi": published_doi,
         "title": clean_text(row.get("title")),
         "abstract": clean_text(row.get("abstract")),
