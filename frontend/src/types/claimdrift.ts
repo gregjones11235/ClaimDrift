@@ -92,13 +92,23 @@ export interface DriftEvent extends DriftEventSummary {
   retrieved_patterns: RetrievedPattern[];
 }
 
+// Status enum matches notification_log mapping (contracts.md §2.2.6) plus
+// "skipped" which the dispatcher writes when no recipient email is available.
+export type NotificationStatus =
+  | "drafted"
+  | "sent"
+  | "bounced"
+  | "failed"
+  | "skipped";
+
 export interface NotificationLog {
   affected_citation_id: string;
   drift_event_id: string;
   recipient_email: string;
   subject: string;
   body: string;
-  status: "drafted";
+  status: NotificationStatus;
+  drafted_at?: string | null;
   sent_at: string | null;
   error_message: string | null;
 }

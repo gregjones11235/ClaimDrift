@@ -1,6 +1,6 @@
 """Three-way schema audit: mapping JSON ↔ live ES cluster ↔ demo seed JSON.
 
-For each of the 6 indices defined in contracts.md §2.2, this script checks:
+For each of the indices defined in contracts.md §2.2, this script checks:
 
   (A) mapping JSON file        (elastic/mappings/<idx>.json)
         vs.
@@ -56,6 +56,7 @@ INDICES: list[tuple[str, bool]] = [
     ("drift_patterns",     True),
     ("notification_log",   True),
     ("dispatch_state",     False),
+    ("agent_events",       False),
 ]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -132,6 +132,7 @@ ClaimDrift consists of **1 ingestion pipeline + 5 Gemini agents**, orchestrated 
 | `drift_patterns` | Distilled, reusable drift patterns | UUID | Memory Synthesizer | **Drift Analyzer (memory loop core)**, frontend |
 | `notification_log` | Email drafts + send status | `{affected_citation_id}` | Notifier | frontend |
 | `dispatch_state` | Scheduled-workflow watermark (one row per flow) | `flow_name` | Elastic Scheduled Workflow | Elastic Scheduled Workflow |
+| `agent_events` | Translated supervisor stream events (§6.1 envelopes) for the live frontend timeline | `{dispatch_id}::{event_seq}` | Cloud Run dispatcher | BFF SSE channel, frontend |
 
 **TODO D (Day 5-7)**: While building the frontend, if you find that some index isn't needed, or you need a new aggregated view (e.g., affected_citations grouped by author), or fields are insufficient — ping B and C on chat.
 
@@ -264,13 +265,62 @@ its own row with its own `flow_name`.
 
 **Authoritative mapping**: [elastic/mappings/dispatch_state.json](../elastic/mappings/dispatch_state.json).
 
+#### 2.2.8 `agent_events` index
+
+Stream-of-events index that lets the frontend "play back" any dispatch. The
+Cloud Run dispatcher translates each raw Agent Engine ADK event into a §6.1
+SSE envelope and bulk-indexes it here in real time; the BFF tails the index
+to serve `/api/events/stream` (see §6.3).
+
+Why this exists: Agent Engine's `async_stream_query` is single-consumer
+fire-and-forget — once the dispatcher reads an event, it's gone. Persisting
+the translated envelope here gives us (a) post-hoc replay for any historical
+drift_event, (b) multi-subscriber semantics without re-running the supervisor,
+(c) `Last-Event-ID` reconnect over flaky networks.
+
+**Minimum fields**:
+
+- `record_source`: keyword (always `"dispatcher"` for rows written by the
+  dispatcher; left unset for any future hand-injected demo rows)
+- `dispatch_id`: keyword (UUID v4 minted by the dispatcher at the start of one
+  pipeline run, identifies one supervisor stream)
+- `event_seq`: integer (1-based monotonic counter within a single
+  `dispatch_id`; combined as `{dispatch_id}::{event_seq}` for the doc `_id`)
+- `drift_event_id`: keyword | null (the minted drift_event UUID; null while
+  the stream is in flight, back-filled via `update_by_query` once
+  drift_analyzer completes mid-stream and the dispatcher mints the id —
+  consumers should `term` on this to view history of one drift)
+- `preprint_doi`: keyword (input pair, for cross-index lookups)
+- `published_doi`: keyword (input pair)
+- `event_type`: keyword (§6.1 enum: `agent.started` | `agent.tool_call` |
+  `agent.pattern_retrieved` | `agent.completed` | `agent.failed` | `heartbeat`)
+- `agent_id`: keyword | null (§6.1 enum: one of the 5 sub-agents, or null for
+  `heartbeat` frames)
+- `timestamp`: date (ISO 8601 Z, taken from the raw ADK event's Unix epoch)
+- `payload`: object, **dynamic disabled** (`{"type":"object","enabled":false}`)
+  — payload schema is a per-event-type union; disabling dynamic mapping avoids
+  mapping explosion. `_source` keeps the full payload intact.
+
+**Retention**: 30 days, application-enforced (Elastic Serverless does not
+expose the classic ILM API). The dispatcher fires a `delete_by_query` against
+`timestamp < now-30d/d` on every dispatch as a fire-and-forget side-task; see
+`apps/dispatcher/main.py:sweep_agent_events_retention`. The
+`refresh_interval` is `5s` (the Elastic Serverless minimum — sub-5s values
+are rejected with `illegal_argument_exception`, same constraint that hit
+`dispatch_state` in the 2026-05-26 T2 entry). BFF tail latency therefore
+floors at ~5s; the SSE poll interval (`SSE_TAIL_POLL_S`) is deliberately
+left at 1s so the BFF picks up new rows immediately once they're
+searchable.
+
+**Authoritative mapping**: [elastic/mappings/agent_events.json](../elastic/mappings/agent_events.json).
+
 ### 2.3 Demo seed vs real-data tagging (`record_source`)
 
 To keep demo records visually inspectable in ES while still letting real-data views exclude them, every index carries an optional `record_source` keyword field.
 
 - **Real puller-ingested docs**: field left **unset**. No code path should ever write `record_source` for real data.
 - **Demo records**: tagged with `record_source="demo_seed"`. The tag is **not** written into the seed JSON files under `elastic/demo_seed/*.json` — those files contain only business fields. Instead, [elastic/scripts/seed_demo_to_es.py](../elastic/scripts/seed_demo_to_es.py) injects the constant at bulk-index time (see `DEMO_RECORD_SOURCE` and the `tagged_row = {"record_source": DEMO_RECORD_SOURCE, **row}` line). This keeps the seed files clean and guarantees no demo record can be written without the tag.
-- **Real-data views** (BFF in Elasticsearch mode, agent retrieval against real data) exclude demo records with `must_not: [{"term": {"record_source": "demo_seed"}}]`. See `apps/bff/mock_server.py` for the canonical filter.
+- **Real-data views** (BFF in Elasticsearch mode, agent retrieval against real data) exclude demo records with `must_not: [{"term": {"record_source": "demo_seed"}}]`. See `apps/bff/server.py` for the canonical filter.
 - **Values seen so far**: `"demo_seed"`. New values (e.g. a future `"backfill_2026q3"`) require a §8.1 add-field notice.
 
 ---
@@ -654,9 +704,7 @@ The frontend receives real-time agent state from the BFF via SSE. The event enve
 
 ### 6.1 Event type list (C drafts, D gives feedback)
 
-> **Status (Phase 4b complete, 2026-05-23)**: this section defines the **frontend-facing contract**. Vertex AI Agent Engine (Phase 4b runtime for `memory_synthesizer`) does NOT natively emit events in this shape — its `streamQuery` endpoint streams ADK's own event format (function-call / function-response / text events). A BFF-side adapter translating Agent Engine's stream to the `{event_type, agent_id, drift_event_id, timestamp, payload}` envelope below is **not yet implemented** (TODO B + C; see §6.2).
->
-> Until the adapter exists, the frontend can either (a) call the Agent Engine `run` endpoint and parse ADK's native event format directly (faster, looser typing), or (b) wait for the adapter. Pick on chat.
+> **Status (2026-05-28, adapter shipped)**: this section defines the **frontend-facing contract**. Vertex AI Agent Engine does NOT natively emit events in this shape — its `streamQuery` endpoint streams ADK's own event format (function-call / function-response / text parts). The translation adapter now lives at [apps/bff/sse_adapter.py](../apps/bff/sse_adapter.py) (pure function, shared between dispatcher and BFF); transport details are in §6.2; runtime behavior is in §6.3.
 
 C decides which logical events to surface when wiring the adapter; D is the frontend consumer and has the final say on event granularity and payload content.
 
@@ -693,7 +741,99 @@ Ping C on chat; C adjusts the emit config in Agent Builder.
 
 ### 6.2 SSE transport details
 
-**TODO B (Day 5-6)**: SSE channel design, heartbeat interval, reconnection protocol, frontend subscription approach.
+**Endpoint**: `GET /api/events/stream` on the BFF (default `http://127.0.0.1:8787`).
+
+**Query params**:
+- `drift_event_id` (preferred): tail all events for one drift. Works both
+  during a dispatch (rows appear as the supervisor stream progresses) and
+  after (full history is replayed from `agent_events`).
+- `dispatch_id` (optional): tail one specific dispatcher run. Used when
+  watching a live dispatch before drift_analyzer has minted the
+  `drift_event_id` — the dispatcher exposes the `dispatch_id` it minted in
+  the 202 response on `/dispatch`.
+
+**Wire format**: standard `text/event-stream`. Each frame is:
+
+```
+id: <event_seq>            # omitted on heartbeats
+event: <event_type>
+data: <§6.1 envelope JSON>
+
+```
+
+The blank line after `data:` is part of the SSE spec. UTF-8, `Cache-Control: no-cache`,
+`Connection: keep-alive`, `Access-Control-Allow-Origin: *`.
+
+**Heartbeats**: an `event: heartbeat` frame every 15 s (configurable via
+`SSE_HEARTBEAT_S`). Keeps intermediaries (browsers, nginx) from closing
+idle connections; carries `agent_id: null` and `payload: {}`.
+
+**Reconnect / resume**: frontend EventSource auto-reconnects on transport
+errors. The browser sends the last frame's `id:` as the `Last-Event-ID`
+header on reconnect; the BFF resumes by querying `agent_events` where
+`event_seq > <last>`. No events are lost as long as the row is still within
+the 30-day retention window (§2.2.8).
+
+**Stream termination**: the BFF ends the stream when it observes
+`agent.completed` from `memory_synthesizer` (the §4.1 final phase) AND no
+new rows arrive for one poll interval — i.e. dispatcher is finished writing.
+Hard cap of `SSE_TAIL_TIMEOUT_S` (default 300 s) as a safety net.
+
+**Errors**: any adapter-side exception is surfaced to the frontend as an
+`agent.failed` envelope before the stream closes, so the UI shows a real
+error state instead of an opaque disconnect.
+
+### 6.3 Adapter behavior (ADK Event → §6.1 envelope)
+
+The translator is a stateless-per-event pure function:
+
+```python
+translate_adk_event(adk_event, state, drift_event_id) -> list[envelope]
+```
+
+State across one stream is a single `TranslatorState` tracking which
+`(agent_id, invocation_id)` pairs have already emitted `agent.started`, so
+each sub-agent invocation gets exactly one started/completed bookend.
+`notifier` fans out N invocations (one per affected citation), each with a
+distinct ADK `invocation_id` — they correctly produce N independent
+bookends.
+
+**Translation rules** (per part kind in an ADK Event's `content.parts`):
+
+| ADK part | Emits | Payload |
+|---|---|---|
+| First sight of a known `author` | `agent.started` | `{input_summary}` (static one-liner per agent) |
+| `function_call` | `agent.tool_call` | `{tool_name, args}` (args copied verbatim from the ADK `function_call.args`) |
+| `function_response` with `name` ∈ `{search_drift_patterns, update_drift_pattern}` | `agent.pattern_retrieved` (only for `search_drift_patterns`; `update_drift_pattern` is surfaced through its preceding `agent.tool_call` instead) | `{pattern_ids, scores}` extracted from the inner ES\|QL result columns |
+| `function_response` with other tool names | (dropped) | n/a |
+| `text` that parses as JSON | `agent.completed` | `{output_summary, output_id}` synthesized per §3.x.2 schema of that agent |
+| `text` that does NOT parse | (dropped) | non-final reasoning would otherwise produce spurious `completed` events |
+| ADK event with `error_code` / `error_message` | `agent.failed` | `{error_message, retry_count: 0}` |
+
+Events whose `author` is the supervisor itself (orchestration glue) are
+silently dropped — the frontend only cares about the 5 sub-agents.
+
+**Notes**:
+- `agent.step` is reserved in §6.1 but **not emitted by this adapter** —
+  ADK does not expose a "reasoning step" concept and synthesizing one
+  from heuristics would mislead the UI. The event type stays in the enum
+  for future expansion.
+- `scores` in `agent.pattern_retrieved` is the raw ES `_score` column
+  (BM25 / RRF blend depending on the query). Per the 2026-05-23 RRF
+  finding it is **informational / diagnostic only** — the UI must NOT
+  use it to rank or threshold; the agent's choice of which pattern to
+  act on is the authoritative signal (echoed by the subsequent
+  `agent.tool_call` to `update_drift_pattern`).
+- Adapter correctness is regression-tested against
+  [apps/dispatcher/tests/golden/stream_amblyopia_v2.jsonl](../apps/dispatcher/tests/golden/stream_amblyopia_v2.jsonl)
+  — the real T1 reference stream — by [apps/bff/tests/test_sse_adapter.py](../apps/bff/tests/test_sse_adapter.py).
+  13 raw ADK events → 16 §6.1 envelopes; expected sequence + counts
+  asserted explicitly.
+
+**Replay mode** (`SSE_REPLAY_GOLDEN=1` on the BFF): the BFF replays the
+golden JSONL above through the same translator, so an evaluator without
+GCP credentials can still see the production event flow end-to-end in the
+frontend. The replay paces frames at 0.6 s so the timeline animates.
 
 ---
 
@@ -834,6 +974,8 @@ These do NOT migrate — they remain Python utility code in the repo:
 
 ### 9.6.1 Orchestration topology decision (5f shape)
 
+> **Update 2026-05-28**: dispatcher now splits into `/dispatch` (thin enqueue, ~100ms) + `/run` (Pub/Sub push target, runs pipeline). Workflow `http` step has a hardcoded ~60s Serverless timeout (not user-overridable), so the round-1 sync pipeline can't fit. Topology: workflow → POST `/dispatch` → Pub/Sub topic `claimdrift-dispatch` → push subscription (ack-deadline=600s) → POST `/run` → pipeline. Sizing flags (`--concurrency=1 --max-instances=20 --cpu-boost --timeout=600`) still apply to `/run`. See the 2026-05-28 "Pub/Sub decoupling" changelog entry.
+
 The initial 5f plan said "wire §4.1 as one top-level Elastic Workflow" and flagged "may not natively support call Agent Engine agent". Subsequent research (notes captured in 2026-05-23 changelog) resolved the question: **Elastic Workflows cannot natively invoke a Vertex AI Agent Engine reasoning engine**. The relevant evidence:
 
 1. Elastic Workflows ships an [`ai.agent` step](https://www.elastic.co/docs/explore-analyze/ai-features/agent-builder/agents-and-workflows), but it only invokes agents **registered in Elastic Agent Builder** — it has no knowledge of Vertex AI resources.
@@ -937,3 +1079,5 @@ Vertex AI Agent Engine — supervisor_agent (ADK)
 - 2026-05-26 [Jiayu Zhu] **Dispatcher ONBOARDING.md deleted.** Build-time runbook turned drift-prone after dispatcher shipped (2026-05-25 entry's `es.get(id=req.preprint_doi)` doc bug confirmed it was stale). [apps/dispatcher/README.md](../apps/dispatcher/README.md) + `main.py` docstring + §9.6.1 are now the dispatcher's authoritative trail.
 - 2026-05-26 [Jiayu Zhu] **Repo hygiene — `.gitignore` `scripts/` catch-all removed.** Was silently excluding `apps/dispatcher/scripts/*` (T1 spike), `elastic/scripts/audit_schema_drift.py` (T7), `elastic/agent_builder/scripts/upsert_workflow.sh` (Phase 5d). `apps/dispatcher/.gitignore` already covers OAuth secrets so removing the global rule doesn't widen secret exposure.
 - 2026-05-26 [Jiayu Zhu] **T6 — top-level README rewritten; `agents/README.md` un-staled.** Removed WIP disclaimer + broken `workflows/` link + incorrect Cloud Run / Vercel claims. New structure: elevator pitch + ASCII architecture diagram + deployment-state table + reproduce-from-clean-clone 9-step sequence + T1 reference smoke test. `agents/README.md` v0 status + WIP Cloud Run sections replaced with current 6-reasoningEngine deploy table. `frontend/README.md` added (D pending; pointer to BFF / §6.1 contract).
+- 2026-05-28 [Jiayu Zhu] **Pub/Sub decoupling — `/dispatch` + `/run` split (§9.6.1 round 2).** Round-1 sync pipeline (await 200s before returning) failed in production: Elastic Workflows `http` step has a hardcoded ~60s connector timeout on Serverless that is NOT user-overridable — `timeout: "600s"` passes 9.4 schema validation but runtime still throws ECONNABORTED at 60000ms. Inserted Pub/Sub between workflow and pipeline: `/dispatch` does bearer auth + idempotency check + Pub/Sub publish + 202 in ~100ms (well under 60s); `/run` is the push-subscription target, verifies Google-signed OIDC token (`aud` + `email` claims), then awaits the full pipeline (ack-deadline=600s on the subscription is the new runtime budget). Cloud Run sizing flags unchanged — they apply to `/run` now, which Pub/Sub invokes as real HTTP requests the autoscaler can see. Workflow YAML drops the now-useless `timeout: "600s"`. Three GCP setup gotchas: (1) Pub/Sub managed SA needs project-level `roles/iam.serviceAccountTokenCreator` to sign OIDC tokens (post-2021 not implicit), plus `roles/run.invoker` to POST to Cloud Run. (2) `--push-auth-token-audience` MUST be set explicitly on the subscription, otherwise Pub/Sub normalizes the scheme to `http://` and the token's `aud` claim won't match what `request.url` reports inside Cloud Run. (3) `request.url` inside a Cloud Run container is unreliable for audience reconstruction (depends on proxy headers) — hardcode `PUBSUB_PUSH_AUDIENCE` env var to the public HTTPS URL. The "sync pipeline" + `timeout: "600s"` rationale in the 2026-05-28 SSE-adapter entry below is therefore obsolete — see updated §9.6.1.
+- 2026-05-28 [Jiayu Zhu] **TODO C — SSE adapter shipped (§6.3).** Shared translator [apps/bff/sse_adapter.py](../apps/bff/sse_adapter.py) imported by both dispatcher (producer) and BFF (consumer); single envelope-shape owner. Production path persists via new `agent_events` index (§2.2.8) — dispatcher translates inline during the supervisor stream and bulk-indexes; `drift_event_id` is back-filled via `update_by_query` after drift_analyzer mints it. BFF tails by `drift_event_id` or `dispatch_id` with `Last-Event-ID` resume + 15s heartbeats. Three notable rule decisions, fixed against the T1 golden (`stream_amblyopia_v2.jsonl`, 13 ADK events → 16 envelopes, regression-locked by `apps/bff/tests/test_sse_adapter.py`): `pattern_retrieved.pattern_ids` mined from ES|QL result columns NOT BM25 scores (per 2026-05-23 RRF finding); `update_drift_pattern` surfaced via its `agent.tool_call`, not a second `pattern_retrieved`; non-parseable text parts dropped (prevent spurious `agent.completed` from intermediate reasoning). `agent.step` stays reserved — ADK has no native "step" concept, synthesizing one would mislead the UI. `SSE_REPLAY_GOLDEN=1` replays the golden JSONL through the same translator so evaluators without GCP creds see real event flow. `apps/bff/mock_server.py` → `server.py` (no longer a mock; `git mv`). **Backlog-processing gotchas hit during the end-to-end shakedown**: (1) elasticsearch-py 8.x rejects `body=` on `update_by_query`/`delete_by_query` — must pass `query=`/`script=` as keyword args, else the back-fill + retention sweep silently no-op. (2) `agent_events.refresh_interval=5s` (Elastic Serverless minimum) means the last batch of envelopes written just before `update_by_query` is still in the indexing buffer and gets missed by the back-fill — added an explicit `indices.refresh("agent_events")` between the final `bulk_index` and the `update_by_query` to close the race. (3) Cloud Run `--min-instances=0` + Elastic Workflow `http.request` 60s hard timeout = the very first dispatch after a scale-to-zero hits a ~40s cold start, the workflow tick errors out, and `write_new_watermark` is skipped — so the next tick scans the same backlog and dispatcher idempotency masks the symptom (envelopes still flow for the small subset of unprocessed pairs, but the watermark sticks). Cold start alone (`--min-instances=1`) is insufficient — even on a warm container, default concurrency=80 means a single instance tries to serve a new `POST /dispatch` while a previous handler's ~200s background task is still on the event loop, pushing later POSTs in the same workflow `foreach` past 60s. Concurrency-isolation (`--concurrency=1 --max-instances=20 --cpu-boost --min-instances=1`) was tried next but is ALSO insufficient: Cloud Run's autoscaler only counts in-flight HTTP requests, not `asyncio.create_task` background work. The handler returning 202 in 100ms made every instance look idle from the autoscaler's perspective, so it never scaled past 1 instance and a single event loop kept saturating. **Real fix: drop the fire-and-forget pattern entirely.** The dispatcher now `await`s the full pipeline before returning, so each instance is visibly busy and Cloud Run scales to `--max-instances`. This costs three additional config knobs: workflow http step `timeout: "600s"` (the connector default is 60s; pipelines run ~200s), Cloud Run service `--timeout=600` (default 300s would kill long pipelines), and the original four sizing flags still apply. The §9.6.1 "fire-and-forget 202" rationale is therefore obsolete — see updated §9.6.1.

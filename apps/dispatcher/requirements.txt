@@ -13,3 +13,6 @@ google-auth>=2.35,<3.0
 
 # Secret Manager for fetching Gmail OAuth secrets at startup
 google-cloud-secret-manager>=2.20,<3.0
+
+# Pub/Sub publisher (used by /dispatch) and OIDC token verification (used by /run)
+google-cloud-pubsub>=2.25,<3.0

@@ -1,4 +1,4 @@
-import { getDriftEvents } from "@/lib/api/client";
+import { getDriftEvents, getAffectedCitations, getNotifications, getPatterns } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { CornerDownRight, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -8,7 +8,10 @@ import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
 
 export default async function DashboardPage() {
-  const { items: events } = await getDriftEvents();
+  const [{ items: events }, { items: patterns }] = await Promise.all([
+    getDriftEvents(),
+    getPatterns(),
+  ]);
 
   if (events.length === 0) {
     return (
@@ -18,13 +21,36 @@ export default async function DashboardPage() {
     );
   }
 
-  const highSeverityCount = events.filter(e => e.materiality_score >= 0.7).length;
-  const avgScore = events.reduce((acc, e) => acc + e.materiality_score, 0) / events.length;
-  
-  const latestEvent = [...events].sort((a, b) => new Date(b.detected_at).getTime() - new Date(a.detected_at).getTime())[0];
+  // Roll up affected_citations + notifications across all events in parallel so
+  // the summary cards stay in sync with the underlying ES state.
+  const perEvent = await Promise.all(
+    events.map(async (e) => {
+      const [ac, nl] = await Promise.all([
+        getAffectedCitations(e.event_id),
+        getNotifications(e.event_id),
+      ]);
+      return { event_id: e.event_id, citations: ac.items, notifications: nl.items };
+    })
+  );
 
-  const scoreColor = (s: number) =>
-    s >= 0.7 ? 'text-danger' : s >= 0.5 ? 'text-caution' : 'text-brand';
+  const totalAffectedCitations = perEvent.reduce((acc, p) => acc + p.citations.length, 0);
+  const sentNotifications = perEvent.reduce(
+    (acc, p) => acc + p.notifications.filter((n) => n.status === "sent").length,
+    0
+  );
+  const totalNotifications = perEvent.reduce((acc, p) => acc + p.notifications.length, 0);
+
+  const highSeverityCount = events.filter((e) => e.materiality_score >= 0.7).length;
+  const avgScore = events.reduce((acc, e) => acc + e.materiality_score, 0) / events.length;
+
+  // Surface the most common pattern_type so the summary card reflects the
+  // actual memory state rather than a hand-picked label.
+  const patternTypeCounts = patterns.reduce<Record<string, number>>((acc, p) => {
+    if (p.pattern_type) acc[p.pattern_type] = (acc[p.pattern_type] ?? 0) + 1;
+    return acc;
+  }, {});
+  const topPatternType = Object.entries(patternTypeCounts)
+    .sort((a, b) => b[1] - a[1])[0]?.[0];
 
   return (
     <div className="space-y-6">
@@ -32,22 +58,28 @@ export default async function DashboardPage() {
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Tracked events</div>
           <div className="text-2xl font-medium font-sans text-black">{events.length}</div>
-          <div className="text-[11px] font-mono text-[#0D7A5F] mt-1">demo seed data</div>
+          <div className="text-[11px] font-mono text-[#666] mt-1">
+            {highSeverityCount} high severity (≥0.7)
+          </div>
         </div>
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Avg materiality_score</div>
           <div className="text-2xl font-medium font-sans text-black">{avgScore.toFixed(2)}</div>
-          <div className="text-[11px] font-mono text-[#C92A2A] mt-1">High severity</div>
+          <div className="text-[11px] font-mono text-[#666] mt-1">across {events.length} events</div>
         </div>
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Affected citations</div>
-          <div className="text-2xl font-medium font-sans text-black">4</div>
-          <div className="text-[11px] font-mono text-[#E67700] mt-1">2 emails drafted</div>
+          <div className="text-2xl font-medium font-sans text-black">{totalAffectedCitations}</div>
+          <div className="text-[11px] font-mono text-[#666] mt-1">
+            {sentNotifications}/{totalNotifications} emails sent
+          </div>
         </div>
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Patterns learned</div>
-          <div className="text-2xl font-medium font-sans text-black">1</div>
-          <div className="text-[11px] font-mono text-[#666] mt-1">effect_size_reduction</div>
+          <div className="text-2xl font-medium font-sans text-black">{patterns.length}</div>
+          <div className="text-[11px] font-mono text-[#666] mt-1">
+            {topPatternType ?? "—"}
+          </div>
         </div>
       </div>
 
@@ -66,54 +98,54 @@ export default async function DashboardPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-black">
-            {events.map((event) => (
-              <tr 
-                key={event.event_id} 
-                className="hover:bg-[#F5F5F5] transition-colors group relative"
-              >
-                <td className="p-4 align-top text-[12px] text-black font-sans pr-4 leading-[1.4]">
-                  <div className="line-clamp-2">{event.drift_summary}</div>
-                </td>
-                <td className="p-4 align-top">
-                  <Link href={`/event/${event.event_id}`} className="absolute inset-0 z-10" />
-                  <div className="text-[11px] font-mono text-black truncate" title={event.preprint_doi}>
-                    {event.preprint_doi}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 text-[#666]">
-                    <CornerDownRight className="w-3 h-3 flex-shrink-0" />
-                    <div className="text-[11px] font-mono truncate" title={event.published_doi}>
-                      {event.published_doi}
+            {events.map((event) => {
+              const diffType = event.claim_diffs?.[0]?.diff_type ?? "—";
+              const scoreColor = event.materiality_score >= 0.7
+                ? "text-[#C92A2A]"
+                : event.materiality_score >= 0.5
+                ? "text-[#B45309]"
+                : "text-[#0D7A5F]";
+              return (
+                <tr
+                  key={event.event_id}
+                  className="hover:bg-[#F5F5F5] transition-colors group relative"
+                >
+                  <td className="p-4 align-top text-[12px] text-black font-sans pr-4 leading-[1.4]">
+                    <div className="line-clamp-2">{event.drift_summary}</div>
+                  </td>
+                  <td className="p-4 align-top">
+                    <Link href={`/event/${event.event_id}`} className="absolute inset-0 z-10" />
+                    <div className="text-[11px] font-mono text-black truncate" title={event.preprint_doi}>
+                      {event.preprint_doi}
                     </div>
-                  </div>
-                </td>
-                <td className="p-4 align-top font-mono font-medium text-[13px] text-[#C92A2A]">
-                  {event.materiality_score.toFixed(2)}
-                </td>
-                <td className="p-4 align-top">
-                  <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-sans bg-white text-black border-black rounded-none">
-                    numerical_shift
-                  </Badge>
-                </td>
-                <td className="p-4 align-top text-[12px] text-black font-mono">
-                  {dayjs(event.detected_at).format("YYYY-MM-DD")}
-                </td>
-                <td className="p-4 align-top">
-                  <div className="inline-flex items-center gap-1 text-[12px] font-medium text-black group-hover:underline">
-                    View <ArrowRight className="w-3 h-3" />
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    <div className="flex items-center gap-1.5 mt-1 text-[#666]">
+                      <CornerDownRight className="w-3 h-3 flex-shrink-0" />
+                      <div className="text-[11px] font-mono truncate" title={event.published_doi}>
+                        {event.published_doi}
+                      </div>
+                    </div>
+                  </td>
+                  <td className={`p-4 align-top font-mono font-medium text-[13px] ${scoreColor}`}>
+                    {event.materiality_score.toFixed(2)}
+                  </td>
+                  <td className="p-4 align-top">
+                    <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-sans bg-white text-black border-black rounded-none">
+                      {diffType}
+                    </Badge>
+                  </td>
+                  <td className="p-4 align-top text-[12px] text-black font-mono">
+                    {dayjs(event.detected_at).format("YYYY-MM-DD")}
+                  </td>
+                  <td className="p-4 align-top">
+                    <div className="inline-flex items-center gap-1 text-[12px] font-medium text-black group-hover:underline">
+                      View <ArrowRight className="w-3 h-3" />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </div>
-      
-      <div className="flex items-center justify-between text-[11px] font-sans text-[#666] border-t border-black pt-4">
-        <div><span className="font-medium text-black">Demo Data</span> &middot; 2 events tracked</div>
-        <div className="flex gap-4">
-          <span><code className="font-mono bg-[#F5F5F5] px-1 py-0.5 border border-black">diff_type</code> is numerical_shift</span>
-          <span><code className="font-mono bg-[#F5F5F5] px-1 py-0.5 border border-black">materiality_score</code> not drift_score</span>
-        </div>
       </div>
     </div>
   );

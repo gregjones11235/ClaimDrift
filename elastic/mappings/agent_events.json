@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "refresh_interval": "5s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "record_source": { "type": "keyword" },
+      "dispatch_id": { "type": "keyword" },
+      "event_seq": { "type": "integer" },
+      "drift_event_id": { "type": "keyword" },
+      "preprint_doi": { "type": "keyword" },
+      "published_doi": { "type": "keyword" },
+      "event_type": { "type": "keyword" },
+      "agent_id": { "type": "keyword" },
+      "timestamp": { "type": "date" },
+      "payload": { "type": "object", "enabled": false }
+    }
+  }
+}

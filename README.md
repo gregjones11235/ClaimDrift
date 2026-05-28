@@ -60,12 +60,12 @@ For the design rationale of this inverted topology (why supervisor lives on Agen
 | 5 sub-agents on Vertex AI Agent Engine | ✓ live | `claim_extractor`, `drift_analyzer`, `citation_finder`, `notifier`, `memory_synthesizer` — see `agents/_DEPLOY_CHECKLIST.md` |
 | supervisor on Agent Engine | ✓ live | reasoningEngine `7816826734824652800` |
 | Elastic Agent Builder MCP tools | ✓ live | 4 tools wired: `search_drift_patterns` (ES\|QL) + `create_drift_pattern` / `update_drift_pattern` (Workflow YAML write side) + `openalex_citing_works` (Workflow YAML http chain) |
-| Elasticsearch indices | ✓ live | 7 indices (6 business + 1 operational `dispatch_state`); ~10k real preprints + ~2.2k real (preprint, published) pairs |
+| Elasticsearch indices | ✓ live | 8 indices (6 business + `dispatch_state` watermark + `agent_events` SSE stream); ~10k real preprints + ~2.2k real (preprint, published) pairs |
 | Ingestion pipeline | ✓ live | 3 Cloud Run Jobs (`bioRxiv`, `medRxiv`, `crossref`) + Cloud Scheduler hourly; see [docs/ingestion_cloud_run_ops.md](docs/ingestion_cloud_run_ops.md) |
 | Cloud Run dispatcher | ✓ live | `https://claimdrift-dispatcher-3gz4czm2hq-uc.a.run.app/dispatch` — receives Workflow POSTs, drives supervisor, persists outputs, sends Gmail; idempotent on `(preprint_doi, published_doi)` |
 | Elastic Scheduled Workflow | ✓ live | `dispatch_new_pairs`, every 5 min |
-| BFF (`apps/bff/`) | ⚠ mock | Mock SSE for frontend dev; production SSE adapter (translate Agent Engine streamQuery → §6.1 envelope) not yet built (TODO C) |
-| Frontend (`frontend/`) | ⚠ scaffolding pending | D-owned; in progress |
+| BFF (`apps/bff/`) | ✓ live | `server.py` serves REST views over ES + the live `/api/events/stream` SSE channel; SSE adapter (Agent Engine streamQuery → §6.1 envelope) shipped 2026-05-28, see [docs/contracts.md §6.3](docs/contracts.md) |
+| Frontend (`frontend/`) | ✓ scaffolded | Next.js 16 + React 19, 6 views; D-owned |
 | arXiv puller | ✗ out of scope | Dropped 2026-05-26 — bioRxiv + medRxiv already cover ~10k preprints, OAI-PMH complexity unnecessary for the §3.5 memory-loop demo |
 
 ---
@@ -103,7 +103,7 @@ Setup, in dependency order — each step is verifiable independently:
    ```
    Verify with the schema-drift audit:
    ```bash
-   uv run python elastic/scripts/audit_schema_drift.py    # should print "all 7 indices clean"
+   uv run python elastic/scripts/audit_schema_drift.py    # should print "all 8 indices clean"
    ```
 
 2. **Elastic Agent Builder MCP tools** — 1 ES|QL tool + 3 Workflow YAML tools. Each `elastic/agent_builder/tools/*.json` + `elastic/agent_builder/workflows/*.yaml` upserts via `upsert_tool.sh` / `upsert_workflow.sh`. See [contracts.md §9.3](docs/contracts.md) for the tool-by-tool migration table.
@@ -112,12 +112,15 @@ Setup, in dependency order — each step is verifiable independently:
 
 4. **Supervisor agent** to Agent Engine (same checklist; the supervisor is custom `BaseAgent` orchestration code, no LLM of its own).
 
-5. **Cloud Run dispatcher**: from `apps/dispatcher/`:
+5. **Cloud Run dispatcher**: two-step build + deploy from the **repo root** (build context must include `apps/bff/sse_adapter.py` — the §6.1 translator shared with the BFF; `gcloud run deploy --source` has no `--dockerfile` flag for subdir paths). The four runtime flags below are **mandatory** — see [apps/dispatcher/README.md](apps/dispatcher/README.md) "Runtime sizing" for why each one matters:
    ```bash
-   gcloud run deploy claimdrift-dispatcher --source . --region=us-central1 \
-     --allow-unauthenticated \
-     --set-env-vars="GCP_PROJECT=<your-project>,SUPERVISOR_REASONING_ENGINE_ID=<from step 4>,ELASTIC_ENDPOINT=...,DEMO_FALLBACK_EMAIL=..." \
-     --set-secrets="WF_BEARER_TOKEN=wf-bearer:latest,ELASTIC_API_KEY=elastic-api-key:latest"
+   gcloud builds submit . --config=apps/dispatcher/cloudbuild.yaml
+   gcloud run deploy claimdrift-dispatcher \
+     --image=us-central1-docker.pkg.dev/<your-project>/cloud-run-source-deploy/claimdrift-dispatcher:latest \
+     --region=us-central1 --allow-unauthenticated \
+     --min-instances=1 --max-instances=20 --concurrency=1 --cpu-boost \
+     --update-env-vars="GCP_PROJECT=<your-project>,SUPERVISOR_REASONING_ENGINE_ID=<from step 4>,ELASTIC_ENDPOINT=...,DEMO_FALLBACK_EMAIL=..." \
+     --set-secrets="WF_BEARER_TOKEN=wf-bearer-token:latest,ELASTIC_API_KEY=elastic-api-key:latest"
    ```
    See [apps/dispatcher/README.md](apps/dispatcher/README.md) for env-var details + Gmail OAuth one-time setup.
 

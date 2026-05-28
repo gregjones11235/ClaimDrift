@@ -62,7 +62,7 @@ Cloud Run):
 | `GCP_REGION` | env | Agent Engine region (default `us-central1`) |
 | `SUPERVISOR_REASONING_ENGINE_ID` | env | Deployed supervisor numeric id |
 | `ELASTIC_ENDPOINT` | env | `https://*.es.<region>.gcp.cloud.es.io` — NOT the Kibana URL |
-| `ELASTIC_API_KEY` | secret | base64 API key; on Cloud Run mount via Secret Manager `elastic-api-key:latest` |
+| `ELASTIC_API_KEY` | secret | base64 API key; on Cloud Run mount via Secret Manager `elastic-api-key:latest` (verify name with `gcloud secrets list`) |
 | `WF_BEARER_TOKEN` | secret | random 32+ char token; the Workflow YAML carries the matching value |
 | `USE_STUB_STREAM` | env | unset in prod; `1` locally to replay `_stub_stream.json` |
 | `DEMO_FALLBACK_EMAIL` | env | recipient when notifier's `recipient_email` is null (§3.3 v0 limitation — citing_paper_authors[].email is always null). Leave unset in production. |
@@ -73,17 +73,63 @@ not env vars. See `GMAIL_SECRETS` in [main.py](main.py).
 
 ## Deploy
 
-From `apps/dispatcher/`:
+The dispatcher imports the §6.1 SSE envelope translator from `apps/bff/sse_adapter.py`
+(shared with the BFF — single owner of the envelope shape). The build context must
+therefore be the **repo root**, not `apps/dispatcher/`; the `Dockerfile` here uses
+repo-root-relative `COPY` paths accordingly.
+
+`gcloud run deploy --source` does not support a `--dockerfile` flag pointing at a
+Dockerfile in a subdirectory, so deploy is a two-step Cloud Build + Cloud Run:
+
+From the **repo root**:
 
 ```bash
+# 1. Build the image with the dispatcher's Dockerfile (uses repo root as context).
+gcloud builds submit . --config=apps/dispatcher/cloudbuild.yaml
+
+# 2. Deploy the freshly built image to Cloud Run.
+#    The four runtime flags below are mandatory; see "Runtime sizing" below.
 gcloud run deploy claimdrift-dispatcher \
-  --source . \
+  --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/cloud-run-source-deploy/claimdrift-dispatcher:latest \
   --region=us-central1 \
   --project=tensile-topic-496519-i1 \
   --allow-unauthenticated \
-  --set-env-vars="GCP_PROJECT=tensile-topic-496519-i1,GCP_REGION=us-central1,SUPERVISOR_REASONING_ENGINE_ID=<id>,ELASTIC_ENDPOINT=<url>,DEMO_FALLBACK_EMAIL=<addr>" \
-  --set-secrets="WF_BEARER_TOKEN=wf-bearer:latest,ELASTIC_API_KEY=elastic-api-key:latest"
+  --min-instances=1 --max-instances=20 --concurrency=1 --cpu-boost \
+  --update-env-vars="GCP_PROJECT=tensile-topic-496519-i1,GCP_REGION=us-central1,SUPERVISOR_REASONING_ENGINE_ID=<id>,ELASTIC_ENDPOINT=<url>,DEMO_FALLBACK_EMAIL=<addr>" \
+  --set-secrets="WF_BEARER_TOKEN=wf-bearer-token:latest,ELASTIC_API_KEY=elastic-api-key:latest"
 ```
+
+### Runtime sizing: `--concurrency=1` + `--max-instances=20` + `--cpu-boost` + `--min-instances=1`
+
+Each `POST /dispatch` returns 202 in <100ms but spawns a ~200s background
+task (`asyncio.create_task(run_pipeline)`) that streams from Vertex AI Agent
+Engine and writes back to ES. Cloud Run's defaults (concurrency=80, one
+instance) collapse under this pattern: a single instance ends up trying to
+serve a fresh handler **while** a previous handler's background task still
+holds the event loop, so subsequent POSTs queue behind the in-flight pipeline
+and the Elastic Workflow `http.request` connector's hard 60s timeout fires.
+The Workflow execution then errors out and **`write_new_watermark` is
+skipped**, which silently freezes the backlog cursor (dispatcher idempotency
+masks the symptom — envelopes still flow for the small subset of
+unprocessed pairs, but the visible drift_events count barely moves).
+
+The four flags together produce the desired isolation:
+
+| Flag | Why |
+|---|---|
+| `--concurrency=1` | One instance handles one POST + its background pipeline. No event-loop contention between concurrent dispatches. |
+| `--max-instances=20` | A single 5-min workflow tick fans out up to 20 POSTs (`search_new_pairs.size = 20`); each lands on its own Cloud Run instance. 20 is also a hard ceiling so the backlog can't spiral. |
+| `--cpu-boost` | Doubles CPU for 5s on container start. Brings cold-start of the vertexai SDK + Agent Engine reasoning engine resolve from ~40s down to ~10-20s, comfortably inside the workflow's 60s timeout. |
+| `--min-instances=1` | Keeps one instance always warm so the first POST after an idle period is also fast (defense in depth on top of `--cpu-boost`). |
+
+All four are live as of 2026-05-28. Costs are modest: one always-on
+Cloud Run instance + up to 20 short-lived instances during workflow
+fan-out (each lives ~3-5 minutes). No GPU.
+
+The Artifact Registry path `us-central1-docker.pkg.dev/<project>/cloud-run-source-deploy/<service>`
+is the default location `gcloud run deploy --source` writes to on first use; the
+`cloud-run-source-deploy` repo is auto-created the first time you deploy. If you
+already have an existing repo by another name, update both lines accordingly.
 
 `--allow-unauthenticated` is intentional: the Elastic Workflow `http.request`
 step calls this endpoint with only a bearer header, no GCP IAM identity. The

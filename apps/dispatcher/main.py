@@ -1,9 +1,27 @@
 """ClaimDrift dispatcher service.
 
-POST /dispatch is invoked by the scheduled Elastic Workflow with a pair of DOIs.
-The handler authenticates via bearer token, then fires off the full pipeline
-(ES reverse-lookup -> supervisor stream -> ES bulk-write -> Gmail send) in the
-background and returns 202 immediately.
+Two endpoints, both POST:
+
+  /dispatch  — invoked by the scheduled Elastic Workflow with a pair of DOIs.
+               Authenticates via bearer token, idempotency-checks against
+               drift_events, then publishes a message to the Pub/Sub topic
+               `claimdrift-dispatch` and returns 202 in ~100ms. This stays
+               well within Elastic Workflows' 60s connector hard-limit (which
+               is platform-fixed on Serverless — see contracts §9.6.1).
+
+  /run       — Pub/Sub push subscription target. Verifies the Google-signed
+               OIDC token in the Authorization header, then awaits the full
+               ~200s pipeline (ES reverse-lookup -> supervisor stream -> ES
+               bulk-write -> Gmail send). Returning 200 only after the
+               pipeline finishes means each Cloud Run instance is visibly
+               busy to the autoscaler (it counts in-flight HTTP requests),
+               so concurrent pushes from Pub/Sub scale the service out to
+               --max-instances. Pub/Sub's ack deadline (600s, set in the
+               subscription) accommodates the pipeline runtime.
+
+The two-endpoint split is what lets Elastic Workflows fire a backlog of
+pairs in <1s each (workflow constraint) while still giving each pipeline
+its full runtime budget (200s LLM streaming + ES writes + Gmail sends).
 
 See apps/dispatcher/README.md for endpoints/config/deploy and
 docs/contracts.md §9.6.1 for the inverted-topology rationale.
@@ -25,13 +43,34 @@ from typing import Any, AsyncIterator
 import vertexai
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_bulk
-from fastapi import FastAPI, Header, HTTPException, Response
-from google.cloud import secretmanager
+from fastapi import FastAPI, Header, HTTPException, Request, Response
+from google.auth.transport import requests as google_auth_requests
+from google.cloud import pubsub_v1, secretmanager
+from google.oauth2 import id_token
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel
 from vertexai import agent_engines
+
+# Translator is shared with the BFF; living in apps/bff keeps the BFF the
+# canonical owner of the §6.1 envelope shape (it's the frontend-facing service).
+# The dispatcher just imports the pure function to write live envelopes to ES.
+#
+# Two layouts to support:
+#   - Local dev: <repo>/apps/dispatcher/main.py — parents[2] is the repo root,
+#     and adding it to sys.path lets `from apps.bff.sse_adapter import …` work.
+#   - Cloud Run image: /app/main.py + /app/apps/bff/sse_adapter.py — cwd
+#     (/app) is already on sys.path; nothing to add. parents[2] would raise
+#     IndexError here because /app only has two parents, so we guard it.
+import sys as _sys
+_here = Path(__file__).resolve()
+for candidate in _here.parents:
+    if (candidate / "apps" / "bff" / "sse_adapter.py").exists():
+        if str(candidate) not in _sys.path:
+            _sys.path.insert(0, str(candidate))
+        break
+from apps.bff.sse_adapter import TranslatorState, translate_adk_event  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("dispatcher")
@@ -45,6 +84,19 @@ ELASTIC_ENDPOINT = os.environ["ELASTIC_ENDPOINT"]
 ELASTIC_API_KEY = os.environ["ELASTIC_API_KEY"]
 WF_BEARER_TOKEN = os.environ["WF_BEARER_TOKEN"]
 USE_STUB_STREAM = bool(os.environ.get("USE_STUB_STREAM"))
+# Pub/Sub topic that /dispatch publishes to and the push subscription delivers to /run.
+PUBSUB_TOPIC = os.environ.get("PUBSUB_TOPIC", "claimdrift-dispatch")
+# Service-account email that Pub/Sub uses to sign OIDC tokens for push delivery
+# (configured on the subscription via --push-auth-service-account). /run checks
+# the verified token's `email` claim equals this value before processing the
+# pipeline. Same identity as the dispatcher's own SA in our deployment.
+PUBSUB_PUSH_SA_EMAIL = os.environ.get(
+    "PUBSUB_PUSH_SA_EMAIL",
+    "751133713115-compute@developer.gserviceaccount.com",
+)
+# Expected `aud` claim in the OIDC token. Google's Pub/Sub push generator
+# defaults audience = the push endpoint URL; we match against that.
+PUBSUB_PUSH_AUDIENCE = os.environ.get("PUBSUB_PUSH_AUDIENCE") or None
 # Demo helper: when set, any notification whose recipient_email resolves to None
 # (the §3.3 v0 limitation — citing_paper_authors[].email is always null at the
 # citation_finder boundary) gets routed to this fallback inbox so the demo
@@ -82,15 +134,25 @@ async def dispatch(
     authorization: str = Header(...),
     force: bool = False,
 ) -> dict:
-    # (a) Bearer auth
+    """Thin enqueue endpoint. Auth + idempotency check + publish to Pub/Sub.
+
+    Returns 202 in ~100ms. The actual pipeline runs in /run, triggered by the
+    Pub/Sub push subscription. This split exists because Elastic Workflows'
+    http step has a hardcoded 60s connector timeout on Serverless (not user-
+    configurable), but our pipeline runs ~200s. See module docstring.
+    """
+    # (a) Bearer auth — Elastic Workflows has no central secret store on 9.3,
+    # so this token is inlined into the workflow YAML (gitignored .yaml,
+    # template-only in git). Validation here.
     if authorization != f"Bearer {WF_BEARER_TOKEN}":
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
-    # (b) Idempotency check: skip if this (preprint_doi, published_doi) pair
-    # already produced a drift_event. The scheduled Elastic Workflow polls
-    # every 5 min and the pipeline runs ~200s; without this guard the same
-    # pair would be re-dispatched repeatedly while a previous run is still
-    # streaming. Override with ?force=true for debugging / explicit re-runs.
+    # (b) Idempotency check — skip if this (preprint_doi, published_doi) pair
+    # already produced a drift_event. Pub/Sub is at-least-once + the workflow
+    # polls every 5 min, so duplicates are realistic. Check HERE (not in /run)
+    # so we don't even enqueue a message we know will be dropped — saves one
+    # Pub/Sub round-trip per duplicate. Override with ?force=true for explicit
+    # re-runs.
     if not force:
         existing = await _find_existing_drift_event(req.preprint_doi, req.published_doi)
         if existing:
@@ -100,17 +162,116 @@ async def dispatch(
             )
             return {"status": "already_processed", "drift_event_id": existing}
 
+    # (c) Publish to Pub/Sub. The push subscription delivers to /run.
+    payload = req.model_dump()
+    if force:
+        payload["force"] = True
+    data = json.dumps(payload).encode("utf-8")
+    publisher = get_publisher()
+    topic_path = publisher.topic_path(GCP_PROJECT, PUBSUB_TOPIC)
+    # publish() returns a concurrent.futures.Future; resolving it gives the
+    # message_id and confirms Pub/Sub accepted the message. Don't fire and
+    # forget — if the publish itself fails (e.g. IAM) the workflow needs to
+    # know via a non-2xx response, otherwise the watermark advances over a
+    # pair that was never processed.
+    future = publisher.publish(topic_path, data)
+    message_id = await asyncio.to_thread(future.result, timeout=15)
+
     log.info(
-        "dispatch accepted: preprint=%s published=%s stub=%s force=%s",
-        req.preprint_doi, req.published_doi, USE_STUB_STREAM, force,
+        "dispatch enqueued: preprint=%s published=%s force=%s message_id=%s",
+        req.preprint_doi, req.published_doi, force, message_id,
+    )
+    return {"status": "enqueued", "message_id": message_id}
+
+
+@app.post("/run")
+async def run(request: Request, authorization: str = Header(...)) -> dict:
+    """Pub/Sub push target — actually executes the pipeline.
+
+    Verifies the Google-signed OIDC token (Pub/Sub signs one per push using
+    the SA configured via --push-auth-service-account), then awaits the full
+    pipeline. The Pub/Sub push subscription's ack-deadline=600 (set in
+    `gcloud pubsub subscriptions create`) gives us the runtime budget;
+    --concurrency=1 + --cpu-boost on the Cloud Run service means each
+    instance handles one pipeline at a time and the autoscaler sees an
+    in-flight request, so concurrent pushes scale out to --max-instances.
+
+    Returns 2xx on success and on dropped-by-design failures (parse errors,
+    upstream pipeline aborts); Pub/Sub will ack and not retry. Returns 5xx
+    only for transient errors where retry is the right move (currently:
+    nothing — we treat the pipeline's internal try/except as authoritative).
+    """
+    _verify_pubsub_oidc(authorization, request)
+
+    envelope = await request.json()
+    msg = (envelope or {}).get("message") or {}
+    data_b64 = msg.get("data") or ""
+    if not data_b64:
+        log.warning("pubsub push had empty data; acking and dropping: %s", envelope)
+        return {"status": "dropped_empty"}
+    try:
+        decoded = base64.b64decode(data_b64).decode("utf-8")
+        payload = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError):
+        log.exception("pubsub push payload not valid JSON; acking and dropping")
+        return {"status": "dropped_unparseable"}
+
+    try:
+        req = DispatchRequest(**{k: v for k, v in payload.items() if k in {"preprint_doi", "published_doi"}})
+    except Exception:
+        log.exception("pubsub payload missing required fields; acking and dropping: %s", payload)
+        return {"status": "dropped_invalid"}
+
+    log.info(
+        "run accepted: preprint=%s published=%s stub=%s message_id=%s",
+        req.preprint_doi, req.published_doi, USE_STUB_STREAM,
+        msg.get("messageId"),
     )
 
-    # Fire-and-forget the pipeline; handler returns 202 immediately.
-    # The pipeline writes side effects to ES + Gmail; failures are logged but
-    # cannot be returned to the Workflow caller (acceptable per design).
-    asyncio.create_task(run_pipeline(req))
+    # Sweep is fire-and-forget; cheap delete_by_query against agent_events
+    # retention horizon. Each /run touches it once.
+    asyncio.create_task(sweep_agent_events_retention())
+    await run_pipeline(req)
+    return {"status": "completed"}
 
-    return Response(content='{"status":"accepted"}', media_type="application/json", status_code=202)
+
+def _verify_pubsub_oidc(authorization: str, request: Request) -> None:
+    """Validate the Authorization header on a /run request.
+
+    Pub/Sub push delivery uses Google-signed OIDC tokens. We verify the
+    signature (via google.oauth2.id_token) and assert two claims:
+      1. email == PUBSUB_PUSH_SA_EMAIL (the SA the subscription is configured
+         to sign as). This prevents anything other than our own subscription
+         from triggering /run, even though the Cloud Run service allows
+         allUsers (kept for /dispatch's bearer-token model).
+      2. aud == the push endpoint URL (or PUBSUB_PUSH_AUDIENCE override).
+         id_token.verify_oauth2_token enforces this internally when we pass
+         the expected audience.
+    """
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing oidc bearer")
+    token = authorization[len("Bearer "):]
+
+    # Audience defaults to the push endpoint URL (Pub/Sub's default behavior).
+    # Reconstruct it from the request unless PUBSUB_PUSH_AUDIENCE is set
+    # explicitly (e.g. for testing with custom audience).
+    audience = PUBSUB_PUSH_AUDIENCE or str(request.url).split("?", 1)[0]
+    try:
+        claims = id_token.verify_oauth2_token(
+            token,
+            google_auth_requests.Request(),
+            audience=audience,
+        )
+    except ValueError:
+        log.exception("pubsub oidc token failed verification (audience=%s)", audience)
+        raise HTTPException(status_code=401, detail="invalid oidc token")
+
+    if claims.get("email") != PUBSUB_PUSH_SA_EMAIL:
+        log.warning(
+            "pubsub oidc email mismatch: got %s, expected %s",
+            claims.get("email"), PUBSUB_PUSH_SA_EMAIL,
+        )
+        raise HTTPException(status_code=403, detail="unauthorized pubsub signer")
 
 
 async def _find_existing_drift_event(preprint_doi: str, published_doi: str) -> str | None:
@@ -166,12 +327,52 @@ async def run_pipeline(req: DispatchRequest) -> None:
             preprint.get("version"), published.get("version"), req.preprint_doi,
         )
 
-        # Step 3: build envelope, stream supervisor events
+        # Step 3: build envelope, stream supervisor events. Each raw ADK event
+        # is also translated to a §6.1 envelope and written to `agent_events`
+        # in real time so the BFF's SSE handler can tail the stream — this is
+        # the production replacement for the mock SSE channel (contracts.md §6.3).
+        # We don't know `drift_event_id` until drift_analyzer completes mid-stream,
+        # so envelopes are written with drift_event_id=null and the IDs are
+        # back-filled via update_by_query at the end of run_pipeline.
+        dispatch_id = str(uuid.uuid4())
         envelope = build_envelope(preprint, published)
         events: list[dict[str, Any]] = []
+        translator_state = TranslatorState()
+        agent_event_seq = 0
+        agent_event_rows: list[tuple[str, dict[str, Any]]] = []
         async for event in get_supervisor_stream(envelope, user_id=f"dispatcher::{req.preprint_doi}"):
             events.append(event)
-        log.info("supervisor stream complete: %d events for preprint=%s", len(events), req.preprint_doi)
+            # Translate + buffer; flush in small batches so a slow consumer
+            # doesn't bottleneck the stream and ES doesn't see N tiny writes.
+            for envelope_doc in translate_adk_event(event, translator_state, drift_event_id=None):
+                agent_event_seq += 1
+                envelope_doc["dispatch_id"] = dispatch_id
+                envelope_doc["event_seq"] = agent_event_seq
+                envelope_doc["preprint_doi"] = req.preprint_doi
+                envelope_doc["published_doi"] = req.published_doi
+                envelope_doc["record_source"] = "dispatcher"
+                doc_id = f"{dispatch_id}::{agent_event_seq}"
+                agent_event_rows.append((doc_id, envelope_doc))
+            if len(agent_event_rows) >= 4:
+                await bulk_index("agent_events", agent_event_rows)
+                agent_event_rows = []
+        if agent_event_rows:
+            await bulk_index("agent_events", agent_event_rows)
+        # Force a refresh on the agent_events index so the subsequent
+        # update_by_query (back-fill of drift_event_id) sees the rows we just
+        # wrote. Without this, the index's 5s refresh_interval (the Elastic
+        # Serverless minimum, see contracts.md §2.2.8) leaves the last batch
+        # of envelopes invisible to update_by_query and they keep
+        # drift_event_id=null — frontend would then fail to tail them when
+        # querying by drift_event_id post-hoc.
+        try:
+            await get_es().indices.refresh(index="agent_events")
+        except Exception:
+            log.exception("agent_events refresh failed (non-fatal; back-fill may miss tail rows)")
+        log.info(
+            "supervisor stream complete: %d ADK events -> %d agent_events rows (dispatch_id=%s)",
+            len(events), agent_event_seq, dispatch_id,
+        )
 
         # Step 4: parse stream into 4 structured outputs.
         # Prefer the supervisor's republished drift_event over drift_analyzer's raw
@@ -216,6 +417,25 @@ async def run_pipeline(req: DispatchRequest) -> None:
 
         await index_doc("drift_events", drift_event_id, drift_event)
         log.info("wrote drift_events/_doc/%s", drift_event_id)
+
+        # Back-fill drift_event_id on the agent_events rows we wrote with null
+        # while streaming (we didn't know the id until drift_analyzer minted it
+        # mid-stream). Frontend tails agent_events by drift_event_id, so this
+        # update is what makes "view history of dispatch X" work after the fact.
+        try:
+            # elasticsearch-py 8.x: keyword args, not `body=`
+            await get_es().update_by_query(
+                index="agent_events",
+                refresh=True,
+                conflicts="proceed",
+                script={
+                    "source": "ctx._source.drift_event_id = params.id",
+                    "params": {"id": drift_event_id},
+                },
+                query={"term": {"dispatch_id": dispatch_id}},
+            )
+        except Exception:
+            log.exception("agent_events drift_event_id back-fill failed for dispatch_id=%s", dispatch_id)
 
         # affected_citations: N rows (N=0 in the demo stub case)
         ac_rows: list[tuple[str, dict[str, Any]]] = []
@@ -263,6 +483,25 @@ async def run_pipeline(req: DispatchRequest) -> None:
         # TODO Step 6: for each notification: Gmail send + notification_log status update
     except Exception:
         log.exception("pipeline failed for preprint=%s", req.preprint_doi)
+
+
+# --- Pub/Sub publisher ------------------------------------------------------
+
+_publisher: pubsub_v1.PublisherClient | None = None
+
+
+def get_publisher() -> pubsub_v1.PublisherClient:
+    """Lazily build a single Pub/Sub PublisherClient per process.
+
+    The grpc client is heavy to construct (channel + auth + DNS); reuse it
+    across all /dispatch calls. Thread-safe by design (the underlying grpc
+    channel is). One client per process is the recommended pattern in the
+    google-cloud-pubsub README.
+    """
+    global _publisher
+    if _publisher is None:
+        _publisher = pubsub_v1.PublisherClient()
+    return _publisher
 
 
 # --- ES client --------------------------------------------------------------
@@ -522,6 +761,28 @@ async def bulk_index(index_name: str, rows: list[tuple[str, dict[str, Any]]]) ->
     success, errors = await async_bulk(get_es(), actions, refresh=False, raise_on_error=True)
     if errors:
         log.error("bulk_index %s reported errors: %s", index_name, errors[:3])
+
+
+AGENT_EVENTS_RETENTION_DAYS = 30
+
+
+async def sweep_agent_events_retention() -> None:
+    """Delete agent_events rows older than the retention window.
+
+    Elastic Serverless does not expose the classic ILM API, so retention is
+    enforced application-side. Cheap to run (range query on `timestamp`),
+    safe to invoke on every dispatch — we run it fire-and-forget so a slow
+    sweep doesn't block the pipeline.
+    """
+    try:
+        # elasticsearch-py 8.x: keyword args, not `body=`
+        await get_es().delete_by_query(
+            index="agent_events",
+            conflicts="proceed",
+            query={"range": {"timestamp": {"lt": f"now-{AGENT_EVENTS_RETENTION_DAYS}d/d"}}},
+        )
+    except Exception:
+        log.exception("agent_events retention sweep failed (non-fatal)")
 
 
 async def fetch_preprint(doi: str) -> dict[str, Any] | None:

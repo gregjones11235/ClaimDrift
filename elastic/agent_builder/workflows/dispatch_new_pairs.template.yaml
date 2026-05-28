@@ -34,10 +34,11 @@ description: |
   Migrate to a Kibana connector with secret support when Elastic 9.4 ships.
 
   Foreach is serial in Elastic Workflows (no parallel step type exists);
-  this is fine because dispatcher's POST returns 202 in ~100ms (the actual
-  pipeline runs as a background task on Cloud Run, not inline). Set the
-  search size limit conservatively so a single workflow tick can't fan out
-  to hundreds of dispatches at once.
+  this is fine because dispatcher's /dispatch endpoint now only enqueues a
+  Pub/Sub message and returns 202 in ~100ms. The actual ~200s pipeline runs
+  in dispatcher's /run endpoint, triggered by the Pub/Sub push subscription,
+  outside this workflow's control. Set the search size limit conservatively
+  so a single workflow tick can't fan out to hundreds of enqueues at once.
 
 tags: ["claimdrift", "main-flow", "scheduled"]
 
@@ -109,9 +110,21 @@ steps:
                 version:
                   value: published
 
-  # Step 3 — dispatch each new pair. Serial foreach; dispatcher returns 202
-  # in ~100ms and runs the §4.1 pipeline as a background task, so even N=20
-  # pairs only adds ~2s of inline workflow time.
+  # Step 3 — dispatch each new pair. Serial foreach. The dispatcher's
+  # /dispatch endpoint is now a THIN enqueue: bearer auth + idempotency
+  # check + Pub/Sub publish + return 202, all in <1s. The actual ~200s
+  # pipeline runs in dispatcher's /run endpoint, triggered by the Pub/Sub
+  # push subscription (ack-deadline=600s gives the runtime budget; Cloud
+  # Run's autoscaler scales /run pushes out to --max-instances because
+  # each push is a real in-flight HTTP request).
+  #
+  # This split exists because the http step has a 60s connector timeout
+  # that is hardcoded on Elastic Cloud Serverless — neither the step-level
+  # `timeout:` field nor any `with:` key extends it (verified empirically
+  # 2026-05-28: ECONNABORTED at exactly 60000ms despite `timeout: "600s"`
+  # passing schema validation). So /dispatch MUST return inside 60s. The
+  # earlier "sync pipeline + workflow timeout" design is therefore dead;
+  # see changelog 2026-05-28 entry + contracts.md §9.6.1 update.
   - name: fan_out_dispatch
     type: foreach
     foreach: "{{ steps.search_new_pairs.output.hits.hits }}"

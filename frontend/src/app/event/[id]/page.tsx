@@ -1,4 +1,4 @@
-import { getDriftEvent, getClaims } from "@/lib/api/client";
+import { getDriftEvent, getAffectedCitations, getNotifications } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { ClaimDiffViewer } from "@/components/features/ClaimDiffViewer";
 import { NumericalDeltaCard } from "@/components/features/NumericalDeltaCard";
@@ -12,10 +12,13 @@ export default async function DriftDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [event] = await Promise.all([
+  const [event, citationsResp, notificationsResp] = await Promise.all([
     getDriftEvent(id),
-    getClaims(id)
+    getAffectedCitations(id),
+    getNotifications(id),
   ]);
+  const citationCount = citationsResp.count;
+  const notificationCount = notificationsResp.count;
 
   const scoreColor = event.materiality_score >= 0.7 ? 'text-danger' : event.materiality_score >= 0.5 ? 'text-caution' : 'text-brand';
   
@@ -117,10 +120,10 @@ export default async function DriftDetailPage({
           <Download className="w-3.5 h-3.5" /> Export PDF
         </button>
         <Link href={`/event/${id}/citations`} className="text-[13px] px-4 py-2 border border-black rounded-none font-sans font-medium text-black bg-white hover:bg-neutral-100 transition-colors flex items-center gap-1.5 ml-auto">
-          View citations (3) <ArrowRight className="w-3.5 h-3.5" />
+          View citations ({citationCount}) <ArrowRight className="w-3.5 h-3.5" />
         </Link>
         <Link href={`/event/${id}/notifications`} className="text-[13px] px-4 py-2 border border-black rounded-none font-sans font-medium text-black bg-white hover:bg-neutral-100 transition-colors flex items-center gap-1.5">
-          Notification log <ArrowRight className="w-3.5 h-3.5" />
+          Notification log ({notificationCount}) <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
     </div>

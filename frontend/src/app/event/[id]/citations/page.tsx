@@ -130,7 +130,7 @@ export default async function CitationsPage({
           <AccordionContent className="p-0">
             {peripheral.length === 0 ? (
               <div className="p-4 text-[13px] text-[#666] italic font-sans bg-[#F9F9F9]">
-                No peripheral citations in demo seed — UI should handle empty state gracefully
+                No peripheral citations for this event.
               </div>
             ) : (
               <div className="divide-y divide-black/10">

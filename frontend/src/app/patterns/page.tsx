@@ -12,7 +12,7 @@ export default async function PatternsPage() {
           Pattern memory
         </h1>
         <div className="text-[13px] text-[#666] font-sans">
-          {patterns.length} pattern in demo seed — written by memory_synthesizer after processing events
+          {patterns.length} pattern{patterns.length === 1 ? "" : "s"} — written by memory_synthesizer after processing drift events
         </div>
       </div>
 

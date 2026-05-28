@@ -9,8 +9,15 @@ export function AgentTimeline({ events }: { events: SseEvent[] }) {
   const [startTime, setStartTime] = useState<number | null>(null);
 
   useEffect(() => {
+    // Anchor the timeline to the *first event's own timestamp*, not the wall
+    // clock when the page rendered. Replayed historical streams (e.g. tailing
+    // a drift_event that finished hours ago) would otherwise show large
+    // negative offsets like `t+-691s`.
     if (events.length > 0 && startTime === null) {
-      setStartTime(Date.now());
+      const firstTs = new Date(events[0].timestamp).getTime();
+      if (!Number.isNaN(firstTs)) {
+        setStartTime(firstTs);
+      }
     }
   }, [events, startTime]);
 
@@ -20,23 +27,12 @@ export function AgentTimeline({ events }: { events: SseEvent[] }) {
     }
   }, [events]);
 
+  // Note: the page that owns this component handles the "nothing to show"
+  // copy because it has the context to explain *why* (pre-adapter event, SSE
+  // disconnected, etc.). We just return null and let the parent render its
+  // own state.
   if (events.length === 0) {
-    return (
-      <div className="flex flex-col gap-3">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="flex flex-col">
-            <div className="flex gap-3 p-3 rounded-none border border-black bg-white opacity-50 animate-pulse">
-              <div className="w-3 h-3 bg-black mt-1" />
-              <div className="flex-1 space-y-2">
-                <div className="w-32 h-3 bg-[#F5F5F5] rounded-none border border-black" />
-                <div className="w-full max-w-md h-2 bg-[#F5F5F5] rounded-none border border-black" />
-              </div>
-            </div>
-            {i < 5 && <div className="w-[2px] h-3 bg-black ml-[17px] my-1" />}
-          </div>
-        ))}
-      </div>
-    );
+    return null;
   }
 
   return (

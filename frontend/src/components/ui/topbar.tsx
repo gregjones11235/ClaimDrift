@@ -31,7 +31,11 @@ export function Topbar() {
         {title}
       </div>
       
-      {mounted && (
+      {/* SSE connection indicator is meaningful only on /live, where this page
+          actually owns an EventSource. On other routes the SSE store stays
+          idle by design, so a "Disconnected" badge there reads as a system
+          failure that isn't real. */}
+      {mounted && pathname === "/live" && (
         <div className="flex items-center gap-2">
           {isListening ? (
             <div className="flex items-center gap-1.5 px-2 py-1 border border-black bg-white text-[11px] font-medium text-black">
@@ -39,9 +43,9 @@ export function Topbar() {
               Live
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 px-2 py-1 border border-black bg-white text-[11px] font-medium text-black">
-              <div className="w-1.5 h-1.5 rounded-full border border-black bg-white" />
-              Disconnected
+            <div className="flex items-center gap-1.5 px-2 py-1 border border-black bg-white text-[11px] font-medium text-[#666]">
+              <div className="w-1.5 h-1.5 rounded-full border border-[#666] bg-white" />
+              Idle
             </div>
           )}
         </div>

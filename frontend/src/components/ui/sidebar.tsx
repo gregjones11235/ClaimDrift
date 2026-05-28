@@ -8,11 +8,8 @@ export function Sidebar() {
 
   const links = [
     { href: "/", label: "Dashboard" },
-    { href: "/event/demo-drift-001", label: "Sample Event" },
-    { href: "/event/demo-drift-001/citations", label: "Citations" },
     { href: "/live", label: "Live stream" },
     { href: "/patterns", label: "Patterns" },
-    { href: "/event/demo-drift-001/notifications", label: "Notifications" },
   ];
 
   return (
