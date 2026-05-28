@@ -30,3 +30,6 @@ elastic/agent_builder/workflows/dispatch_new_pairs.yaml
 
 # tmp files
 .tmp*
+
+# tool scripts
+/scripts/

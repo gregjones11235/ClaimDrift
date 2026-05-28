@@ -228,9 +228,15 @@ async def run(request: Request, authorization: str = Header(...)) -> dict:
         msg.get("messageId"),
     )
 
-    # Sweep is fire-and-forget; cheap delete_by_query against agent_events
-    # retention horizon. Each /run touches it once.
-    asyncio.create_task(sweep_agent_events_retention())
+    # Sweep is fire-and-forget; delete_by_query against agent_events retention
+    # horizon. Throttled to 1-in-SWEEP_EVERY runs because under bulk backfills
+    # (~3000 enqueues over ~10h) running it on every /run piled up ES tasks,
+    # each one scanning the whole agent_events index, until they started
+    # timing out (>54s) and starving CPU on the 1-vCPU instance — which in
+    # turn slowed unrelated /dispatch idempotency searches and caused the
+    # backfill script to see ~25% client-side timeouts.
+    if _next_sweep_counter() == 0:
+        asyncio.create_task(sweep_agent_events_retention())
     await run_pipeline(req)
     return {"status": "completed"}
 
@@ -764,6 +770,23 @@ async def bulk_index(index_name: str, rows: list[tuple[str, dict[str, Any]]]) ->
 
 
 AGENT_EVENTS_RETENTION_DAYS = 30
+SWEEP_EVERY = 100  # only sweep once per N /run invocations; see /run docstring
+_sweep_counter = 0
+
+
+def _next_sweep_counter() -> int:
+    """Return 0 when this call should trigger a sweep, non-zero otherwise.
+
+    Process-local counter. Per Cloud Run instance this is fine: with
+    concurrency=1 a sweep skipped on one instance will be picked up by the
+    next instance's first /run. Worst case under steady state (1 instance,
+    SWEEP_EVERY=100) we sweep once every 100 dispatches — still well within
+    the 30-day retention window.
+    """
+    global _sweep_counter
+    cur = _sweep_counter
+    _sweep_counter = (_sweep_counter + 1) % SWEEP_EVERY
+    return cur
 
 
 async def sweep_agent_events_retention() -> None:

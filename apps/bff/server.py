@@ -12,6 +12,10 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
+from dotenv import load_dotenv
+
+load_dotenv(ROOT / "agents" / ".env")
+
 from ingestion.common.elastic import ElasticsearchHttpClient
 from apps.bff.sse_adapter import TranslatorState, heartbeat, translate_adk_event
 
@@ -276,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
           2. Golden replay (SSE_REPLAY_GOLDEN=1): replay the T1 reference
              stream through the same translator. Demonstrates production
              event flow without GCP credentials — for evaluator reproduction.
-          3. Static mock fallback (seed mode, no replay): hand-coded 9 events.
+          3. Static fallback (seed mode, no replay): hand-coded 9 events.
              Kept only for the case where neither ES nor golden file exists.
         """
         drift_event_id = query.get("drift_event_id", ["demo-drift-001"])[0]
@@ -300,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             elif isinstance(DATA_SOURCE, ElasticDataSource):
                 self._stream_es_tail(DATA_SOURCE, drift_event_id, dispatch_id, resume_seq)
             else:
-                self._stream_static_mock(drift_event_id)
+                self._stream_static_fallback(drift_event_id)
         except BrokenPipeError:
             return
         except Exception:
@@ -331,8 +335,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write("".join(out).encode("utf-8"))
         self.wfile.flush()
 
-    def _stream_static_mock(self, drift_event_id: str) -> None:
-        """Fallback (seed mode, no replay file). Same shape as v0 mock."""
+    def _stream_static_fallback(self, drift_event_id: str) -> None:
+        """Fallback (seed mode, no replay file). Hand-coded 9-event sequence."""
         events = [
             ("agent.started", "claim_extractor", {"input_summary": "Extracting claims from final preprint and published version."}),
             ("agent.completed", "claim_extractor", {"output_summary": "2 claims extracted.", "output_id": "claims"}),
@@ -470,7 +474,7 @@ def main() -> None:
     if not (SEED_DIR / "drift_events.json").exists():
         print("Demo seed data is missing. Run: python3 elastic/scripts/seed_demo_cases.py")
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Mock BFF running at http://127.0.0.1:{PORT} ({DATA_SOURCE.mode} data source)")
+    print(f"ClaimDrift BFF running at http://127.0.0.1:{PORT} ({DATA_SOURCE.mode} data source)")
     server.serve_forever()
 
 
