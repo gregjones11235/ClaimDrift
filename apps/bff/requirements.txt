@@ -1,0 +1,5 @@
+# BFF runtime deps. server.py itself uses only the Python standard library
+# (http.server) plus python-dotenv for loading agents/.env locally. The
+# Elasticsearch access path goes through ingestion/common/elastic.py, which is
+# also pure-stdlib (urllib). So this list is intentionally tiny.
+python-dotenv>=1.0,<2.0

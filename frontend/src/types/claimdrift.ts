@@ -47,6 +47,10 @@ export interface DriftEventSummary {
   drift_summary: string;
   materiality_score: number;
   detected_at: string;
+  // The BFF's /api/drift-events returns the full ES _source, so the list view
+  // also receives claim_diffs (the home page reads the first diff's type).
+  // Optional because it is not part of the minimal summary contract.
+  claim_diffs?: ClaimDiff[];
 }
 
 export interface AffectedCitation {

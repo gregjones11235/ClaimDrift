@@ -1,6 +1,6 @@
 # ClaimDrift — Agents
 
-> **Status (2026-05-26)**: 5/5 sub-agents + 1 supervisor deployed to Vertex AI Agent Engine. Memory loop closed (`memory_synthesizer` retrieves + updates patterns via Elastic MCP). Main §4.1 fan-out wired through supervisor + Cloud Run dispatcher. T1 real N>0 end-to-end verified on `10.1101/2024.05.03.24306688` (4 affected citations, 4 sent emails). See `../docs/contracts.md` changelog for the full deployment trail.
+> **Status (2026-05-29)**: 5/5 sub-agents + 1 supervisor deployed to Vertex AI Agent Engine. Memory loop closed (`memory_synthesizer` retrieves + updates patterns via Elastic MCP). Main §4.1 fan-out wired through supervisor + Cloud Run dispatcher, self-driven by the Elastic Scheduled Workflow. T1 real N>0 end-to-end verified on `10.1101/2024.05.03.24306688` (4 affected citations, 4 sent emails). BFF + Next.js frontend now live on real data. See `../docs/contracts.md` changelog for the full deployment trail.
 
 This subdirectory contains the 5 sub-agents + supervisor that power ClaimDrift, built on top of [Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/). For the project-wide overview, see the root `README.md`. For cross-component contracts (Elasticsearch indices, SSE event format, agent invocation order), see `../docs/contracts.md`. For per-agent deploy gotchas accumulated over Phases 4-5, see `_DEPLOY_CHECKLIST.md`.
 

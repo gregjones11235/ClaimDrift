@@ -53,7 +53,7 @@ For the design rationale of this inverted topology (why supervisor lives on Agen
 
 ---
 
-## Current deployment state (2026-05-26)
+## Current deployment state (2026-05-29)
 
 | Component | Status | Notes |
 |---|---|---|
@@ -64,8 +64,8 @@ For the design rationale of this inverted topology (why supervisor lives on Agen
 | Ingestion pipeline | ✓ live | 3 Cloud Run Jobs (`bioRxiv`, `medRxiv`, `crossref`) + Cloud Scheduler hourly; see [docs/ingestion_cloud_run_ops.md](docs/ingestion_cloud_run_ops.md) |
 | Cloud Run dispatcher | ✓ live | `https://claimdrift-dispatcher-3gz4czm2hq-uc.a.run.app/dispatch` — receives Workflow POSTs, drives supervisor, persists outputs, sends Gmail; idempotent on `(preprint_doi, published_doi)` |
 | Elastic Scheduled Workflow | ✓ live | `dispatch_new_pairs`, every 5 min |
-| BFF (`apps/bff/`) | ✓ live | `server.py` serves REST views over ES + the live `/api/events/stream` SSE channel; SSE adapter (Agent Engine streamQuery → §6.1 envelope) shipped 2026-05-28, see [docs/contracts.md §6.3](docs/contracts.md) |
-| Frontend (`frontend/`) | ✓ scaffolded | Next.js 16 + React 19, 6 views; D-owned |
+| BFF (`apps/bff/`) | ✓ live | `server.py` serves REST views over ES + the live `/api/events/stream` SSE channel; SSE adapter (Agent Engine streamQuery → §6.1 envelope) shipped 2026-05-28, see [docs/contracts.md §6.3](docs/contracts.md). Cloud Run deploy artifacts in `apps/bff/Dockerfile` + `cloudbuild.yaml` |
+| Frontend (`frontend/`) | ✓ live | Next.js 16 + React 19, 6 views, wired to real data via the BFF; D-owned. Cloud Run deploy artifacts in `frontend/Dockerfile` + `cloudbuild.yaml` |
 | arXiv puller | ✗ out of scope | Dropped 2026-05-26 — bioRxiv + medRxiv already cover ~10k preprints, OAI-PMH complexity unnecessary for the §3.5 memory-loop demo |
 
 ---
@@ -76,10 +76,10 @@ For the design rationale of this inverted topology (why supervisor lives on Agen
 |---|---|---|---|
 | [`agents/`](agents/) | C | ✓ deployed | 5 sub-agents + supervisor + `_DEPLOY_CHECKLIST.md` |
 | [`apps/dispatcher/`](apps/dispatcher/) | C | ✓ deployed | Cloud Run service driving the §9.6.1 main flow; T1 golden artifacts in `tests/golden/` |
-| [`apps/bff/`](apps/bff/) | C / B | ⚠ mock | Python BFF + SSE for frontend; productionization is TODO |
+| [`apps/bff/`](apps/bff/) | C / B | ✓ live | Python BFF + SSE for frontend, serving real ES data |
 | [`ingestion/`](ingestion/) | B | ✓ deployed | bioRxiv / medRxiv / Crossref pullers + Cloud Run + Cloud Scheduler |
 | [`elastic/`](elastic/) | C / B | ✓ live | Mappings, demo seed, MCP tool YAMLs, scheduled workflow YAML, audit script |
-| [`frontend/`](frontend/) | D | pending | Next.js dashboard; incoming |
+| [`frontend/`](frontend/) | D | ✓ live | Next.js dashboard, 6 views over the BFF |
 | [`contracts/`](contracts/) | C / D | partial | Shared TypeScript types for frontend ↔ BFF; see `claimdrift_types.ts` |
 | [`docs/`](docs/) | All | ✓ current | `contracts.md` (authoritative spec + changelog) + ingestion ops runbooks |
 
@@ -143,7 +143,7 @@ Setup, in dependency order — each step is verifiable independently:
      -d '{"flow_name":"main_flow","last_seen_ingested_at":"<now>","last_updated_at":"<now>"}'
    ```
 
-9. **Frontend** (D, pending) — see `frontend/README.md` once available.
+9. **Frontend + BFF (the hosted demo)** — see "Deploy the hosted demo" below and [`frontend/README.md`](frontend/README.md).
 
 Verify the end-to-end path against the T1 reference run:
 
@@ -161,13 +161,46 @@ Reference outputs are checked in at [`apps/dispatcher/tests/golden/`](apps/dispa
 
 ---
 
+## Deploy the hosted demo (frontend + BFF)
+
+The agents, dispatcher, and ingestion pipeline already run on Google Cloud (above). The Devpost **"URL to the hosted Project for judging and testing"** needs the *user-facing* layer online too: the Next.js dashboard + the BFF it reads from. Both deploy to **Cloud Run** so the entire hosted demo stays on Google Cloud (no third-party PaaS).
+
+Two services, deployed BFF-first (the frontend bakes in the BFF URL at build time):
+
+1. **BFF** → Cloud Run. Build context is the repo root (it bundles `ingestion/common` + `apps/bff/sse_adapter.py`), so it goes through Cloud Build like the dispatcher:
+   ```bash
+   gcloud builds submit . --config=apps/bff/cloudbuild.yaml
+   gcloud run deploy claimdrift-bff \
+     --image=us-central1-docker.pkg.dev/<your-project>/cloud-run-source-deploy/claimdrift-bff:latest \
+     --region=us-central1 --allow-unauthenticated \
+     --update-env-vars="ELASTIC_ENDPOINT=https://<your-es-endpoint>" \
+     --set-secrets="ELASTIC_API_KEY=elastic-api-key:latest"
+   # Note the printed service URL — call it <BFF_URL> below.
+   ```
+   `server.py` honors Cloud Run's `$PORT` and binds `0.0.0.0` automatically; CORS is already `*` so the browser can call it cross-origin.
+
+2. **Frontend** → Cloud Run. `NEXT_PUBLIC_BFF_URL` is inlined into the client bundle, so it must be passed at **build** time:
+   ```bash
+   cd frontend
+   gcloud builds submit . --config=cloudbuild.yaml --substitutions=_BFF_URL=<BFF_URL>
+   gcloud run deploy claimdrift-frontend \
+     --image=us-central1-docker.pkg.dev/<your-project>/cloud-run-source-deploy/claimdrift-frontend:latest \
+     --region=us-central1 --allow-unauthenticated
+   ```
+
+The **frontend** Cloud Run URL is what goes in the Devpost "hosted Project" field. (The separate "open source code repository" field is this GitHub repo.)
+
+> Local alternative for development only: run `uv run --project agents python apps/bff/server.py` + `npm run dev` in two terminals (see [`frontend/README.md`](frontend/README.md)). That is **not** a valid submission URL — judges can't reach `localhost`; deploy to Cloud Run for the hosted link.
+
+---
+
 ## Tech stack
 
 - **Agents**: Google Agent Development Kit (ADK) + Gemini 2.5 (flash + pro), deployed on Vertex AI Agent Engine
 - **Search + memory**: Elasticsearch Serverless + ELSER semantic_text + Elastic Agent Builder MCP server
 - **Orchestration**: ADK supervisor on Agent Engine + Elastic Scheduled Workflow as trigger source (inverted topology, §9.6.1)
 - **Trigger / persistence**: Cloud Run dispatcher (FastAPI) + Gmail API for email send
-- **Frontend**: Next.js (D, pending)
+- **Frontend**: Next.js 16 + React 19 + Tailwind + shadcn/ui, deployed on Cloud Run (D)
 - **Data sources**: bioRxiv, medRxiv, Crossref, OpenAlex
 
 ---

@@ -1,0 +1,29 @@
+# Cloud Build config for the claimdrift-frontend service (Next.js on Cloud Run).
+#
+# NEXT_PUBLIC_BFF_URL is a *build-time* substitution because Next.js inlines
+# NEXT_PUBLIC_* into the client bundle. Pass it as a --substitutions value;
+# deploy the resulting image with `gcloud run deploy`.
+#
+# Usage (from the frontend/ directory):
+#   gcloud builds submit . --config=cloudbuild.yaml \
+#     --substitutions=_BFF_URL=https://<bff-cloud-run-url>
+#   gcloud run deploy claimdrift-frontend \
+#     --image=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-frontend:latest \
+#     --region=us-central1 --allow-unauthenticated
+
+substitutions:
+  _BFF_URL: "http://127.0.0.1:8787"   # override with the real BFF Cloud Run URL
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=NEXT_PUBLIC_BFF_URL=${_BFF_URL}
+      - --tag=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-frontend:latest
+      - .
+
+images:
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-frontend:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

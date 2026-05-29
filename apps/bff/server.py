@@ -22,7 +22,11 @@ from apps.bff.sse_adapter import TranslatorState, heartbeat, translate_adk_event
 
 SEED_DIR = ROOT / "elastic" / "demo_seed"
 GOLDEN_STREAM = ROOT / "apps" / "dispatcher" / "tests" / "golden" / "stream_amblyopia_v2.jsonl"
-PORT = int(os.getenv("BFF_PORT", "8787"))
+# Cloud Run injects $PORT (default 8080); local dev uses $BFF_PORT (default 8787).
+# Honor $PORT first so the same image runs unchanged on Cloud Run.
+PORT = int(os.getenv("PORT") or os.getenv("BFF_PORT", "8787"))
+# Bind 0.0.0.0 in a container (Cloud Run requires it); loopback only for local dev.
+HOST = os.getenv("BFF_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
 INCLUDE_DEMO_RECORDS = os.getenv("BFF_INCLUDE_DEMO", "").lower() in {"1", "true", "yes"}
 REPLAY_GOLDEN = os.getenv("SSE_REPLAY_GOLDEN", "").lower() in {"1", "true", "yes"}
 SSE_TAIL_POLL_INTERVAL_S = float(os.getenv("SSE_TAIL_POLL_S", "1.0"))
@@ -473,8 +477,8 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     if not (SEED_DIR / "drift_events.json").exists():
         print("Demo seed data is missing. Run: python3 elastic/scripts/seed_demo_cases.py")
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"ClaimDrift BFF running at http://127.0.0.1:{PORT} ({DATA_SOURCE.mode} data source)")
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"ClaimDrift BFF running at http://{HOST}:{PORT} ({DATA_SOURCE.mode} data source)")
     server.serve_forever()
 
 

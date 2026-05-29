@@ -1,0 +1,30 @@
+# Cloud Build config for the claimdrift-bff service.
+#
+# Why this file exists: the BFF's Dockerfile needs repo-root build context (it
+# COPYs ingestion/common + apps/bff/sse_adapter.py), and `gcloud run deploy
+# --source` has no flag to point at a Dockerfile outside the context root. So
+# build via `gcloud builds submit` with this config, then `gcloud run deploy
+# --image`. Same pattern as apps/dispatcher/cloudbuild.yaml.
+#
+# Usage (from repo root):
+#   gcloud builds submit . --config=apps/bff/cloudbuild.yaml
+#   gcloud run deploy claimdrift-bff \
+#     --image=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-bff:latest \
+#     --region=us-central1 \
+#     --allow-unauthenticated \
+#     --update-env-vars="ELASTIC_ENDPOINT=https://...es..." \
+#     --set-secrets="ELASTIC_API_KEY=elastic-api-key:latest"
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=apps/bff/Dockerfile
+      - --tag=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-bff:latest
+      - .
+
+images:
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-bff:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
