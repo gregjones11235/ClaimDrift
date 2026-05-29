@@ -70,6 +70,9 @@ class DataSource(Protocol):
     def patterns(self) -> list[dict]:
         ...
 
+    def dashboard_stats(self) -> dict:
+        ...
+
 
 class SeedDataSource:
     mode = "seed"
@@ -92,6 +95,30 @@ class SeedDataSource:
 
     def patterns(self) -> list[dict]:
         return load_rows("drift_patterns")
+
+    def dashboard_stats(self) -> dict:
+        # Seed mode has small local JSON; computing in Python is fine and keeps
+        # the BFF runnable without ES credentials (local dev / CI).
+        events = load_rows("drift_events")
+        scores = [e["materiality_score"] for e in events if "materiality_score" in e]
+        notifications = load_rows("notification_log")
+        patterns = load_rows("drift_patterns")
+        type_counts: dict[str, int] = {}
+        for p in patterns:
+            pt = p.get("pattern_type")
+            if pt:
+                type_counts[pt] = type_counts.get(pt, 0) + 1
+        top_pattern_type = max(type_counts, key=type_counts.get) if type_counts else None
+        return {
+            "drift_events_total": len(events),
+            "high_severity_count": sum(1 for s in scores if s >= 0.7),
+            "avg_materiality_score": (sum(scores) / len(scores)) if scores else 0.0,
+            "affected_citations_total": len(load_rows("affected_citations")),
+            "notifications_total": len(notifications),
+            "notifications_sent": sum(1 for n in notifications if n.get("status") == "sent"),
+            "patterns_total": len(patterns),
+            "top_pattern_type": top_pattern_type,
+        }
 
 
 class ElasticDataSource:
@@ -161,6 +188,113 @@ class ElasticDataSource:
             },
         )
 
+    def _agg_search(self, index_name: str, body: dict) -> dict:
+        """Run a size:0 aggregation/count search and return the raw ES response.
+
+        Unlike `search()` (which unwraps to `hits.hits._source`), dashboard
+        stats need `hits.total` and the `aggregations` block, so we return the
+        full response here.
+        """
+        return self.client.request("POST", f"/{index_name}/_search", body)
+
+    def _total_hits(self, response: dict) -> int:
+        # track_total_hits:true makes hits.total.value the exact count.
+        return int(((response.get("hits") or {}).get("total") or {}).get("value") or 0)
+
+    def dashboard_stats(self) -> dict:
+        """Whole-index rollups via ES aggregations — 3 queries, not N+1.
+
+        Each sub-rollup is independently guarded: if a field is unmapped or a
+        terms agg has no fielddata, that metric degrades to 0/None rather than
+        500-ing the whole dashboard. `materiality_score` (numeric) and the
+        keyword fields aggregate cleanly on our mappings (contracts §2.2.x);
+        the .keyword fallback + try/except is defense-in-depth.
+        """
+        match = self.visible_query({"match_all": {}})
+
+        drift_events_total = 0
+        high_severity_count = 0
+        avg_materiality_score = 0.0
+        try:
+            resp = self._agg_search(
+                "drift_events",
+                {
+                    "size": 0,
+                    "track_total_hits": True,
+                    "query": match,
+                    "aggs": {
+                        "avg_materiality": {"avg": {"field": "materiality_score"}},
+                        "high_severity": {
+                            "filter": {"range": {"materiality_score": {"gte": 0.7}}}
+                        },
+                    },
+                },
+            )
+            drift_events_total = self._total_hits(resp)
+            aggs = resp.get("aggregations") or {}
+            avg_materiality_score = float((aggs.get("avg_materiality") or {}).get("value") or 0.0)
+            high_severity_count = int((aggs.get("high_severity") or {}).get("doc_count") or 0)
+        except Exception as exc:  # noqa: BLE001 - never let stats 500 the dashboard
+            print(f"dashboard_stats: drift_events agg failed: {exc}")
+
+        affected_citations_total = 0
+        try:
+            resp = self.client.request(
+                "POST", "/affected_citations/_count", {"query": match}
+            )
+            affected_citations_total = int(resp.get("count") or 0)
+        except Exception as exc:  # noqa: BLE001
+            print(f"dashboard_stats: affected_citations count failed: {exc}")
+
+        notifications_total = 0
+        notifications_sent = 0
+        try:
+            resp = self._agg_search(
+                "notification_log",
+                {
+                    "size": 0,
+                    "track_total_hits": True,
+                    "query": match,
+                    "aggs": {"by_status": {"terms": {"field": "status", "size": 20}}},
+                },
+            )
+            notifications_total = self._total_hits(resp)
+            buckets = (((resp.get("aggregations") or {}).get("by_status") or {}).get("buckets")) or []
+            notifications_sent = next(
+                (int(b.get("doc_count") or 0) for b in buckets if b.get("key") == "sent"), 0
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"dashboard_stats: notification_log agg failed: {exc}")
+
+        patterns_total = 0
+        top_pattern_type = None
+        try:
+            resp = self._agg_search(
+                "drift_patterns",
+                {
+                    "size": 0,
+                    "track_total_hits": True,
+                    "query": match,
+                    "aggs": {"by_type": {"terms": {"field": "pattern_type", "size": 1}}},
+                },
+            )
+            patterns_total = self._total_hits(resp)
+            buckets = (((resp.get("aggregations") or {}).get("by_type") or {}).get("buckets")) or []
+            top_pattern_type = buckets[0]["key"] if buckets else None
+        except Exception as exc:  # noqa: BLE001
+            print(f"dashboard_stats: drift_patterns agg failed: {exc}")
+
+        return {
+            "drift_events_total": drift_events_total,
+            "high_severity_count": high_severity_count,
+            "avg_materiality_score": avg_materiality_score,
+            "affected_citations_total": affected_citations_total,
+            "notifications_total": notifications_total,
+            "notifications_sent": notifications_sent,
+            "patterns_total": patterns_total,
+            "top_pattern_type": top_pattern_type,
+        }
+
 
 def claim_ids_for_event(event: dict) -> set[str]:
     claim_ids = set()
@@ -227,9 +361,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.stream_events(parse_qs(parsed.query))
                 return
 
+            if path == "/api/stats":
+                send_json(self, 200, DATA_SOURCE.dashboard_stats())
+                return
+
             if path == "/api/drift-events":
+                # `items` is intentionally capped (most-recent 100) for the
+                # table; `count` reports the true index total so callers reading
+                # the count don't see the 100-cap as the population size.
                 events = DATA_SOURCE.drift_events()
-                send_json(self, 200, {"items": events, "count": len(events)})
+                try:
+                    total = DATA_SOURCE.dashboard_stats()["drift_events_total"]
+                except Exception:  # noqa: BLE001 - fall back to page length
+                    total = len(events)
+                send_json(self, 200, {"items": events, "count": total})
                 return
 
             if path.startswith("/api/drift-events/"):

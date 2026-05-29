@@ -158,6 +158,59 @@ def post_to_dispatcher(pair: dict, dispatcher_url: str, bearer: str, timeout_s: 
         return 0, f"OSError: {e}"
 
 
+def _is_retryable(status: int, body: str) -> bool:
+    """True for transient failures worth retrying in place rather than dropping.
+
+    The dispatcher transparently relays Vertex's `429 RESOURCE_EXHAUSTED /
+    "Rate exceeded."` through the /dispatch response body, so a 429 here means
+    the downstream gemini-2.5-pro DSQ pool was momentarily saturated — exactly
+    the case where a short backoff + retry succeeds. We also retry the
+    client-side timeouts (status==0 with a TimeoutError/URLError marker), which
+    under bulk backfill are usually the same saturation seen from this side.
+    """
+    if status == 429 or "Rate exceeded" in body or "RESOURCE_EXHAUSTED" in body:
+        return True
+    if status == 503:  # Cloud Run scaling / momentarily unavailable
+        return True
+    if status == 0 and ("TimeoutError" in body or "URLError" in body):
+        return True
+    return False
+
+
+def post_with_backoff(
+    pair: dict,
+    dispatcher_url: str,
+    bearer: str,
+    timeout_s: int,
+    max_retries: int,
+    backoff_base_s: float,
+    backoff_cap_s: float,
+) -> tuple[int, str, int]:
+    """POST one pair, retrying retryable failures with capped exponential backoff.
+
+    Returns (status, body, n_attempts). Backoff is base * 2**attempt, capped at
+    backoff_cap_s. Non-retryable statuses (e.g. 401 bad bearer, 400 bad payload)
+    return immediately — retrying those just wastes the DSQ pool. The caller's
+    existing --delay-s spacing still applies between *distinct* pairs; this only
+    governs in-place retries of the *same* pair.
+    """
+    attempt = 0
+    while True:
+        status, body = post_to_dispatcher(pair, dispatcher_url, bearer, timeout_s)
+        if status in (200, 202) or not _is_retryable(status, body):
+            return status, body, attempt + 1
+        if attempt >= max_retries:
+            return status, body, attempt + 1
+        wait = min(backoff_base_s * (2 ** attempt), backoff_cap_s)
+        print(
+            f"        ↳ retryable ERR{status} on {pair['doi']} "
+            f"(attempt {attempt + 1}/{max_retries + 1}); backing off {wait:.0f}s "
+            f"({body[:60]})"
+        )
+        time.sleep(wait)
+        attempt += 1
+
+
 def main() -> int:
     import json
     p = argparse.ArgumentParser(description=__doc__)
@@ -174,6 +227,30 @@ def main() -> int:
              "Don't drop below 30s.",
     )
     p.add_argument("--limit", type=int, default=0, help="stop after N pairs (0 = no limit)")
+    p.add_argument(
+        "--max-retries",
+        type=int,
+        default=5,
+        help="in-place retries per pair on a retryable failure (429 Rate "
+             "exceeded / 503 / client timeout) before giving up and recording "
+             "it in the .retry file. Default 5. Set 0 to restore the old "
+             "fail-fast-then-batch-retry behavior.",
+    )
+    p.add_argument(
+        "--backoff-base-s",
+        type=float,
+        default=10.0,
+        help="base for exponential backoff between in-place retries "
+             "(base * 2**attempt). Default 10s -> 10, 20, 40, 80, ... capped "
+             "by --backoff-cap-s. Sized for the gemini-2.5-pro DSQ per-minute "
+             "window so a retry lands in a fresh minute.",
+    )
+    p.add_argument(
+        "--backoff-cap-s",
+        type=float,
+        default=90.0,
+        help="upper bound on a single backoff sleep. Default 90s.",
+    )
     p.add_argument("--dry-run", action="store_true", help="enumerate without POSTing")
     p.add_argument(
         "--checkpoint",
@@ -235,7 +312,10 @@ def main() -> int:
             print(f"[{n_total:>5}] {pair['ingested_at']}  {pair['doi']}  ->  {pair['published_doi']}")
             continue
 
-        status, body = post_to_dispatcher(pair, dispatcher_url, bearer, args.timeout_s)
+        status, body, attempts = post_with_backoff(
+            pair, dispatcher_url, bearer, args.timeout_s,
+            args.max_retries, args.backoff_base_s, args.backoff_cap_s,
+        )
         if status in (200, 202):
             if "already_processed" in body:
                 n_idempotent += 1
@@ -251,7 +331,8 @@ def main() -> int:
                 with retry_path.open("a") as f:
                     f.write(json.dumps({"pair": pair, "status": status, "body": body[:200]}) + "\n")
 
-        print(f"[{n_total:>5}] {tag}  {pair['ingested_at']}  {pair['doi']}  ({body[:80]})")
+        retry_note = f" (after {attempts} attempts)" if attempts > 1 else ""
+        print(f"[{n_total:>5}] {tag}  {pair['ingested_at']}  {pair['doi']}  ({body[:80]}){retry_note}")
 
         # Always advance the checkpoint (success OR failure). Failures are
         # captured in retry_path so they aren't silently dropped — we just

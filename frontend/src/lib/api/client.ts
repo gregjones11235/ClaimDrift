@@ -4,6 +4,7 @@ import {
   AffectedCitation,
   NotificationLog,
   DriftPattern,
+  DashboardStats,
   Claim
 } from "@/types/claimdrift";
 
@@ -48,4 +49,11 @@ export function getNotifications(id: string): Promise<{ items: NotificationLog[]
 
 export function getPatterns(): Promise<{ items: DriftPattern[]; count: number }> {
   return fetchJson("/api/patterns", "patterns");
+}
+
+// Whole-index dashboard rollups (computed server-side via ES aggregations).
+// Use these for the summary cards instead of summing the (capped) /api/drift-events
+// page client-side — that page is limited to the most-recent 100 events.
+export function getStats(): Promise<DashboardStats> {
+  return fetchJson("/api/stats", "stats");
 }

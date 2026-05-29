@@ -117,6 +117,19 @@ export interface NotificationLog {
   error_message: string | null;
 }
 
+// Whole-index rollups served by the BFF's /api/stats (ES aggregations).
+// These reflect the full population, unlike the most-recent-100 /api/drift-events page.
+export interface DashboardStats {
+  drift_events_total: number;
+  high_severity_count: number;
+  avg_materiality_score: number;
+  affected_citations_total: number;
+  notifications_total: number;
+  notifications_sent: number;
+  patterns_total: number;
+  top_pattern_type: string | null;
+}
+
 export interface DriftPattern {
   pattern_id: string;
   pattern_description: string;

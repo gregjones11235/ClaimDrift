@@ -1,4 +1,4 @@
-import { getDriftEvents, getAffectedCitations, getNotifications, getPatterns } from "@/lib/api/client";
+import { getDriftEvents, getStats } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { CornerDownRight, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -8,12 +8,18 @@ import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
 
 export default async function DashboardPage() {
-  const [{ items: events }, { items: patterns }] = await Promise.all([
+  // Cards read whole-index rollups from /api/stats (ES aggregations); the table
+  // reads the most-recent 100 events. These are deliberately separate: summing
+  // the capped 100-event page would under-count once the index exceeds 100
+  // (the original "Tracked events stuck at 100" bug). The old per-event N+1
+  // fan-out (getAffectedCitations + getNotifications for every row) is gone —
+  // those totals now come from server-side aggregations in a single call.
+  const [stats, { items: events }] = await Promise.all([
+    getStats(),
     getDriftEvents(),
-    getPatterns(),
   ]);
 
-  if (events.length === 0) {
+  if (stats.drift_events_total === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-400 italic font-sans text-[13px]">
         No drift events yet. Run the pipeline to begin.
@@ -21,64 +27,33 @@ export default async function DashboardPage() {
     );
   }
 
-  // Roll up affected_citations + notifications across all events in parallel so
-  // the summary cards stay in sync with the underlying ES state.
-  const perEvent = await Promise.all(
-    events.map(async (e) => {
-      const [ac, nl] = await Promise.all([
-        getAffectedCitations(e.event_id),
-        getNotifications(e.event_id),
-      ]);
-      return { event_id: e.event_id, citations: ac.items, notifications: nl.items };
-    })
-  );
-
-  const totalAffectedCitations = perEvent.reduce((acc, p) => acc + p.citations.length, 0);
-  const sentNotifications = perEvent.reduce(
-    (acc, p) => acc + p.notifications.filter((n) => n.status === "sent").length,
-    0
-  );
-  const totalNotifications = perEvent.reduce((acc, p) => acc + p.notifications.length, 0);
-
-  const highSeverityCount = events.filter((e) => e.materiality_score >= 0.7).length;
-  const avgScore = events.reduce((acc, e) => acc + e.materiality_score, 0) / events.length;
-
-  // Surface the most common pattern_type so the summary card reflects the
-  // actual memory state rather than a hand-picked label.
-  const patternTypeCounts = patterns.reduce<Record<string, number>>((acc, p) => {
-    if (p.pattern_type) acc[p.pattern_type] = (acc[p.pattern_type] ?? 0) + 1;
-    return acc;
-  }, {});
-  const topPatternType = Object.entries(patternTypeCounts)
-    .sort((a, b) => b[1] - a[1])[0]?.[0];
-
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Tracked events</div>
-          <div className="text-2xl font-medium font-sans text-black">{events.length}</div>
+          <div className="text-2xl font-medium font-sans text-black">{stats.drift_events_total}</div>
           <div className="text-[11px] font-mono text-[#666] mt-1">
-            {highSeverityCount} high severity (≥0.7)
+            {stats.high_severity_count} high severity (≥0.7)
           </div>
         </div>
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Avg materiality_score</div>
-          <div className="text-2xl font-medium font-sans text-black">{avgScore.toFixed(2)}</div>
-          <div className="text-[11px] font-mono text-[#666] mt-1">across {events.length} events</div>
+          <div className="text-2xl font-medium font-sans text-black">{stats.avg_materiality_score.toFixed(2)}</div>
+          <div className="text-[11px] font-mono text-[#666] mt-1">across {stats.drift_events_total} events</div>
         </div>
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Affected citations</div>
-          <div className="text-2xl font-medium font-sans text-black">{totalAffectedCitations}</div>
+          <div className="text-2xl font-medium font-sans text-black">{stats.affected_citations_total}</div>
           <div className="text-[11px] font-mono text-[#666] mt-1">
-            {sentNotifications}/{totalNotifications} emails sent
+            {stats.notifications_sent}/{stats.notifications_total} emails sent
           </div>
         </div>
         <div className="bg-white border border-black p-4">
           <div className="text-[12px] text-black mb-1 font-sans">Patterns learned</div>
-          <div className="text-2xl font-medium font-sans text-black">{patterns.length}</div>
+          <div className="text-2xl font-medium font-sans text-black">{stats.patterns_total}</div>
           <div className="text-[11px] font-mono text-[#666] mt-1">
-            {topPatternType ?? "—"}
+            {stats.top_pattern_type ?? "—"}
           </div>
         </div>
       </div>
@@ -147,6 +122,12 @@ export default async function DashboardPage() {
           </tbody>
         </table>
       </div>
+
+      {stats.drift_events_total > events.length && (
+        <div className="text-[11px] font-mono text-[#666]">
+          Showing {events.length} most-recent of {stats.drift_events_total} tracked events.
+        </div>
+      )}
     </div>
   );
 }
