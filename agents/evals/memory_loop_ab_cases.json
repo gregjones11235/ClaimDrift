@@ -1,0 +1,105 @@
+{
+  "experiment_id": "memory-loop-ab-v1",
+  "description": "Minimal reproducible A/B cases for proving that retrieved drift_patterns are used by Drift Analyzer, not merely stored in Elasticsearch.",
+  "success_criteria": [
+    "Memory Synthesizer creates or updates a drift_patterns row from the seed case.",
+    "A later similar case retrieves and uses the expected pattern_id.",
+    "A negative-control case does not claim to use the same pattern.",
+    "Treatment output explicitly explains how retrieved memory affected the drift classification or materiality score."
+  ],
+  "cases": [
+    {
+      "case_id": "seed_diagnostic_claim_disappearance",
+      "role": "seed_memory",
+      "expected_pattern_type": "claim_disappearance",
+      "expected_domain_tags": ["machine-learning", "diagnostic-tool", "llm", "claim-disappearance"],
+      "drift_analyzer_input": {
+        "preprint_doi": "10.1101/eval.seed.0001",
+        "preprint_version_compared": "v2",
+        "published_doi": "10.1000/eval.seed.0001",
+        "preprint_claims": [
+          {
+            "claim_id": "10.1101/eval.seed.0001::v2::abstract::0",
+            "text": "The diagnostic model achieved 94% sensitivity and 91% specificity for early detection of disease X in an external validation cohort.",
+            "claim_type": "quantitative",
+            "hedging_level": "none"
+          },
+          {
+            "claim_id": "10.1101/eval.seed.0001::v2::abstract::1",
+            "text": "The model outperformed expert clinicians across all evaluated subgroups.",
+            "claim_type": "comparative",
+            "hedging_level": "none"
+          }
+        ],
+        "published_claims": [
+          {
+            "claim_id": "10.1000/eval.seed.0001::published::abstract::0",
+            "text": "The conference version describes a diagnostic model for disease X but does not report external validation sensitivity, specificity, or subgroup performance claims.",
+            "claim_type": "qualitative",
+            "hedging_level": "weak"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "treatment_diagnostic_claim_disappearance",
+      "role": "treatment_similar",
+      "expected_pattern_type": "claim_disappearance",
+      "expected_domain_tags": ["machine-learning", "diagnostic-tool", "claim-disappearance"],
+      "drift_analyzer_input": {
+        "preprint_doi": "10.1101/eval.treatment.0002",
+        "preprint_version_compared": "v3",
+        "published_doi": "10.1000/eval.treatment.0002",
+        "preprint_claims": [
+          {
+            "claim_id": "10.1101/eval.treatment.0002::v3::abstract::0",
+            "text": "The AI triage system reached an AUROC of 0.96 and reduced false-negative referrals by 38% in a multicenter validation study.",
+            "claim_type": "quantitative",
+            "hedging_level": "none"
+          },
+          {
+            "claim_id": "10.1101/eval.treatment.0002::v3::abstract::1",
+            "text": "The system generalized robustly across hospital sites and demographic groups.",
+            "claim_type": "qualitative",
+            "hedging_level": "none"
+          }
+        ],
+        "published_claims": [
+          {
+            "claim_id": "10.1000/eval.treatment.0002::published::abstract::0",
+            "text": "The final article presents the AI triage system as exploratory and omits the AUROC, false-negative reduction, and demographic subgroup generalization claims from the abstract.",
+            "claim_type": "qualitative",
+            "hedging_level": "strong"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "negative_agriculture_hedging",
+      "role": "negative_control",
+      "expected_pattern_type": "hedging_addition",
+      "expected_domain_tags": ["agriculture", "field-trial", "yield"],
+      "drift_analyzer_input": {
+        "preprint_doi": "10.1101/eval.negative.0003",
+        "preprint_version_compared": "v1",
+        "published_doi": "10.1000/eval.negative.0003",
+        "preprint_claims": [
+          {
+            "claim_id": "10.1101/eval.negative.0003::v1::abstract::0",
+            "text": "The seed treatment increased soybean yield by 12% across all field sites.",
+            "claim_type": "quantitative",
+            "hedging_level": "none"
+          }
+        ],
+        "published_claims": [
+          {
+            "claim_id": "10.1000/eval.negative.0003::published::abstract::0",
+            "text": "The seed treatment may increase soybean yield under selected soil conditions, although effects varied across sites.",
+            "claim_type": "quantitative",
+            "hedging_level": "strong"
+          }
+        ]
+      }
+    }
+  ]
+}
