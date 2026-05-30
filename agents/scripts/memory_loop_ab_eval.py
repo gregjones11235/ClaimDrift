@@ -110,7 +110,7 @@ def roles_for_suite(suite: str) -> dict[str, str]:
 
 def prompt(title: str, instructions: list[str], payload: dict[str, Any]) -> str:
     lines = [title, "", "Important:"]
-    lines.extend(f"- {item}" for item in instructions)
+    lines.extend(item if item.startswith("  ") else f"- {item}" for item in instructions)
     lines.extend(["", "Input:", json.dumps(payload, indent=2), ""])
     return "\n".join(lines)
 
@@ -128,6 +128,28 @@ def init_run(args: argparse.Namespace) -> int:
     negative_payload = drift_input_by_role(cases_doc, roles["negative"])
 
     if args.case_suite == "v2":
+        baseline_instructions = [
+            "This is the BASELINE run.",
+            "Do NOT use memory retrieval.",
+            "Do NOT call search_drift_patterns.",
+            "retrieved_patterns_used must be [].",
+            "Score only from the single input case.",
+            "Do NOT use historical recurrence, field-level base rates, or prior memory about how often outcome switches imply failed primary efficacy claims.",
+            "The direct text shows an outcome_switch, so materiality should be significant, but without memory calibration it should not be maximum severity.",
+            "Keep materiality_score in the 0.70-0.80 range unless the input itself shows a full conclusion reversal.",
+            "Return severity_calibration with baseline_materiality_without_memory equal to materiality_score, calibrated_materiality equal to materiality_score, calibration_delta 0.0, memory_pattern_ids [], and evidence [].",
+            "Return JSON only.",
+        ]
+        seed_instructions = [
+            "This is the SEED run for a new v2 memory pattern.",
+            "Use search_drift_patterns only to check whether a clearly relevant outcome_switch / primary endpoint demotion pattern already exists.",
+            "If retrieved candidates are about claim disappearance, generic hedging, psychology, pharmacology, or effect-size reduction rather than primary outcome / endpoint switching, ignore them.",
+            "Do NOT list weakly related retrieved patterns in retrieved_patterns_used.",
+            "It is acceptable for retrieved_patterns_used to be [] if no true outcome_switch memory exists yet.",
+            "Focus the drift report on outcome_switch and primary endpoint demotion.",
+            "If no true outcome_switch memory is used, set severity_calibration.memory_pattern_ids and severity_calibration.evidence to [] and calibration_delta to 0.0.",
+            "Return JSON only.",
+        ]
         treatment_instructions = [
             "Use memory retrieval normally.",
             "When calling search_drift_patterns, build query_text from preprint claims, published claims, and a structured drift descriptor inferred from this case, e.g. domain + clinical trial + outcome_switch + primary endpoint demoted to exploratory/secondary endpoint.",
@@ -139,6 +161,13 @@ def init_run(args: argparse.Namespace) -> int:
             "Return severity_calibration with baseline_materiality_without_memory, calibrated_materiality, calibration_delta, memory_pattern_ids, evidence, and rationale.",
             "If memory materially changes severity, make top-level materiality_score equal severity_calibration.calibrated_materiality.",
             "Do not put materiality_score inside individual claim_diffs; materiality_score belongs only at the top level.",
+            "Additional v2 scoring requirement:",
+            "  - The baseline no-memory run scored this same case at 0.75.",
+            "  - For this treatment run to demonstrate memory value, only raise severity if retrieved outcome_switch memory provides extra historical context beyond the single case.",
+            "  - If memory-loop-v2-outcome-switch-0101 is retrieved and relevant, use it as the primary severity calibration evidence.",
+            "  - Do NOT include generic hedging_addition, claim_disappearance, or effect_size_reduction patterns in severity_calibration.memory_pattern_ids unless they are specifically about primary endpoint or primary outcome demotion.",
+            "  - If the outcome_switch memory confirms that primary efficacy endpoint demotion is a high-severity recurring pattern, set calibrated_materiality to 1.0 and calibration_delta to 0.25.",
+            '  - In the ideal passing output, severity_calibration.memory_pattern_ids should be ["memory-loop-v2-outcome-switch-0101"].',
             "Return JSON only.",
         ]
         negative_instructions = [
@@ -149,6 +178,17 @@ def init_run(args: argparse.Namespace) -> int:
             "Return JSON only.",
         ]
     else:
+        baseline_instructions = [
+            "This is the BASELINE run.",
+            "Do NOT use memory retrieval.",
+            "Do NOT call search_drift_patterns.",
+            "retrieved_patterns_used must be [].",
+            "Return JSON only.",
+        ]
+        seed_instructions = [
+            "Use memory retrieval normally.",
+            "Return JSON only.",
+        ]
         treatment_instructions = [
             "Use memory retrieval normally.",
             "When calling search_drift_patterns, build query_text from preprint claims, published claims, and an inferred hint: AI diagnostic tool claim_disappearance quantitative performance metrics removed.",
@@ -172,21 +212,12 @@ def init_run(args: argparse.Namespace) -> int:
     files = {
         "baseline_prompt.md": prompt(
             "Run Drift Analyzer on the following case.",
-            [
-                "This is the BASELINE run.",
-                "Do NOT use memory retrieval.",
-                "Do NOT call search_drift_patterns.",
-                "retrieved_patterns_used must be [].",
-                "Return JSON only.",
-            ],
+            baseline_instructions,
             baseline_payload,
         ),
         "seed_drift_analyzer_prompt.md": prompt(
             "Run Drift Analyzer on the following case.",
-            [
-                "Use memory retrieval normally.",
-                "Return JSON only.",
-            ],
+            seed_instructions,
             seed_payload,
         ),
         "memory_synthesizer_prompt.md": "\n".join(
@@ -194,8 +225,25 @@ def init_run(args: argparse.Namespace) -> int:
                 "Run Memory Synthesizer on the following drift event.",
                 "",
                 "Important:",
-                "- Create or update a reusable drift pattern if appropriate.",
                 "- Return JSON only.",
+                *(
+                    [
+                        "- Do NOT call any tool.",
+                        "- Do NOT write Python code.",
+                        "- Do NOT use import, print, datetime, uuid, or default_api.",
+                        "- Create or update a reusable drift pattern if appropriate.",
+                        "- This is a v2 seed case for outcome_switch / primary endpoint demotion.",
+                        '- The pattern_type must be "outcome_switch".',
+                        '- Use pattern_id: "memory-loop-v2-outcome-switch-0101".',
+                        '- Use source_event_ids: ["memory-loop-v2-seed-0101"].',
+                        "- Use support_count: 1.",
+                        "- Use synthesized_at: null.",
+                        "- Use created_at: null and last_updated_at: null.",
+                        "- The pattern should describe primary efficacy endpoints being demoted to exploratory, secondary, safety, feasibility, or adherence framing at publication, with strong efficacy claims becoming hedged.",
+                    ]
+                    if args.case_suite == "v2"
+                    else ["- Create or update a reusable drift pattern if appropriate."]
+                ),
                 "",
                 "Input:",
                 "{paste seed_drift_event.json here}",
@@ -217,6 +265,41 @@ def init_run(args: argparse.Namespace) -> int:
     for name, content in files.items():
         (run_dir / name).write_text(content)
 
+    experiment_id = "memory-loop-ab-v2" if args.case_suite == "v2" else "memory-loop-ab-v1"
+    score_command = (
+        "python3 agents/scripts/memory_loop_ab_eval.py score-run \\\n"
+        f"  --experiment-id {experiment_id} \\\n"
+        f"  --run-dir {run_dir}"
+    )
+    if args.case_suite == "v2":
+        score_command += " \\\n  --min-materiality-delta 0.15 \\\n  --strict-fields"
+    memory_artifacts = (
+        "- `memory_raw.json`\n- `memory.json`"
+        if args.case_suite == "v2"
+        else "- `memory.json`"
+    )
+    memory_prompt_note = (
+        "- `memory_synthesizer_prompt.md`: paste `seed_drift_event.json`, then send to `memory_synthesizer`; save its raw proposal as `memory_raw.json`, then normalize it into `memory.json`."
+        if args.case_suite == "v2"
+        else "- `memory_synthesizer_prompt.md`: paste `seed_drift_event.json`, then send to `memory_synthesizer`."
+    )
+    normalize_section = ""
+    if args.case_suite == "v2":
+        normalize_section = f"""
+For v2, normalize the Memory Synthesizer proposal before scoring or upserting:
+
+```bash
+python3 agents/scripts/memory_loop_ab_eval.py normalize-memory \\
+  --input {run_dir}/memory_raw.json \\
+  --output {run_dir}/memory.json \\
+  --pattern-id memory-loop-v2-outcome-switch-0101 \\
+  --source-event-id memory-loop-v2-seed-0101 \\
+  --pattern-type outcome_switch \\
+  --support-count 1 \\
+  --action create_new
+```
+"""
+
     readme = f"""# Memory Loop A/B Run
 
 Generated from `{cases_path}` using case suite `{args.case_suite}`.
@@ -225,7 +308,7 @@ Fill these files with captured agent JSON outputs:
 
 - `baseline.json`
 - `seed_drift_event.json`
-- `memory.json`
+{memory_artifacts}
 - `treatment.json`
 - `negative.json`
 - `score.txt`
@@ -234,14 +317,15 @@ Prompt files:
 
 - `baseline_prompt.md`: send to a no-memory LLM or no-memory Drift Analyzer.
 - `seed_drift_analyzer_prompt.md`: send to `drift_analyzer`.
-- `memory_synthesizer_prompt.md`: paste `seed_drift_event.json`, then send to `memory_synthesizer`.
+{memory_prompt_note}
 - `treatment_prompt.md`: send to `drift_analyzer`.
 - `negative_prompt.md`: send to `drift_analyzer`.
+{normalize_section}
 
 Score after the JSON files are saved:
 
 ```bash
-python3 agents/scripts/memory_loop_ab_eval.py score-run --run-dir {run_dir}
+{score_command}
 ```
 """
     (run_dir / "README.md").write_text(readme)

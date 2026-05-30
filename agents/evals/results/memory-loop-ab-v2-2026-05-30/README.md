@@ -109,6 +109,7 @@ Score after the JSON files are saved:
 
 ```bash
 python3 agents/scripts/memory_loop_ab_eval.py score-run \
+  --experiment-id memory-loop-ab-v2 \
   --run-dir agents/evals/results/memory-loop-ab-v2-2026-05-30 \
   --min-materiality-delta 0.15 \
   --strict-fields \

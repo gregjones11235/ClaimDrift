@@ -1,6 +1,6 @@
 # ClaimDrift Memory Loop A/B Test
 
-Last updated: 2026-05-28
+Last updated: 2026-05-30
 
 This runbook defines a small, reproducible experiment for proving that the
 ClaimDrift memory loop is doing more than displaying `drift_patterns` in the
@@ -81,6 +81,22 @@ This creates:
 Paste each prompt into the relevant LLM/ADK agent and save the captured JSON
 outputs into the same directory as `baseline.json`, `seed_drift_event.json`,
 `memory.json`, `treatment.json`, and `negative.json`.
+
+For v2, save the Memory Synthesizer's untrusted proposal as `memory_raw.json`
+first. Then run deterministic normalization so ids, timestamps, source event
+ids, support counts, and schema hygiene are owned by code rather than by the
+LLM:
+
+```bash
+python3 agents/scripts/memory_loop_ab_eval.py normalize-memory \
+  --input agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD/memory_raw.json \
+  --output agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD/memory.json \
+  --pattern-id memory-loop-v2-outcome-switch-0101 \
+  --source-event-id memory-loop-v2-seed-0101 \
+  --pattern-type outcome_switch \
+  --support-count 1 \
+  --action create_new
+```
 
 ### 1. Print The Case Payloads
 
@@ -211,6 +227,7 @@ For v2 runs, also enable stricter checks:
 
 ```bash
 python3 agents/scripts/memory_loop_ab_eval.py score-run \
+  --experiment-id memory-loop-ab-v2 \
   --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
   --min-materiality-delta 0.15 \
   --strict-fields
