@@ -31,6 +31,7 @@ Fill these files with captured agent JSON outputs:
 - `treatment.json`
 - `negative.json`
 - `score.txt`
+- `demo_summary.md`
 
 Do not reuse v1 JSON outputs here. This directory should contain only v2
 severity-calibration evidence.
@@ -65,6 +66,38 @@ python3 agents/scripts/memory_loop_ab_eval.py normalize-memory \
 
 This step intentionally strips invented `created_at`, `last_updated_at`, and
 `synthesized_at` values by setting them to `null`.
+
+## Semi-Automated Runner
+
+The helper runner automates the reproducible parts around the manual ADK calls:
+prompt directory setup, artifact checks, memory normalization, optional ES
+upsert, strict scoring, and demo summary generation.
+
+For the captured artifacts in this directory:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-2026-05-30 \
+  --check \
+  --score \
+  --summary
+```
+
+For a new run directory:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --init
+```
+
+After saving `memory_raw.json`, normalize it with:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --normalize
+```
 
 ## Upsert Memory Into Elasticsearch
 

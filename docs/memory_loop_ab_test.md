@@ -69,6 +69,26 @@ python3 agents/scripts/memory_loop_ab_eval.py init-run \
   --output-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD
 ```
 
+The v2 workflow also has a semi-automated runner for the non-LLM parts of the
+experiment:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --init
+```
+
+After the ADK outputs are captured, the same runner can check artifacts, run
+strict scoring, and write a demo summary:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --check \
+  --score \
+  --summary
+```
+
 This creates:
 
 - `baseline_prompt.md`
@@ -96,6 +116,14 @@ python3 agents/scripts/memory_loop_ab_eval.py normalize-memory \
   --pattern-type outcome_switch \
   --support-count 1 \
   --action create_new
+```
+
+Or use the v2 runner shortcut:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --normalize
 ```
 
 ### 1. Print The Case Payloads
