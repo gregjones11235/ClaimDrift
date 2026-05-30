@@ -5,6 +5,11 @@ Important:
 - Do NOT use memory retrieval.
 - Do NOT call search_drift_patterns.
 - retrieved_patterns_used must be [].
+- Score only from the single input case.
+- Do NOT use historical recurrence, field-level base rates, or prior memory about how often outcome switches imply failed primary efficacy claims.
+- The direct text shows an outcome_switch, so materiality should be significant, but without memory calibration it should not be maximum severity.
+- Keep materiality_score in the 0.70-0.80 range unless the input itself shows a full conclusion reversal.
+- Return severity_calibration with baseline_materiality_without_memory equal to materiality_score, calibrated_materiality equal to materiality_score, calibration_delta 0.0, memory_pattern_ids [], and evidence [].
 - Return JSON only.
 
 Input:

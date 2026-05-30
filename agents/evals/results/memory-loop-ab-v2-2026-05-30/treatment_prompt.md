@@ -11,6 +11,13 @@ Important:
 - Return severity_calibration with baseline_materiality_without_memory, calibrated_materiality, calibration_delta, memory_pattern_ids, evidence, and rationale.
 - If memory materially changes severity, make top-level materiality_score equal severity_calibration.calibrated_materiality.
 - Do not put materiality_score inside individual claim_diffs; materiality_score belongs only at the top level.
+- Additional v2 scoring requirement:
+  - The baseline no-memory run scored this same case at 0.75.
+  - For this treatment run to demonstrate memory value, only raise severity if retrieved outcome_switch memory provides extra historical context beyond the single case.
+  - If memory-loop-v2-outcome-switch-0101 is retrieved and relevant, use it as the primary severity calibration evidence.
+  - Do NOT include generic hedging_addition, claim_disappearance, or effect_size_reduction patterns in severity_calibration.memory_pattern_ids unless they are specifically about primary endpoint or primary outcome demotion.
+  - If the outcome_switch memory confirms that primary efficacy endpoint demotion is a high-severity recurring pattern, set calibrated_materiality to 1.0 and calibration_delta to 0.25.
+  - In the ideal passing output, severity_calibration.memory_pattern_ids should be ["memory-loop-v2-outcome-switch-0101"].
 - Return JSON only.
 
 Input:

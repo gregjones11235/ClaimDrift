@@ -1,0 +1,36 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.v2.treatment.0102",
+  "preprint_version_compared": "v3",
+  "published_doi": "10.1000/eval.v2.treatment.0102",
+  "drift_summary": "The published version reclassified the preprint's primary clinical endpoint of heart-failure readmission reduction as an exploratory secondary outcome, stating it was not statistically significant. Concurrently, the strong recommendation for immediate protocol adoption was significantly softened and made conditional on further trials.",
+  "claim_diffs": [
+    {
+      "diff_type": "outcome_switch",
+      "preprint_claim_id": "10.1101/eval.v2.treatment.0102::v3::abstract::0",
+      "published_claim_id": "10.1000/eval.v2.treatment.0102::published::abstract::0",
+      "preprint_text": "The multicenter trial achieved its primary clinical endpoint, reducing 90-day heart-failure readmission from 22% to 13% compared with usual care.",
+      "published_text": "The published article defines medication-adherence documentation as the primary outcome; 90-day readmission is reported only as an exploratory secondary endpoint and is not presented as statistically significant.",
+      "change_description": "The primary clinical endpoint, 90-day heart-failure readmission, was downgraded to an exploratory secondary endpoint and deemed not statistically significant in the published article."
+    },
+    {
+      "diff_type": "hedging_added",
+      "preprint_claim_id": "10.1101/eval.v2.treatment.0102::v3::abstract::1",
+      "published_claim_id": "10.1000/eval.v2.treatment.0102::published::abstract::1",
+      "preprint_text": "These findings support immediate adoption of the remote titration protocol across cardiology clinics.",
+      "published_text": "The protocol may be useful for workflow redesign but requires confirmation in a dedicated outcomes trial.",
+      "change_description": "A strong recommendation for immediate adoption of the protocol was replaced with a highly hedged statement suggesting it 'may be useful' but requires further confirmation."
+    }
+  ],
+  "materiality_score": 0.75,
+  "severity_calibration": {
+    "baseline_materiality_without_memory": 0.75,
+    "calibrated_materiality": 0.75,
+    "calibration_delta": 0.0,
+    "memory_pattern_ids": [],
+    "evidence": [],
+    "rationale": "This is a baseline run, so no memory patterns were used for calibration."
+  },
+  "retrieved_patterns_used": [],
+  "analyzed_at": null
+}

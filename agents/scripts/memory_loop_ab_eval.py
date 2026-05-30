@@ -62,6 +62,11 @@ def output_text(output: dict[str, Any]) -> str:
         value = output.get(key)
         if isinstance(value, str):
             pieces.append(value)
+    calibration = output.get("severity_calibration")
+    if isinstance(calibration, dict):
+        value = calibration.get("rationale")
+        if isinstance(value, str):
+            pieces.append(value)
     for diff in as_list(output.get("claim_diffs")):
         if isinstance(diff, dict):
             for key in ("change_description", "preprint_text", "published_text"):
@@ -397,6 +402,11 @@ def score(args: argparse.Namespace) -> int:
                 "memory_synthesizer does not invent synthesized_at",
                 failures,
             )
+            check(
+                pattern.get("created_at") is None and pattern.get("last_updated_at") is None,
+                "memory_synthesizer does not invent created_at/last_updated_at",
+                failures,
+            )
 
     if negative:
         negative_patterns = pattern_ids(negative)
@@ -447,6 +457,58 @@ def show_cases(args: argparse.Namespace) -> int:
     return 0
 
 
+def normalize_memory(args: argparse.Namespace) -> int:
+    """Normalize an LLM memory proposal into a deterministic eval artifact.
+
+    This intentionally models the industrial path we want in production:
+    the LLM proposes semantic content, while deterministic code owns ids,
+    timestamps, source ids, support counts, and schema hygiene.
+    """
+    raw_path = Path(args.input)
+    output_path = Path(args.output)
+    raw = load_json(raw_path)
+    if not isinstance(raw, dict):
+        raise SystemExit(f"{raw_path}: expected a JSON object")
+
+    pattern = raw.get("pattern")
+    if not isinstance(pattern, dict):
+        raise SystemExit(f"{raw_path}: expected top-level pattern object")
+
+    description = pattern.get("pattern_description")
+    if not isinstance(description, str) or not description.strip():
+        raise SystemExit(f"{raw_path}: pattern.pattern_description must be a non-empty string")
+
+    raw_tags = as_list(pattern.get("domain_tags"))
+    domain_tags = [str(tag) for tag in raw_tags if str(tag).strip()]
+    if not domain_tags:
+        raise SystemExit(f"{raw_path}: pattern.domain_tags must contain at least one tag")
+
+    normalized = {
+        "action": args.action or raw.get("action") or "create_new",
+        "pattern": {
+            "pattern_id": args.pattern_id,
+            "pattern_description": description.strip(),
+            "pattern_type": args.pattern_type,
+            "domain_tags": domain_tags,
+            "source_event_ids": [args.source_event_id],
+            "created_at": None,
+            "last_updated_at": None,
+            "support_count": args.support_count,
+        },
+        "synthesized_at": None,
+    }
+
+    if normalized["action"] not in {"create_new", "update_existing"}:
+        raise SystemExit("action must be create_new or update_existing")
+    if args.support_count < 1:
+        raise SystemExit("--support-count must be >= 1")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(normalized, indent=2) + "\n")
+    print(f"Wrote normalized memory artifact: {output_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Score ClaimDrift memory-loop A/B artifacts.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -454,6 +516,19 @@ def main() -> int:
     show = subparsers.add_parser("show-cases", help="Print Drift Analyzer input payloads from the fixture file.")
     show.add_argument("--cases", default="agents/evals/memory_loop_ab_cases.json")
     show.set_defaults(func=show_cases)
+
+    normalize = subparsers.add_parser(
+        "normalize-memory",
+        help="Normalize an LLM Memory Synthesizer proposal into a deterministic eval artifact.",
+    )
+    normalize.add_argument("--input", required=True, help="Raw Memory Synthesizer JSON proposal.")
+    normalize.add_argument("--output", required=True, help="Normalized memory.json output path.")
+    normalize.add_argument("--pattern-id", required=True, help="Deterministic pattern_id to use.")
+    normalize.add_argument("--source-event-id", required=True, help="Deterministic source_event_ids[0] to use.")
+    normalize.add_argument("--pattern-type", default="outcome_switch", help="Pattern type to enforce.")
+    normalize.add_argument("--support-count", type=int, default=1, help="Support count to enforce.")
+    normalize.add_argument("--action", choices=["create_new", "update_existing"], help="Action to enforce.")
+    normalize.set_defaults(func=normalize_memory)
 
     init = subparsers.add_parser("init-run", help="Create a dated result directory with copy/paste prompts.")
     init.add_argument("--cases", default="agents/evals/memory_loop_ab_cases.json")

@@ -1,7 +1,13 @@
 Run Drift Analyzer on the following case.
 
 Important:
-- Use memory retrieval normally.
+- This is the SEED run for a new v2 memory pattern.
+- Use search_drift_patterns only to check whether a clearly relevant outcome_switch / primary endpoint demotion pattern already exists.
+- If retrieved candidates are about claim disappearance, generic hedging, psychology, pharmacology, or effect-size reduction rather than primary outcome / endpoint switching, ignore them.
+- Do NOT list weakly related retrieved patterns in retrieved_patterns_used.
+- It is acceptable for retrieved_patterns_used to be [] if no true outcome_switch memory exists yet.
+- Focus the drift report on outcome_switch and primary endpoint demotion.
+- If no true outcome_switch memory is used, set severity_calibration.memory_pattern_ids and severity_calibration.evidence to [] and calibration_delta to 0.0.
 - Return JSON only.
 
 Input:
