@@ -41,6 +41,26 @@ intentionally different.
 
 ## Manual Agent Run Protocol
 
+For a repeatable run directory with ready-to-copy prompts, start with:
+
+```bash
+python3 agents/scripts/memory_loop_ab_eval.py init-run \
+  --output-dir agents/evals/results/memory-loop-ab-YYYY-MM-DD
+```
+
+This creates:
+
+- `baseline_prompt.md`
+- `seed_drift_analyzer_prompt.md`
+- `memory_synthesizer_prompt.md`
+- `treatment_prompt.md`
+- `negative_prompt.md`
+- `README.md`
+
+Paste each prompt into the relevant LLM/ADK agent and save the captured JSON
+outputs into the same directory as `baseline.json`, `seed_drift_event.json`,
+`memory.json`, `treatment.json`, and `negative.json`.
+
 ### 1. Print The Case Payloads
 
 ```bash
@@ -142,6 +162,13 @@ Expected negative behavior:
 After saving the four JSON files:
 
 ```bash
+python3 agents/scripts/memory_loop_ab_eval.py score-run \
+  --run-dir agents/evals/results/memory-loop-ab-YYYY-MM-DD
+```
+
+Or call the lower-level scorer directly:
+
+```bash
 python3 agents/scripts/memory_loop_ab_eval.py score \
   --baseline /tmp/claimdrift-memory-ab/baseline.json \
   --memory /tmp/claimdrift-memory-ab/memory.json \
@@ -179,6 +206,30 @@ If the negative control uses the diagnostic pattern:
 - tune relevance filtering in the Drift Analyzer prompt.
 - emphasize that retrieved candidates are not authoritative unless domain,
   drift type, and phenomenon all match.
+
+## 2026-05-28 Prompt/Query A/B Finding
+
+One captured run is stored in:
+
+```text
+agents/evals/results/memory-loop-ab-2026-05-28/
+```
+
+The successful run showed that relevance-audit prompt tuning alone was not
+enough when the retrieval query was built only from preprint claims. The
+expected diagnostic AI pattern did not appear in the top retrieved candidates.
+
+The effective change was to tune Drift Analyzer's retrieval-query construction:
+
+1. include preprint claim text;
+2. include published claim text;
+3. append an inferred drift/domain hint such as
+   `AI diagnostic tool claim_disappearance quantitative performance metrics removed`.
+
+After this change, the expected pattern
+`c31f4560-611c-4335-a7a2-97b744d014da` was retrieved as the top candidate and
+used in treatment output. The agriculture/yield negative control used
+`probe-agri-001` and did not use the diagnostic AI pattern.
 
 ## Demo Video Narrative
 

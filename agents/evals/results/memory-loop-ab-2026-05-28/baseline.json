@@ -1,0 +1,109 @@
+{
+"run_type": "baseline",
+"memory_retrieval_used": false,
+"search_drift_patterns_called": false,
+"retrieved_patterns_used": [],
+"cases": [
+{
+"case_id": "seed_diagnostic_claim_disappearance",
+"case_role": "seed_memory",
+"preprint_doi": "10.1101/eval.seed.0001",
+"published_doi": "10.1000/eval.seed.0001",
+"drift_detected": true,
+"primary_drift_type": "claim_disappearance",
+"secondary_drift_types": [
+"quantitative_result_omission",
+"comparative_claim_omission",
+"external_validation_omission",
+"subgroup_performance_omission"
+],
+"severity": "high",
+"confidence": 0.97,
+"claim_level_assessment": [
+{
+"preprint_claim_id": "10.1101/eval.seed.0001::v2::abstract::0",
+"published_claim_id": "10.1000/eval.seed.0001::published::abstract::0",
+"status": "missing_in_published_abstract",
+"drift_type": "quantitative_result_omission",
+"rationale": "The preprint reported 94% sensitivity and 91% specificity in an external validation cohort, while the published abstract explicitly states that sensitivity, specificity, and external validation claims are not reported."
+},
+{
+"preprint_claim_id": "10.1101/eval.seed.0001::v2::abstract::1",
+"published_claim_id": "10.1000/eval.seed.0001::published::abstract::0",
+"status": "missing_in_published_abstract",
+"drift_type": "comparative_claim_omission",
+"rationale": "The preprint claimed the model outperformed expert clinicians across all evaluated subgroups, while the published abstract explicitly omits subgroup performance claims."
+}
+],
+"summary": "The published abstract removes the strongest diagnostic performance claims from the preprint, including external validation metrics and subgroup comparison claims."
+},
+{
+"case_id": "treatment_diagnostic_claim_disappearance",
+"case_role": "treatment_similar",
+"preprint_doi": "10.1101/eval.treatment.0002",
+"published_doi": "10.1000/eval.treatment.0002",
+"drift_detected": true,
+"primary_drift_type": "claim_disappearance",
+"secondary_drift_types": [
+"quantitative_result_omission",
+"false_negative_reduction_omission",
+"multicenter_validation_omission",
+"generalization_claim_omission",
+"hedging_increase"
+],
+"severity": "high",
+"confidence": 0.96,
+"claim_level_assessment": [
+{
+"preprint_claim_id": "10.1101/eval.treatment.0002::v3::abstract::0",
+"published_claim_id": "10.1000/eval.treatment.0002::published::abstract::0",
+"status": "missing_in_published_abstract",
+"drift_type": "quantitative_result_omission",
+"rationale": "The preprint reported AUROC of 0.96 and a 38% reduction in false-negative referrals in a multicenter validation study, while the published abstract explicitly omits AUROC and false-negative reduction claims."
+},
+{
+"preprint_claim_id": "10.1101/eval.treatment.0002::v3::abstract::1",
+"published_claim_id": "10.1000/eval.treatment.0002::published::abstract::0",
+"status": "missing_in_published_abstract",
+"drift_type": "generalization_claim_omission",
+"rationale": "The preprint claimed robust generalization across hospital sites and demographic groups, while the published abstract omits demographic subgroup generalization and reframes the system as exploratory."
+}
+],
+"summary": "The final article substantially weakens the preprint's diagnostic-performance narrative by omitting quantitative validation results and broad generalization claims, while adding strong exploratory framing."
+},
+{
+"case_id": "negative_agriculture_hedging",
+"case_role": "negative_control",
+"preprint_doi": "10.1101/eval.negative.0003",
+"published_doi": "10.1000/eval.negative.0003",
+"drift_detected": true,
+"primary_drift_type": "hedging_increase",
+"secondary_drift_types": [
+"scope_narrowing",
+"effect_consistency_weakening"
+],
+"severity": "moderate",
+"confidence": 0.91,
+"claim_level_assessment": [
+{
+"preprint_claim_id": "10.1101/eval.negative.0003::v1::abstract::0",
+"published_claim_id": "10.1000/eval.negative.0003::published::abstract::0",
+"status": "retained_but_weakened",
+"drift_type": "hedging_increase",
+"rationale": "The preprint made an unhedged quantitative claim of a 12% soybean yield increase across all field sites. The published abstract retains the yield-increase direction but changes it to 'may increase,' limits it to selected soil conditions, and states that effects varied across sites."
+}
+],
+"summary": "This is not a diagnostic claim-disappearance case. It is a negative-control example showing agricultural claim weakening through stronger hedging and narrower applicability."
+}
+],
+"aggregate_assessment": {
+"diagnostic_claim_disappearance_cases": [
+"seed_diagnostic_claim_disappearance",
+"treatment_diagnostic_claim_disappearance"
+],
+"negative_control_passed": true,
+"negative_control_reason": "The agriculture case shows hedging and scope narrowing, not disappearance of diagnostic validation claims.",
+"baseline_pattern_retrieval_effect": "none"
+}
+}
+

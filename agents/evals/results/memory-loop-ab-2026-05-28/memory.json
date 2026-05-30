@@ -1,0 +1,28 @@
+{
+  "action": "update_existing",
+  "pattern": {
+    "pattern_id": "c31f4560-611c-4335-a7a2-97b744d014da",
+    "pattern_description": "In machine learning and AI-driven diagnostics, preprints may report specific, high-performance metrics and strong novelty claims. These can be entirely removed in the published version, representing a complete disappearance of the paper's core quantitative results and claims to innovation, often after peer review.",
+    "pattern_type": "claim_disappearance",
+    "domain_tags": [
+      "claim-disappearance",
+      "diagnostic-tool",
+      "llm",
+      "machine-learning",
+      "reproducibility"
+    ],
+    "source_event_ids": [
+      "12636161-dccf-4be2-8c23-71c3aedf8cbe",
+      "ad0bed0a-d6e7-4f1d-886a-deff2dfaa58a",
+      "d1be04f7-7c2b-437a-97de-2fa41930de5c",
+      "d8f98f23-c50d-414e-a816-70ce2b266ae2",
+      "drift_event_id_not_found_in_input",
+      "eaa72d85-673a-4dcf-b2b0-3b91b00cb2e0",
+      "f421ffc4-1520-4ff1-a49a-762930294484",
+      "memory-loop-ab-seed-0001"
+    ],
+    "support_count": 8,
+    "last_updated_at": "2023-10-27T10:00:00Z"
+  },
+  "synthesized_at": null
+}

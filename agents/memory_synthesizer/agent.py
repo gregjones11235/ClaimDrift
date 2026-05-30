@@ -56,7 +56,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnecti
 # packages only this subdirectory, so the `_shared` sibling package is not
 # importable in the deployed runtime. Keep this constant in sync with
 # _shared/config.py if it ever changes (it hasn't since v0).
-MODEL_PRO = "gemini-2.5-pro"
+MODEL_PRO = os.getenv("CLAIMDRIFT_MODEL_PRO", "gemini-2.5-pro")
 
 _KIBANA_URL = os.environ["KIBANA_URL"].rstrip("/")
 _ELASTIC_API_KEY = os.environ["ELASTIC_API_KEY"]
