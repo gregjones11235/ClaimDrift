@@ -43,6 +43,22 @@ candidate and then used in `retrieved_patterns_used`.
 - `negative.json`: agriculture/yield negative control.
 - `score.txt`: automated scoring output.
 
+## Prompts Used
+
+The prompts used for this captured run are saved beside the JSON artifacts:
+
+- `baseline_prompt.md`: Drift Analyzer baseline prompt with memory disabled.
+- `seed_drift_analyzer_prompt.md`: Drift Analyzer prompt for the seed case.
+- `memory_synthesizer_prompt.md`: Memory Synthesizer prompt for writing/updating memory.
+- `treatment_prompt.md`: Drift Analyzer treatment prompt with tuned memory retrieval guidance.
+- `negative_prompt.md`: Drift Analyzer negative-control prompt.
+
+The expected pattern id
+`c31f4560-611c-4335-a7a2-97b744d014da` is not included as an answer in the
+Drift Analyzer prompts. It is used by the scoring script only after the run, to
+verify whether the treatment output retrieved and used the pattern produced by
+the memory step.
+
 ## Caveat
 
 The captured treatment output includes `materiality_score` inside individual
