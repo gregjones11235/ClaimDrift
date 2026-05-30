@@ -36,7 +36,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnecti
 # importable in the deployed runtime. Keep this constant in sync with
 # _shared/config.py if it ever changes (it hasn't since v0). See
 # agents/_DEPLOY_CHECKLIST.md Pitfall #1.
-MODEL_PRO = "gemini-2.5-pro"
+MODEL_PRO = os.getenv("CLAIMDRIFT_MODEL_PRO", "gemini-2.5-pro")
 
 _KIBANA_URL = os.environ["KIBANA_URL"].rstrip("/")
 _ELASTIC_API_KEY = os.environ["ELASTIC_API_KEY"]
@@ -67,11 +67,21 @@ You will receive a JSON object with:
 # Step 1 — retrieve relevant patterns (mandatory)
 
 Before producing the drift report, call the `search_drift_patterns` tool
-exactly once. Build the query_text by concatenating the most informative
-text from preprint_claims (typically each claim's `text` field, joined by
-spaces) — this gives the retriever something semantically rich to match
-against. Use top_k=3 and DO NOT pass min_score (the underlying retriever's
-score is rank-based and not comparable across queries).
+exactly once. Build the query_text from BOTH sides of the comparison:
+
+- concatenate the most informative `text` fields from preprint_claims;
+- concatenate the most informative `text` fields from published_claims;
+- append a short inferred drift/domain hint using plain language, such as
+  "AI diagnostic tool claim_disappearance quantitative performance metrics
+  removed" when the comparison appears to involve diagnostic/model performance
+  claims disappearing from publication.
+
+The retrieval query must describe the phenomenon you need memory for, not just
+the preprint's original positive claim. Use top_k=10 and DO NOT pass min_score
+(the underlying retriever's score is rank-based and not comparable across
+queries). The larger candidate set is intentional: the retriever may rank
+plausible but off-domain patterns above the best domain-specific memory, so
+you must inspect candidates yourself.
 
 # Step 2 — judge relevance yourself
 
@@ -109,6 +119,10 @@ match for downstream ES writes to validate):
                            it matters>",
     "numerical_delta": <REQUIRED when diff_type == "numerical_shift", otherwise omit>
   }
+
+Do NOT add `materiality_score` or any other extra fields inside individual
+claim_diff objects. `materiality_score` belongs only at the top level of the
+drift report.
 
 For numerical_delta, use SIGNED deltas (a reduction is negative):
   {

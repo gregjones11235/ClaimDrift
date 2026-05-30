@@ -1,0 +1,16 @@
+Experiment: memory-loop-ab-v1
+
+PASS: baseline does not use retrieved_patterns
+PASS: treatment uses at least one retrieved pattern
+PASS: treatment uses expected pattern_id c31f4560-611c-4335-a7a2-97b744d014da
+PASS: treatment output explicitly explains memory influence
+PASS: treatment emits claim_diffs with diff_type
+PASS: treatment materiality_score is numeric in [0, 1]
+PASS: memory_synthesizer action is create_new or update_existing
+PASS: memory_synthesizer output includes pattern.pattern_id
+PASS: memory pattern support_count >= 1
+PASS: memory pattern has source_event_ids
+PASS: negative control does not use treatment pattern_id
+PASS: negative control rationale is not dominated by diagnostic-tool memory
+
+Verdict: PASS

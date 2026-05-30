@@ -1,0 +1,31 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.seed.0001",
+  "preprint_version_compared": "v2",
+  "published_doi": "10.1000/eval.seed.0001",
+  "drift_summary": "The published version of the paper entirely removed the diagnostic model's core performance metrics, including sensitivity, specificity, and claims of outperformance against expert clinicians, which were prominently featured in the preprint.",
+  "claim_diffs": [
+    {
+      "diff_type": "claim_disappeared",
+      "preprint_claim_id": "10.1101/eval.seed.0001::v2::abstract::0",
+      "published_claim_id": null,
+      "preprint_text": "The diagnostic model achieved 94% sensitivity and 91% specificity for early detection of disease X in an external validation cohort.",
+      "published_text": null,
+      "change_description": "The quantitative claims regarding the diagnostic model's sensitivity and specificity in external validation, present in the preprint, were removed from the published version."
+    },
+    {
+      "diff_type": "claim_disappeared",
+      "preprint_claim_id": "10.1101/eval.seed.0001::v2::abstract::1",
+      "published_claim_id": null,
+      "preprint_text": "The model outperformed expert clinicians across all evaluated subgroups.",
+      "published_text": null,
+      "change_description": "The claim that the model outperformed expert clinicians across all subgroups, present in the preprint, was removed from the published version."
+    }
+  ],
+  "materiality_score": 0.9,
+  "retrieved_patterns_used": [
+    "c31f4560-611c-4335-a7a2-97b744d014da",
+    "f4a8e3b2-9a56-4b78-a362-23f25a073f18"
+  ],
+  "analyzed_at": null
+}
