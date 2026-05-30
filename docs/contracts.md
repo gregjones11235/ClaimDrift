@@ -220,7 +220,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `record_source`: keyword | null (see §2.3)
 - `pattern_id`: keyword (UUID)
 - `pattern_description`: semantic_text (human-readable + ELSER searchable, **this is the memory loop's retrieval field**)
-- `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `other`) // TODO A: may expand after Memory Synthesizer prompt iteration
+- `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `outcome_switch` | `other`) // TODO A: may expand after Memory Synthesizer prompt iteration
 - `domain_tags`: keyword (array, e.g. `["covid-19", "clinical-trial", "rct"]`)
 - `source_event_ids`: keyword (array, list of drift_events that produced this pattern)
 - `support_count`: integer (number of drift_events supporting this pattern — higher = more reliable)
@@ -436,6 +436,21 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
     }
   ],
   "materiality_score": 0.82,                           // 0.0-1.0, overall severity
+  "severity_calibration": {                            // optional in legacy v1 events; required for v2 A/B eval
+    "baseline_materiality_without_memory": 0.68,        // agent's best single-case severity before memory calibration
+    "calibrated_materiality": 0.92,                     // equals top-level materiality_score after memory calibration
+    "calibration_delta": 0.24,                          // calibrated_materiality - baseline_materiality_without_memory
+    "memory_pattern_ids": ["pattern-uuid-1"],           // subset of retrieved_patterns_used used specifically for severity
+    "evidence": [
+      {
+        "pattern_id": "pattern-uuid-1",
+        "support_count": 12,
+        "pattern_type": "outcome_switch",
+        "calibration_effect": "raised"
+      }
+    ],
+    "rationale": "Prior outcome-switch patterns in comparable clinical trials indicate that demoting a headline primary endpoint to exploratory status is usually high-severity."
+  },
   "retrieved_patterns_used": [                         // which retrieved patterns actually entered the reasoning
     "pattern-uuid-1",
     "pattern-uuid-2"
@@ -454,6 +469,7 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 | `hedging_added` | The published version added hedging language |
 | `hedging_removed` | The published version removed hedging (rare) |
 | `claim_reversed` | The conclusion direction is reversed (most severe) |
+| `outcome_switch` | The publication switches or demotes the preprint's headline primary outcome/endpoint, e.g. primary efficacy endpoint becomes exploratory, secondary, feasibility, safety, or surrogate framing |
 
 **NOTE (v0 finding, 2026-05-21)**: In v0 testing, Drift Analyzer (Pro) spontaneously detected scope-narrowing drift (e.g. "in COVID-19 patients" → "in early-stage COVID-19 patients") but had to shoehorn it into `hedging_added`. Consider adding `scope_restricted` to the enum. Pending team discussion per §8.1 (rename/type change rules).
 

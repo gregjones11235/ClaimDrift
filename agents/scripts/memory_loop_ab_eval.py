@@ -87,6 +87,22 @@ def drift_input_by_role(cases_doc: dict[str, Any], role: str) -> dict[str, Any]:
     raise SystemExit(f"No drift_analyzer_input found for role={role}")
 
 
+def roles_for_suite(suite: str) -> dict[str, str]:
+    if suite == "v1":
+        return {
+            "seed": "seed_memory",
+            "treatment": "treatment_similar",
+            "negative": "negative_control",
+        }
+    if suite == "v2":
+        return {
+            "seed": "seed_memory_v2",
+            "treatment": "treatment_similar_v2",
+            "negative": "negative_control_v2",
+        }
+    raise SystemExit(f"Unsupported case suite: {suite}")
+
+
 def prompt(title: str, instructions: list[str], payload: dict[str, Any]) -> str:
     lines = [title, "", "Important:"]
     lines.extend(f"- {item}" for item in instructions)
@@ -99,11 +115,54 @@ def init_run(args: argparse.Namespace) -> int:
     cases_doc = load_json(cases_path)
     run_dir = Path(args.output_dir or f"agents/evals/results/memory-loop-ab-{date.today().isoformat()}")
     run_dir.mkdir(parents=True, exist_ok=True)
+    roles = roles_for_suite(args.case_suite)
 
-    baseline_payload = drift_input_by_role(cases_doc, "treatment_similar")
-    seed_payload = drift_input_by_role(cases_doc, "seed_memory")
-    treatment_payload = drift_input_by_role(cases_doc, "treatment_similar")
-    negative_payload = drift_input_by_role(cases_doc, "negative_control")
+    baseline_payload = drift_input_by_role(cases_doc, roles["treatment"])
+    seed_payload = drift_input_by_role(cases_doc, roles["seed"])
+    treatment_payload = drift_input_by_role(cases_doc, roles["treatment"])
+    negative_payload = drift_input_by_role(cases_doc, roles["negative"])
+
+    if args.case_suite == "v2":
+        treatment_instructions = [
+            "Use memory retrieval normally.",
+            "When calling search_drift_patterns, build query_text from preprint claims, published claims, and a structured drift descriptor inferred from this case, e.g. domain + clinical trial + outcome_switch + primary endpoint demoted to exploratory/secondary endpoint.",
+            "Do not use a hard-coded AI diagnostic hint.",
+            "Before finalizing retrieved_patterns_used, perform a relevance audit.",
+            "Inspect all returned candidates, not only the highest-ranked one.",
+            "Prefer patterns whose drift type matches outcome_switch or primary endpoint demotion.",
+            "Use relevant pattern support_count and domain recurrence to calibrate severity.",
+            "Return severity_calibration with baseline_materiality_without_memory, calibrated_materiality, calibration_delta, memory_pattern_ids, evidence, and rationale.",
+            "If memory materially changes severity, make top-level materiality_score equal severity_calibration.calibrated_materiality.",
+            "Do not put materiality_score inside individual claim_diffs; materiality_score belongs only at the top level.",
+            "Return JSON only.",
+        ]
+        negative_instructions = [
+            "Use memory retrieval normally.",
+            "Only use a pattern if domain, drift type, and phenomenon are relevant.",
+            "Do not use primary-outcome-switch memory for a cosmetic copy-edit or unit-formatting case.",
+            "Return severity_calibration; if no memory is relevant, memory_pattern_ids and evidence must be [].",
+            "Return JSON only.",
+        ]
+    else:
+        treatment_instructions = [
+            "Use memory retrieval normally.",
+            "When calling search_drift_patterns, build query_text from preprint claims, published claims, and an inferred hint: AI diagnostic tool claim_disappearance quantitative performance metrics removed.",
+            "Before finalizing retrieved_patterns_used, perform a relevance audit.",
+            "Inspect all returned candidates, not only the highest-ranked one.",
+            "Prefer patterns whose domain matches AI / machine learning / diagnostic tools.",
+            "Prefer patterns whose drift type matches claim_disappearance.",
+            "Prefer patterns describing quantitative performance metrics disappearing from preprint to publication.",
+            "Do NOT use pharmacology, biochemistry, clinical genetics, hedging-addition, or effect-size-reduction patterns unless they directly match this case.",
+            "If a retrieved pattern is relevant, include its pattern_id in retrieved_patterns_used and explain how it affected your reasoning.",
+            "Do not put materiality_score inside individual claim_diffs; materiality_score belongs only at the top level.",
+            "Return JSON only.",
+        ]
+        negative_instructions = [
+            "Use memory retrieval normally.",
+            "Only use a pattern if domain, drift type, and phenomenon are relevant.",
+            "Do not use diagnostic-tool memory for an agriculture/yield case.",
+            "Return JSON only.",
+        ]
 
     files = {
         "baseline_prompt.md": prompt(
@@ -140,29 +199,12 @@ def init_run(args: argparse.Namespace) -> int:
         ),
         "treatment_prompt.md": prompt(
             "Run Drift Analyzer on the following case.",
-            [
-                "Use memory retrieval normally.",
-                "When calling search_drift_patterns, build query_text from preprint claims, published claims, and an inferred hint: AI diagnostic tool claim_disappearance quantitative performance metrics removed.",
-                "Before finalizing retrieved_patterns_used, perform a relevance audit.",
-                "Inspect all returned candidates, not only the highest-ranked one.",
-                "Prefer patterns whose domain matches AI / machine learning / diagnostic tools.",
-                "Prefer patterns whose drift type matches claim_disappearance.",
-                "Prefer patterns describing quantitative performance metrics disappearing from preprint to publication.",
-                "Do NOT use pharmacology, biochemistry, clinical genetics, hedging-addition, or effect-size-reduction patterns unless they directly match this case.",
-                "If a retrieved pattern is relevant, include its pattern_id in retrieved_patterns_used and explain how it affected your reasoning.",
-                "Do not put materiality_score inside individual claim_diffs; materiality_score belongs only at the top level.",
-                "Return JSON only.",
-            ],
+            treatment_instructions,
             treatment_payload,
         ),
         "negative_prompt.md": prompt(
             "Run Drift Analyzer on the following case.",
-            [
-                "Use memory retrieval normally.",
-                "Only use a pattern if domain, drift type, and phenomenon are relevant.",
-                "Do not use diagnostic-tool memory for an agriculture/yield case.",
-                "Return JSON only.",
-            ],
+            negative_instructions,
             negative_payload,
         ),
     }
@@ -172,7 +214,7 @@ def init_run(args: argparse.Namespace) -> int:
 
     readme = f"""# Memory Loop A/B Run
 
-Generated from `{cases_path}`.
+Generated from `{cases_path}` using case suite `{args.case_suite}`.
 
 Fill these files with captured agent JSON outputs:
 
@@ -269,6 +311,56 @@ def score(args: argparse.Namespace) -> int:
         failures,
     )
 
+    min_delta = getattr(args, "min_materiality_delta", None)
+    if min_delta is not None:
+        baseline_score = baseline.get("materiality_score")
+        treatment_score = treatment.get("materiality_score")
+        calibration = treatment.get("severity_calibration")
+        check(
+            isinstance(calibration, dict),
+            "treatment includes severity_calibration",
+            failures,
+        )
+        calibration_delta = calibration.get("calibration_delta") if isinstance(calibration, dict) else None
+        check(
+            isinstance(calibration_delta, (int, float)),
+            "severity_calibration.calibration_delta is numeric",
+            failures,
+        )
+        if isinstance(baseline_score, (int, float)) and isinstance(treatment_score, (int, float)):
+            observed_delta = float(treatment_score) - float(baseline_score)
+            check(
+                observed_delta >= float(min_delta),
+                f"treatment materiality_score exceeds baseline by at least {min_delta}",
+                failures,
+            )
+        if isinstance(calibration_delta, (int, float)):
+            check(
+                float(calibration_delta) >= float(min_delta),
+                f"severity_calibration.calibration_delta >= {min_delta}",
+                failures,
+            )
+
+    if getattr(args, "strict_fields", False):
+        outputs = [("baseline", baseline), ("treatment", treatment)]
+        if negative:
+            outputs.append(("negative", negative))
+        for label, output in outputs:
+            check(
+                output.get("event_id") is None and output.get("analyzed_at") is None,
+                f"{label} does not invent event_id/analyzed_at",
+                failures,
+            )
+            nested_materiality = any(
+                isinstance(diff, dict) and "materiality_score" in diff
+                for diff in as_list(output.get("claim_diffs"))
+            )
+            check(
+                not nested_materiality,
+                f"{label} claim_diffs do not contain nested materiality_score",
+                failures,
+            )
+
     if memory:
         action = memory.get("action")
         pattern = memory.get("pattern") if isinstance(memory.get("pattern"), dict) else {}
@@ -292,6 +384,19 @@ def score(args: argparse.Namespace) -> int:
             "memory pattern has source_event_ids",
             failures,
         )
+        if getattr(args, "strict_fields", False):
+            source_event_ids = [str(x).lower() for x in as_list(pattern.get("source_event_ids"))]
+            invalid_markers = ("not_found", "unknown", "placeholder", "fake")
+            check(
+                not any(any(marker in event_id for marker in invalid_markers) for event_id in source_event_ids),
+                "memory pattern source_event_ids do not contain placeholder ids",
+                failures,
+            )
+            check(
+                memory.get("synthesized_at") is None,
+                "memory_synthesizer does not invent synthesized_at",
+                failures,
+            )
 
     if negative:
         negative_patterns = pattern_ids(negative)
@@ -325,6 +430,8 @@ def score_run(args: argparse.Namespace) -> int:
         treatment=str(run_dir / "treatment.json"),
         negative=str(run_dir / "negative.json"),
         expected_pattern_id=args.expected_pattern_id,
+        min_materiality_delta=args.min_materiality_delta,
+        strict_fields=args.strict_fields,
     )
     return score(score_args)
 
@@ -351,6 +458,7 @@ def main() -> int:
     init = subparsers.add_parser("init-run", help="Create a dated result directory with copy/paste prompts.")
     init.add_argument("--cases", default="agents/evals/memory_loop_ab_cases.json")
     init.add_argument("--output-dir", help="Directory for prompts and captured run artifacts.")
+    init.add_argument("--case-suite", choices=["v1", "v2"], default="v1")
     init.set_defaults(func=init_run)
 
     score_parser = subparsers.add_parser("score", help="Score captured baseline/treatment JSON outputs.")
@@ -360,12 +468,16 @@ def main() -> int:
     score_parser.add_argument("--negative", help="Negative-control Drift Analyzer output.")
     score_parser.add_argument("--memory", help="Memory Synthesizer output for the seed case.")
     score_parser.add_argument("--expected-pattern-id", help="Pattern id expected to be used by treatment and not by negative control.")
+    score_parser.add_argument("--min-materiality-delta", type=float, help="Require treatment materiality_score to exceed baseline by this amount.")
+    score_parser.add_argument("--strict-fields", action="store_true", help="Reject invented machine fields, nested materiality_score, and placeholder source_event_ids.")
     score_parser.set_defaults(func=score)
 
     score_run_parser = subparsers.add_parser("score-run", help="Score a standard run directory.")
     score_run_parser.add_argument("--experiment-id", default="memory-loop-ab-v1")
     score_run_parser.add_argument("--run-dir", required=True, help="Directory containing baseline/memory/treatment/negative JSON files.")
     score_run_parser.add_argument("--expected-pattern-id", help="Override the pattern id expected in treatment output.")
+    score_run_parser.add_argument("--min-materiality-delta", type=float, help="Require treatment materiality_score to exceed baseline by this amount.")
+    score_run_parser.add_argument("--strict-fields", action="store_true", help="Reject invented machine fields, nested materiality_score, and placeholder source_event_ids.")
     score_run_parser.set_defaults(func=score_run)
 
     args = parser.parse_args()
