@@ -1,0 +1,25 @@
+# Cloud Build config for the claimdrift-pattern-curator Cloud Run Job (C3 / D3).
+#
+# Mirrors apps/dispatcher/cloudbuild.yaml (the proven path). The curator's
+# Dockerfile needs repo-root build context (it COPYs agents/pattern_curator,
+# agents/_shared, and ingestion/), so we build via `gcloud builds submit` with
+# this config, then create/update the Cloud Run JOB with --image.
+#
+# Usage (from repo root):
+#   gcloud builds submit . --config=agents/pattern_curator/cloudbuild.yaml
+#   # then create/update the Cloud Run Job + Scheduler:
+#   bash agents/pattern_curator/scripts/deploy_curator_job.sh
+#
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=agents/pattern_curator/Dockerfile
+      - --tag=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-pattern-curator:latest
+      - .
+
+images:
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-pattern-curator:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

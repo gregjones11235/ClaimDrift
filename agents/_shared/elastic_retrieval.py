@@ -17,6 +17,13 @@ Query shape: `retriever.rrf` over BM25 and ELSER semantic_text on
 contracts.md changelog 2026-05-22). RRF scores are rank-based and live
 in roughly 0.01–0.05; do NOT use the §3.2 cosine-style 0.7 threshold
 without probing first (see scripts/probe_rrf_scores.py).
+
+Read target: the `drift_patterns_read` alias, not the concrete index, so
+the offline pattern_curator can blue-green rebuild and atomically swap the
+underlying index without the live read path noticing (contracts.md §2.2.5,
+memory_loop_v2_design.md B.2). Writes are unaffected — they still target the
+concrete `drift_patterns` index (see _shared/elastic_write.py). Falls back to
+the concrete index if the alias is not yet created (_read_target).
 """
 
 from __future__ import annotations
@@ -39,12 +46,40 @@ load_dotenv(_REPO_ROOT / "agents" / ".env")
 
 from ingestion.common.elastic import ElasticsearchHttpClient  # noqa: E402
 
+# Writes target the concrete index; real-time READS go through the alias so the
+# pattern_curator can blue-green rebuild and atomically swap the index under the
+# live read path (contracts.md §2.2.5, memory_loop_v2_design.md B.2). The alias
+# points at `drift_patterns` until the curator swaps it to `drift_patterns_v2`;
+# managed by elastic/scripts/manage_pattern_alias.py. Falls back to the concrete
+# index name if the alias has not been created yet (init not run), so retrieval
+# never hard-fails on a fresh cluster — _resolve_read_target handles that.
 DRIFT_PATTERNS_INDEX = "drift_patterns"
+DRIFT_PATTERNS_READ_ALIAS = "drift_patterns_read"
 
 # RRF rank_constant — Elastic's default is 60; B's verified query uses 60.
 # rank_window_size scales with top_k so we don't truncate candidates before
 # the rank fusion can do its job.
 _RRF_RANK_CONSTANT = 60
+
+
+def _read_target(client: ElasticsearchHttpClient) -> str:
+    """Resolve the index/alias the real-time read path should query.
+
+    Prefer the `drift_patterns_read` alias so curator blue-green swaps are
+    transparent to retrieval. Fall back to the concrete index when the alias
+    has not been created yet (a fresh cluster before
+    `manage_pattern_alias.py init --apply`), so this change can never turn a
+    working retrieval path into a hard 404. The check is a cheap HEAD-style
+    GET /_alias/<name>; ES caches alias metadata so this is negligible next to
+    the _search itself.
+    """
+    try:
+        client.request("GET", f"/_alias/{DRIFT_PATTERNS_READ_ALIAS}")
+        return DRIFT_PATTERNS_READ_ALIAS
+    except RuntimeError as exc:
+        if "404" in str(exc):
+            return DRIFT_PATTERNS_INDEX
+        raise
 
 
 def _build_rrf_query(
@@ -205,7 +240,7 @@ def search_drift_patterns(
 
     client = ElasticsearchHttpClient()
     body = _build_rrf_query(query_text, top_k, exclude_demo_seed)
-    response = client.request("POST", f"/{DRIFT_PATTERNS_INDEX}/_search", body)
+    response = client.request("POST", f"/{_read_target(client)}/_search", body)
 
     hits = (response.get("hits") or {}).get("hits") or []
     patterns = [_shape_hit(h) for h in hits]

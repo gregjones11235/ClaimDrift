@@ -486,14 +486,14 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 
 **`severity_calibration` block (v2 flagship, 2026-05-30)** — this is the read-side payoff of the memory loop and the thing the v2 demo proves. The `materiality_score` scoring guide above is the *uncalibrated* judgment a stateless analyzer would produce. When a genuinely relevant pattern is retrieved (per §3.2.1 relevance rules), the analyzer must additionally place the current drift against that pattern's accumulated history and emit `severity_calibration`:
 
-- `calibrating_pattern_id`: the retrieved pattern whose base rate was used; MUST also appear in `retrieved_patterns_used`.
-- `base_rate_support_count`: that pattern's `support_count` — the analyzer must cite this as the strength of the base rate (higher = more reliable calibration; this is why the loop gets sharper as it accumulates).
-- `tail_position`: where this drift falls in the pattern's historical distribution (`typical` | `elevated` | `top_10_percent` | `top_5_percent` | `top_1_percent`).
-- `uncalibrated_materiality_score`: the score the analyzer would assign from the diff alone (baseline-equivalent).
-- `calibrated_materiality_score`: the score after applying the base rate; **this value is what gets copied into the top-level `materiality_score`**.
-- `calibration_rationale`: one sentence stating the base rate and how it moved the score.
+- `baseline_materiality_without_memory`: the score the analyzer would assign from the diff alone, with no memory (baseline-equivalent).
+- `calibrated_materiality`: the score after applying the base rate; **this value equals the top-level `materiality_score`**.
+- `calibration_delta`: `calibrated_materiality - baseline_materiality_without_memory` — the visible movement the base rate caused.
+- `memory_pattern_ids`: the subset of `retrieved_patterns_used` actually used for severity (each MUST also appear in `retrieved_patterns_used`).
+- `evidence[]`: per supporting pattern, its `pattern_id`, `support_count` (the strength of the base rate — higher = more reliable calibration; this is why the loop gets sharper as it accumulates), `pattern_type`, and `calibration_effect` (`raised` | `lowered` | `unchanged`).
+- `rationale`: one sentence stating the base rate and how it moved the score.
 
-Set `severity_calibration: null` when no retrieved pattern is relevant (then `materiality_score == uncalibrated`). The v2 success criterion (E1) is that `calibrated_materiality_score` is *visibly different* from `uncalibrated_materiality_score` because of the base rate — not merely that a `pattern_id` appears. The retrieval query that surfaces the pattern is built from a **structured drift descriptor** (domain + drift_type + magnitude), replacing the hard-coded example hint retired in v2. See [memory_loop_v2_design.md](memory_loop_v2_design.md) A.1 / Part C.2.
+Set `severity_calibration: null` when no retrieved pattern is relevant (then `materiality_score == baseline_materiality_without_memory`). The v2 success criterion (E1) is that `calibrated_materiality` is *visibly different* from `baseline_materiality_without_memory` (a non-zero `calibration_delta`) because of the base rate — not merely that a `pattern_id` appears. The retrieval query that surfaces the pattern is built from a **structured drift descriptor** (domain + drift_type + magnitude), replacing the hard-coded example hint retired in v2. See [memory_loop_v2_design.md](memory_loop_v2_design.md) A.1 / Part C.2.
 
 ### 3.3 Citation Finder (Agent 3)
 
@@ -757,6 +757,52 @@ outside the JSON.
 Input:
 {paste the §3.6.3 input JSON here}
 ```
+
+#### 3.6.5 Deployment status, bounded-dedup safeguards & ops model (2026-05-31)
+
+**Status**: implemented and live. The curator is a Cloud Run **Job**
+(`claimdrift-pattern-curator`) triggered by a daily Cloud Scheduler
+(`claimdrift-pattern-curator-daily`), NOT an Agent Engine reasoning engine
+(B.1). Its one Gemini judgment uses `google.genai` on the Vertex backend with
+structured output (`response_schema`) re-validated by a jsonschema gate
+(§3.6.3). Code: `agents/pattern_curator/`. Build/deploy + full runbook:
+[pattern_curator_ops.md](pattern_curator_ops.md). C1 (`claimdrift-elser-batch`
+endpoint + `drift_patterns_read` alias) and C2 (supervisor hardening) are also
+live.
+
+**Bounded dedup (the expensive serial step is capped):**
+
+- The LLM judgment runs **at most once per unordered pattern pair** (a
+  `judged_pairs` set), so A's recall of B and B's recall of A don't
+  double-judge.
+- Each run is capped at **`max_judgments`** LLM calls (default 50). When the cap
+  is hit, remaining pairs defer to the next run and the curator **holds the
+  incremental watermark** at its start value (it does not advance past a
+  partially-deduped window — merges stamp `last_updated_at=now`, so a naive
+  watermark advance would strand the leftover pairs). Pass `--max-judgments 0`
+  for unbounded.
+- Stage-level flushed progress logs (`[curator] …`, `[dedup] …`) make a long run
+  observable.
+
+**Operating model — dry-run by default, human-reviewed apply:** the scheduled
+daily run is **dry-run** (the image CMD has no `--apply`); it only *proposes*
+merges/evictions and logs them. A human reviews the proposed merges, then runs
+once with `--apply` to actually govern. This is safe-by-default because merges
+are irreversible aggregations.
+
+**Incident & lesson (2026-05-31)**: first-time deployment used an unbounded,
+`--apply`-by-default image and was run repeatedly by hand on live data; it merged
+21 pairs across four executions (one approached the 1800s task timeout). **No
+data was corrupted** — a conservation check confirmed `support_count ==
+len(unique source_event_ids)` on every row (0 violations) and the full
+`source_event_ids` set preserved. The row-count drop is the *intended*
+base-rate-purification effect (duplicate rows of the dominant
+`claim_disappearance` type collapsing into high-support survivors), only larger
+and less controlled than intended. **Lesson now mandatory in the runbook: before
+any `--apply` on real data, take a `reindex` snapshot of `drift_patterns`** — the
+absence of a pre-governance snapshot is what made the exact row-by-row accounting
+impossible to reconstruct after the fact. The bounded-dedup + dry-run-default
+changes above close the controllability gap.
 
 ---
 

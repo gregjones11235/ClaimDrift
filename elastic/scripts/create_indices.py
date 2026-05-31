@@ -15,6 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 MAPPINGS = ROOT / "mappings"
 STALE_DEFAULT_PIPELINE_INDEXES = {"claims", "drift_patterns", "preprints"}
 
+# The curator shadow index is NOT a bootstrap index: its lifecycle is owned by
+# the pattern_curator blue-green rebuild (elastic/scripts/manage_pattern_alias.py
+# `rebuild`, which drops+recreates it each run). Creating it here would bind its
+# pattern_description to the claimdrift-elser-batch endpoint prematurely and leave
+# an empty index lying around. Skip it during the general index bootstrap.
+SKIP_INDEXES = {"drift_patterns_v2"}
+
 
 def normalize_index_settings(settings: dict) -> dict:
     normalized = {}
@@ -47,7 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     try:
-        mappings = [(path.stem, json.loads(path.read_text())) for path in sorted(MAPPINGS.glob("*.json"))]
+        mappings = [
+            (path.stem, json.loads(path.read_text()))
+            for path in sorted(MAPPINGS.glob("*.json"))
+            if path.stem not in SKIP_INDEXES
+        ]
 
         if not args.apply:
             print("Dry run. Pass --apply to create resources in Elasticsearch.")

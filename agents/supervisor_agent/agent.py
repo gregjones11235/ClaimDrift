@@ -27,8 +27,10 @@ _run_async_impl(ctx) yields Event objects manually. We use that pattern.
 
 Also: ParallelAgent.sub_agents is fixed at construction time, so the
 per-citation notifier fan-out (N unknown until citation_finder returns)
-can't use ParallelAgent. We borrow `_merge_agent_run` from
-google.adk.agents.parallel_agent for the dynamic case.
+can't use ParallelAgent. The parallel phases (claim_extractor ×2,
+notifier ×N) run concurrently via `asyncio.gather` over the hardened
+`_guarded` calls (hardening.py buffers each attempt's events to make
+retry correct), then yield each successful branch's buffered events.
 
 # Event handling
 
@@ -49,20 +51,29 @@ Dispatcher serializes this; we json.loads here. Sub-agents receive the
 
 from __future__ import annotations
 
+import asyncio
 import json
-import sys
 import uuid
 from typing import Any, AsyncGenerator
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.agents.parallel_agent import (
-    _merge_agent_run,
-    _merge_agent_run_pre_3_11,
-)
 from google.adk.events.event import Event
 from google.genai import types
 from typing_extensions import override
+
+# Relative imports: the Agent Engine deploy bundles only this package directory
+# (same constraint noted in drift_analyzer/agent.py:35), so sibling packages are
+# not importable but intra-package modules are. `__init__.py` already uses
+# `from .agent import root_agent`, so the package is always imported as a
+# package — relative imports resolve in both `adk web` and the deployed runtime.
+from .hardening import (  # noqa: E402
+    GuardedResult,
+    RetryPolicy,
+    SubAgentError,
+    run_sub_agent_guarded,
+)
+from .schemas import OUTPUT_SCHEMAS  # noqa: E402
 
 # Sub-agent reasoning engine IDs from agents/_DEPLOY_CHECKLIST.md (Phase 5a-5e).
 # Hard-coded because they are stable Vertex resource names, not secrets, and
@@ -168,15 +179,44 @@ def _extract_final_output(events: list[Event]) -> dict | None:
     return None
 
 
-def _merge_func():
-    """Pick the correct merge helper based on Python version (mirrors
-    ParallelAgent's own selection logic)."""
-    return _merge_agent_run if sys.version_info >= (3, 11) else _merge_agent_run_pre_3_11
-
-
 class SupervisorAgent(BaseAgent):
     """Custom BaseAgent that orchestrates the §4.1 fan-out across remote
-    reasoning engines on Vertex AI Agent Engine."""
+    reasoning engines on Vertex AI Agent Engine.
+
+    Hardening (C2 / D5): every sub-agent call goes through `_guarded`, which
+    adds a per-attempt timeout, exponential-backoff retry, and a deterministic
+    §3.x.2 schema gate (hardening.py + schemas.py). This is pure code — the
+    supervisor remains "NOT an LLM agent". Failure handling is per-phase
+    (core chain fail-fast; notifier skips the one citation; memory_synthesizer
+    logs and does not block), wired in `_run_async_impl` below.
+    """
+
+    # Single shared retry policy for all sub-agents. Tunable per-call if a
+    # specific agent ever needs different bounds; today one policy fits all.
+    _retry_policy: RetryPolicy = RetryPolicy()
+
+    async def _guarded(
+        self,
+        agent_name: str,
+        envelope: dict,
+        user_id: str,
+        *,
+        require_output: bool = True,
+    ) -> GuardedResult:
+        """Run one sub-agent call with timeout + retry + schema validation.
+
+        Returns a GuardedResult (buffered events of the successful attempt +
+        validated §3.x.2 output). Raises SubAgentError on exhaustion; the
+        caller decides the per-phase degradation policy.
+        """
+        return await run_sub_agent_guarded(
+            agent_name=agent_name,
+            call_factory=lambda: _call_sub_agent(agent_name, envelope, user_id),
+            extractor=_extract_final_output,
+            schema=OUTPUT_SCHEMAS.get(agent_name),
+            policy=self._retry_policy,
+            require_output=require_output,
+        )
 
     @override
     async def _run_async_impl(
@@ -214,30 +254,32 @@ class SupervisorAgent(BaseAgent):
             "conclusion": published.get("conclusion"),
         }
 
-        preprint_events: list[Event] = []
-        published_events: list[Event] = []
+        # Guard each extractor independently (timeout + backoff retry + schema
+        # gate). Both are on the core chain, so either failing is fail-fast:
+        # drift_analyzer cannot run without both claim sets. Run them
+        # concurrently (matching the original ×2 parallelism), then yield each
+        # successful attempt's buffered events.
+        extract_results = await asyncio.gather(
+            self._guarded("claim_extractor", preprint_env, user_id),
+            self._guarded("claim_extractor", published_env, user_id),
+            return_exceptions=True,
+        )
+        for r in extract_results:
+            if isinstance(r, GuardedResult):
+                for ev in r.events:
+                    yield ev
+        # Surface the first failure deterministically (preprint before published)
+        # after streaming whatever did succeed, so the dispatcher sees partial
+        # progress before the error.
+        for r in extract_results:
+            if isinstance(r, BaseException):
+                raise RuntimeError(
+                    "claim_extractor failed on the core chain (preprint/published "
+                    "claim sets are both required by drift_analyzer)"
+                ) from r
 
-        async def _run_extract(env: dict, sink: list[Event]) -> AsyncGenerator[Event, None]:
-            async for ev in _call_sub_agent("claim_extractor", env, user_id):
-                sink.append(ev)
-                yield ev
-
-        async for event in _merge_func()(
-            [
-                _run_extract(preprint_env, preprint_events),
-                _run_extract(published_env, published_events),
-            ]
-        ):
-            yield event
-
-        preprint_claims = _extract_final_output(preprint_events)
-        published_claims = _extract_final_output(published_events)
-        if not preprint_claims or not published_claims:
-            raise RuntimeError(
-                "claim_extractor did not return §3.1.2 structured output for "
-                f"one or both versions (preprint ok={bool(preprint_claims)}, "
-                f"published ok={bool(published_claims)})"
-            )
+        preprint_claims = extract_results[0].output
+        published_claims = extract_results[1].output
 
         # --- Phase 2: drift_analyzer ------------------------------------
         drift_env = {
@@ -247,14 +289,19 @@ class SupervisorAgent(BaseAgent):
             "preprint_claims": preprint_claims.get("claims", []),
             "published_claims": published_claims.get("claims", []),
         }
-        drift_events: list[Event] = []
-        async for event in _call_sub_agent("drift_analyzer", drift_env, user_id):
-            drift_events.append(event)
+        # Core chain: drift_analyzer failure is fail-fast (citation_finder and
+        # everything after need its output). The schema gate here is the one
+        # that matters most — a truthy-but-wrong drift_event would poison the
+        # minted event_id and every downstream ES row (T1 2026-05-26).
+        try:
+            drift_result = await self._guarded("drift_analyzer", drift_env, user_id)
+        except SubAgentError as exc:
+            raise RuntimeError(
+                "drift_analyzer failed on the core chain; cannot continue"
+            ) from exc
+        for event in drift_result.events:
             yield event
-
-        drift_event = _extract_final_output(drift_events)
-        if not drift_event:
-            raise RuntimeError("drift_analyzer did not return §3.2.2 structured output")
+        drift_event = drift_result.output
 
         # Mint event_id here (supervisor IS the §3.2.2 orchestrator). drift_analyzer
         # returns event_id=null by design — same orchestrator-fills rationale as
@@ -293,19 +340,22 @@ class SupervisorAgent(BaseAgent):
             "drift_summary": drift_event.get("drift_summary"),
             "claim_diffs": drift_event.get("claim_diffs", []),
         }
-        citation_events: list[Event] = []
-        async for event in _call_sub_agent("citation_finder", citation_env, user_id):
-            citation_events.append(event)
+        # Core chain: citation_finder failure is fail-fast (notifier fan-out and
+        # memory_synthesizer's affected_citations_summary both depend on it).
+        try:
+            citation_guarded = await self._guarded("citation_finder", citation_env, user_id)
+        except SubAgentError as exc:
+            raise RuntimeError(
+                "citation_finder failed on the core chain; cannot continue"
+            ) from exc
+        for event in citation_guarded.events:
             yield event
-
-        citation_result = _extract_final_output(citation_events)
-        if not citation_result:
-            raise RuntimeError("citation_finder did not return §3.3.2 structured output")
+        citation_result = citation_guarded.output
 
         # --- Phase 4: notifier ×N in DYNAMIC PARALLEL --------------------
         # ParallelAgent.sub_agents is fixed at construction; for per-element
-        # fan-out we build the generator list dynamically and feed
-        # _merge_agent_run directly.
+        # fan-out we build the envelope list dynamically and run the guarded
+        # notifier calls concurrently via asyncio.gather.
         affected_citations = citation_result.get("affected_citations", [])
         if affected_citations:
             notifier_envelopes = [
@@ -325,11 +375,31 @@ class SupervisorAgent(BaseAgent):
                 }
                 for c in affected_citations
             ]
-            notifier_runs = [
-                _call_sub_agent("notifier", env, user_id) for env in notifier_envelopes
-            ]
-            async for event in _merge_func()(notifier_runs):
-                yield event
+            # Per-citation degradation: a single recipient's notifier call
+            # failing (timeout / bad schema after retries) must NOT abort the
+            # others or the already-completed analysis. Guard each independently
+            # and skip the ones that exhaust retries; the rest still send.
+            notifier_results = await asyncio.gather(
+                *(self._guarded("notifier", env, user_id) for env in notifier_envelopes),
+                return_exceptions=True,
+            )
+            for env, r in zip(notifier_envelopes, notifier_results):
+                if isinstance(r, GuardedResult):
+                    for ev in r.events:
+                        yield ev
+                else:
+                    # Skipped: surface a single agent.failed-style event so the
+                    # dispatcher/frontend show this one email was dropped, rather
+                    # than silently vanishing. Other notifiers are unaffected.
+                    yield Event(
+                        author="notifier",
+                        invocation_id=ctx.invocation_id,
+                        error_code="sub_agent_failed",
+                        error_message=(
+                            f"notifier skipped for "
+                            f"{env.get('affected_citation_id')}: {r}"
+                        ),
+                    )
 
         # --- Phase 5g: memory_synthesizer -------------------------------
         # §9.6.1 5g: cheapest implementation puts memory_synthesizer at the
@@ -348,8 +418,23 @@ class SupervisorAgent(BaseAgent):
                 "peripheral_count": sum(1 for c in affected_citations if c.get("severity_tier") == "peripheral"),
             },
         }
-        async for event in _call_sub_agent("memory_synthesizer", memory_env, user_id):
-            yield event
+        # Terminal async step: memory_synthesizer failing must NOT fail the run.
+        # The drift_event + citations + emails are already done and persisted;
+        # a missed memory write only means this one event didn't update the
+        # pattern store (the curator / a later event can still pick it up). Log
+        # via an error event and finish cleanly.
+        try:
+            memory_guarded = await self._guarded("memory_synthesizer", memory_env, user_id)
+        except SubAgentError as exc:
+            yield Event(
+                author="memory_synthesizer",
+                invocation_id=ctx.invocation_id,
+                error_code="sub_agent_failed",
+                error_message=f"memory_synthesizer skipped (non-blocking): {exc}",
+            )
+        else:
+            for event in memory_guarded.events:
+                yield event
 
 
 root_agent = SupervisorAgent(
