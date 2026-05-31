@@ -7,7 +7,8 @@
     "properties": {
       "record_source": { "type": "keyword" },
       "pattern_id": { "type": "keyword" },
-      "pattern_description": { "type": "semantic_text", "inference_id": "claimdrift-elser-batch" },
+      "pattern_description": { "type": "semantic_text", "inference_id": "claimdrift-elser-batch", "copy_to": "pattern_description_text" },
+      "pattern_description_text": { "type": "text" },
       "pattern_type": { "type": "keyword" },
       "domain_tags": { "type": "keyword" },
       "source_event_ids": { "type": "keyword" },

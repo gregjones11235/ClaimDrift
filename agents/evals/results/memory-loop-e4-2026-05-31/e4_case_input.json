@@ -1,0 +1,33 @@
+{
+  "preprint_doi": "10.1101/eval.e4.econ.0001",
+  "preprint_version_compared": "v2",
+  "published_doi": "10.1000/eval.e4.econ.0001",
+  "preprint_claims": [
+    {
+      "claim_id": "10.1101/eval.e4.econ.0001::v2::abstract::0",
+      "text": "A minimum-wage increase of 10% reduced teen employment by 6.2% (p<0.01) in our two-way fixed-effects specification across 48 states.",
+      "claim_type": "quantitative",
+      "hedging_level": "none"
+    },
+    {
+      "claim_id": "10.1101/eval.e4.econ.0001::v2::abstract::1",
+      "text": "These results provide robust causal evidence of large disemployment effects.",
+      "claim_type": "comparative",
+      "hedging_level": "none"
+    }
+  ],
+  "published_claims": [
+    {
+      "claim_id": "10.1000/eval.e4.econ.0001::published::abstract::0",
+      "text": "After adding county-level controls and a border-discontinuity robustness check, a 10% minimum-wage increase is associated with a 1.1% reduction in teen employment, not statistically significant at conventional levels (p=0.21).",
+      "claim_type": "quantitative",
+      "hedging_level": "moderate"
+    },
+    {
+      "claim_id": "10.1000/eval.e4.econ.0001::published::abstract::1",
+      "text": "The evidence for a disemployment effect is weaker than initially reported.",
+      "claim_type": "comparative",
+      "hedging_level": "moderate"
+    }
+  ]
+}

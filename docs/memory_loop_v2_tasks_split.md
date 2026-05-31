@@ -13,16 +13,22 @@ Last updated: 2026-05-30（merge 后校正）
 > / `calibration_delta` / `memory_pattern_ids` / `evidence[]` / `rationale`），`outcome_switch`
 > 已进 `pattern_type` 枚举与 drift type 表。
 >
-> **进度更新（2026-05-31）：实现任务基本全部完成，剩下的是 Part E 实验（B5）。**
+> **进度更新（2026-05-31 晚）：E1/E3/E4 全部跑通，检索栈修复落地，剩 E2。**
 > - **泳道 A（role C）**：C1/C2/C3 全部落地 + 真集群验证（详见下文 ✅）。
-> - **泳道 B（role B / Jeremy）**：B1（v2 outcome-switch fixture，cases.json 里
->   `seed_oncology_primary_outcome_switch` / `treatment_cardiology_primary_outcome_switch` /
->   `negative_cardiology_units_copyedit`）、B2（drift_analyzer 加 `severity_calibration` +
->   结构化 drift descriptor 替换写死 hint）、B4（scorer 抓 nested materiality + 拒 placeholder
->   event id）均已完成。
-> - **下一步 = Part E 实验**：E1/E2/E4 依赖 B1+B2（就绪，可跑）；**E3 需 role C + role B 联合跑**
->   （curator 正确性 + 实时检索不受影响，C 已备 `agents/pattern_curator/scripts/_e2e_probe.py`）。
-> - 非阻塞收尾：B3（curator prompt 调优，调好后由 C 复跑 dry-run review 上线）。
+> - **泳道 B（role B / Jeremy）**：B1/B2/B4 均已完成。
+> - **Part E 实验进度（2026-05-31 由 role C 单人推进，role B 不在场）**：
+>   - **E1 ✅**（2026-05-30 已跑通 PASS：baseline 0.75 → treatment 1.0，delta 0.25）。
+>   - **E3 ✅**（curator 正确性 `_e2e_probe.py` 全过；新增 `_e3_latency_probe.py` 证明 curator
+>     满载时实时检索 p95 仅 +2.3%）。**注：文档原说"E3 需两人"，但 role C 一人持 ES/GCP
+>     权限即可单跑——已单人完成。**
+>   - **E4 ✅**（两层：`e4_generalization_probe.py` 检索层 + `e4_e2e_setup/check.py` 端到端，
+>     证明去写死 hint 后泛化到 fixture 外领域，agent 不误用临床记忆）。
+>   - **E2 ⏳ 进行中**（见下方「E2 收尾计划」——核心 demo 镜头，待真实案例抓取 + 受控曲线）。
+> - **额外修复（demo 之外的真实收益）**：诊断并修复了 RRF "假 hybrid"（ELSER 自融合，词法路径
+>   缺失，2026-05-23 遗留），用 copy_to 词法镜像原地改造主索引恢复真混合检索；中途纠正了误用
+>   `rebuild` 影子索引的问题，系统已回稳态（alias→drift_patterns，读写统一）。详见 contracts.md
+>   2026-05-31 三条 changelog + [[project_hybrid_retrieval_fix]]。
+> - 非阻塞收尾：B3（curator prompt 调优）。
 
 ---
 
@@ -111,13 +117,46 @@ Last updated: 2026-05-30（merge 后校正）
       `source_event_ids` / 伪造时间戳；抓出嵌套在 `claim_diffs` 里的 `materiality_score`。
 - [ ] 新增检查：treatment 的校准后严重性必须与 baseline **有可度量的差异**。
 
-### B5 — 实验（Part E；E1/E2 依赖 B1+B2，E3 依赖 C3，E4 依赖 B2）
-- [ ] **E1** 旗舰 A/B：跑在 B1 的 outcome-switch fixture 上；成功标准 = 校准后严重性可见地
-      不同于 baseline，而非仅出现 pattern_id。
-- [ ] **E2** 累积曲线（可拍摄证据）：N=5 vs N=50，展示校准随 support_count 收敛。
-- [ ] **E3** curator 正确性：植入重复+垃圾，跑 C3，断言合并/淘汰正确、无错误合并、
-      且实时检索延迟不受影响（**与 role C 联合验证，因为依赖 C1**）。
-- [ ] **E4** 去写死后的泛化：在 fixture 之外的领域验证 hint 确已移除、检索仍准。
+### B5 — 实验（Part E）
+- [x] **E1** 旗舰 A/B：2026-05-30 跑通 PASS（baseline 0.75 → treatment 1.0，delta 0.25，
+      negative 0.0）。产物 `agents/evals/results/memory-loop-ab-v2-2026-05-30/`。
+- [ ] **E2** 累积曲线（可拍摄证据，**demo 核心镜头**）：见下方「E2 收尾计划」。
+- [x] **E3** curator 正确性 + 延迟隔离：`agents/pattern_curator/scripts/_e2e_probe.py`（治理）
+      + `_e3_latency_probe.py`（p95 +2.3%，隔离成立）。**role C 单人完成**。
+- [x] **E4** 去写死后泛化：`agents/scripts/e4_generalization_probe.py`（检索层，rank=1）
+      + `e4_e2e_setup.py`/`e4_e2e_check.py`（端到端经济学 case，7/7 过）。
+
+---
+
+## E2 收尾计划（2026-05-31 拍板，role C 续做）
+
+> **核心结论**：E2 必须是「受控实验」，不能是「真实累积」。两个硬约束逼出此结论：
+> 1. **可复现 ⟺ 合成**：memory loop 单调累积、不可逆——一旦 support 累到 120，
+>    无法回到 support=50 的状态重录。只有「每档独立构造」才可复现可重录。
+> 2. **真实累积 ≈ 0**：真集群审计 391 drift_events / 35 patterns / **0 个 outcome_switch**
+>    （10,671 preprints 都没自然产出一条）。primary-outcome switch 太稀有 + 仅临床类，
+>    demo 尺度内无法自累积到 50/120。
+
+**做法：真实案例 + 受控注入。**
+- **案例真实层**：用 deep-research 抓 **COMPARE 项目 / 已发表审计**里的真实 outcome-switch
+  个例（试验名 / DOI / NCT 号 + 原 primary outcome + 被换成什么 + 出处），整理成可追溯案例集。
+- **受控实验层**：把真实案例写成 `drift_events`（`record_source` 打标可清理），让一条
+  outcome_switch pattern 的 `source_event_ids` 指向它们；按档位（5/20/50/120 或真实案例数所及）
+  设定 `support_count`，每档**独立构造、跑完即清、可重录**。
+- **因变量**：同一个 cardiology treatment case（始终不变）跑 drift_analyzer，记录
+  `calibrated_materiality`，画 support_count → severity 收敛曲线。
+
+**诚实话术（demo 用）**："这些是 COMPARE 审计过的**真实** outcome-switch 案例；我们**控制**
+agent 可见的历史样本量（5/20/50），观察严重性校准如何随 base rate 收敛。" —— 案例真、读数真、
+support 设定是「控制变量」（如同把温度计直接放进 0/50/100°C 的水测读数，而非等室温自然飘）。
+
+**待办步骤**：
+- [ ] **E2-a** deep-research 抓 COMPARE/审计的可追溯 outcome-switch 个例清单（目标数十条）。
+- [ ] **E2-b** 把脚本 `e2_accumulation_curve.py` 的 source_event 从克隆占位换成真实案例；
+      档位受控注入（setup/record/plot/teardown 四动作，已设计）。
+- [ ] **E2-c** 各档位跑一次 treatment drift_analyzer（手工 `adk web`/`adk run`），
+      `--record N <calibrated_materiality>`，`--plot` 出 ASCII 收敛曲线。
+- [ ] **E2-d** 汇总 demo 可复现演示 summary（含 E1/E3/E4/E2 + 检索修复结论）。
 
 ---
 

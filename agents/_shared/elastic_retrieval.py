@@ -90,7 +90,10 @@ def _build_rrf_query(
     """Build the retriever.rrf body for /drift_patterns/_search.
 
     Two sub-retrievers are fused:
-      - standard BM25 match on pattern_description
+      - standard BM25 match on pattern_description_text (the analyzed `text`
+        copy_to mirror of the description — a plain `match` on the semantic_text
+        field itself auto-routes through ELSER and would duplicate the semantic
+        leg, see _build_rrf_query body)
       - standard semantic match on pattern_description (ELSER, served by
         the .elser-2-elastic inference endpoint per the 2026-05-22 setup)
 
@@ -101,11 +104,18 @@ def _build_rrf_query(
     The `term` clause inside `must_not` naturally leaves unset values
     in the result set, which is what we want.
     """
+    # BM25 (lexical) sub-retriever. MUST target the analyzed `text` field, NOT
+    # `pattern_description` itself: a `match` on the semantic_text field is
+    # auto-routed through ELSER, which made this "BM25" leg identical to the
+    # semantic leg below — the RRF was ELSER-fused-with-itself and the lexical
+    # signal was missing (diagnosed 2026-05-31). `pattern_description_text` is a
+    # `copy_to` mirror of the description populated at index time (no write-code
+    # change), giving RRF a genuinely independent lexical ranking to fuse.
     bm25_retriever: dict[str, Any] = {
         "standard": {
             "query": {
                 "match": {
-                    "pattern_description": {"query": query_text},
+                    "pattern_description_text": {"query": query_text},
                 },
             },
         },
