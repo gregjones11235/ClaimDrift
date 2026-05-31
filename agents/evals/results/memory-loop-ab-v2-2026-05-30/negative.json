@@ -1,0 +1,19 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.v2.negative.0103",
+  "preprint_version_compared": "v1",
+  "published_doi": "10.1000/eval.v2.negative.0103",
+  "drift_summary": "No material drift detected between the preprint and published versions. Minor cosmetic changes in unit and number formatting were observed, but the core quantitative claim and primary endpoint remained identical.",
+  "claim_diffs": [],
+  "materiality_score": 0.0,
+  "severity_calibration": {
+    "baseline_materiality_without_memory": 0.0,
+    "calibrated_materiality": 0.0,
+    "calibration_delta": 0.0,
+    "memory_pattern_ids": [],
+    "evidence": [],
+    "rationale": "No relevant drift patterns were retrieved or deemed applicable to the minor cosmetic differences observed. Therefore, the materiality score remains at the baseline of 0.0."
+  },
+  "retrieved_patterns_used": [],
+  "analyzed_at": null
+}
