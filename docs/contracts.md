@@ -220,7 +220,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `record_source`: keyword | null (see §2.3)
 - `pattern_id`: keyword (UUID)
 - `pattern_description`: semantic_text (human-readable + ELSER searchable, **this is the memory loop's retrieval field**)
-- `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `other`) // TODO A: may expand after Memory Synthesizer prompt iteration
+- `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `outcome_switch` | `other`) // `outcome_switch` added 2026-05-30 for the v2 flagship fixture (primary-outcome switching); see [memory_loop_v2_design.md](memory_loop_v2_design.md) Part C.5
 - `domain_tags`: keyword (array, e.g. `["covid-19", "clinical-trial", "rct"]`)
 - `source_event_ids`: keyword (array, list of drift_events that produced this pattern)
 - `support_count`: integer (number of drift_events supporting this pattern — higher = more reliable)
@@ -228,6 +228,8 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `last_updated_at`: date
 
 **Authoritative mapping**: [elastic/mappings/drift_patterns.json](../elastic/mappings/drift_patterns.json). `pattern_description` is wired through ELSER (`semantic_text` with `.elser-2-elastic` inference id) — this is verified end-to-end by the Phase 4 `search_drift_patterns` ES|QL tool (changelog 2026-05-23).
+
+**Dual inference endpoint (v2, 2026-05-30)**: the `inference_id` on a `semantic_text` field is fixed at index time and cannot be swapped per-query, so real-time retrieval (`search_drift_patterns`) and any `pattern_curator` (§3.6) re-embedding would otherwise contend on the same `.elser-2-elastic` endpoint. To isolate live retrieval from batch governance load, a second inference endpoint `claimdrift-elser-batch` (same ELSER-2 model, independent capacity) is provisioned for curator writes. The curator writes governed patterns into a shadow index (`drift_patterns_v2`, whose `pattern_description` binds `inference_id: claimdrift-elser-batch`) and swaps via an alias that real-time reads go through; the rebuild does not touch the production endpoint. See [memory_loop_v2_design.md](memory_loop_v2_design.md) B.2 / Part C.1.
 
 #### 2.2.6 `notification_log` index
 
@@ -435,7 +437,15 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
       }
     }
   ],
-  "materiality_score": 0.82,                           // 0.0-1.0, overall severity
+  "materiality_score": 0.82,                           // 0.0-1.0, overall severity — see severity_calibration below
+  "severity_calibration": {                            // v2 flagship (2026-05-30); null when no relevant pattern was retrieved
+    "calibrating_pattern_id": "pattern-uuid-1",        // which retrieved pattern's base rate was used (must be in retrieved_patterns_used)
+    "base_rate_support_count": 47,                     // support_count of that pattern = how many prior drift_events back the base rate
+    "tail_position": "top_5_percent",                  // where THIS drift sits in the pattern's historical distribution: typical | elevated | top_10_percent | top_5_percent | top_1_percent
+    "uncalibrated_materiality_score": 0.82,            // what materiality_score would be WITHOUT the base rate (baseline-equivalent)
+    "calibrated_materiality_score": 0.94,              // materiality_score AFTER applying the base rate; this value is copied up into the top-level materiality_score
+    "calibration_rationale": "Outcome switching occurs in ~33% of trials in this domain, but here the switched field is the PRIMARY outcome and co-occurs with effect-size inflation, placing it in the top 5% tail — escalated from 0.82 to 0.94."
+  },
   "retrieved_patterns_used": [                         // which retrieved patterns actually entered the reasoning
     "pattern-uuid-1",
     "pattern-uuid-2"
@@ -465,6 +475,17 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 - `0.9-1.0`: major (conclusion reversed, significance lost)
 
 **TODO A (feedback)**: After running a few real cases, if these thresholds seem off (e.g., most real cases cluster in 0.3-0.6 and the buckets don't discriminate), report on chat — C will adjust.
+
+**`severity_calibration` block (v2 flagship, 2026-05-30)** — this is the read-side payoff of the memory loop and the thing the v2 demo proves. The `materiality_score` scoring guide above is the *uncalibrated* judgment a stateless analyzer would produce. When a genuinely relevant pattern is retrieved (per §3.2.1 relevance rules), the analyzer must additionally place the current drift against that pattern's accumulated history and emit `severity_calibration`:
+
+- `calibrating_pattern_id`: the retrieved pattern whose base rate was used; MUST also appear in `retrieved_patterns_used`.
+- `base_rate_support_count`: that pattern's `support_count` — the analyzer must cite this as the strength of the base rate (higher = more reliable calibration; this is why the loop gets sharper as it accumulates).
+- `tail_position`: where this drift falls in the pattern's historical distribution (`typical` | `elevated` | `top_10_percent` | `top_5_percent` | `top_1_percent`).
+- `uncalibrated_materiality_score`: the score the analyzer would assign from the diff alone (baseline-equivalent).
+- `calibrated_materiality_score`: the score after applying the base rate; **this value is what gets copied into the top-level `materiality_score`**.
+- `calibration_rationale`: one sentence stating the base rate and how it moved the score.
+
+Set `severity_calibration: null` when no retrieved pattern is relevant (then `materiality_score == uncalibrated`). The v2 success criterion (E1) is that `calibrated_materiality_score` is *visibly different* from `uncalibrated_materiality_score` because of the base rate — not merely that a `pattern_id` appears. The retrieval query that surfaces the pattern is built from a **structured drift descriptor** (domain + drift_type + magnitude), replacing the hard-coded example hint retired in v2. See [memory_loop_v2_design.md](memory_loop_v2_design.md) A.1 / Part C.2.
 
 ### 3.3 Citation Finder (Agent 3)
 
@@ -627,6 +648,108 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 
 **NOTE (v0 finding, 2026-05-21)**: v0 produces high-quality `pattern_description` (correctly avoids leaking specific DOIs / drug names). One observation: v0 returned only 2 `domain_tags` (e.g. `["medicine", "virology"]`) while §3.5.2 example shows 3-5. Prompt should encourage 3-6 tags mixing general + specific.
 
+**Governance handoff (v2, 2026-05-30)**: Memory Synthesizer remains write-time, local, and append-evidence-only — it does NOT refine `pattern_description`, merge duplicates, or rewrite tags. The post-v0 TODO to "promote `update_drift_pattern` past append-evidence-only" (§3.5.1) is now resolved NOT by widening synthesizer's write-time scope, but by a separate offline job, `pattern_curator` (§3.6), which periodically merges stale duplicates, refreshes aging descriptions, and evicts low-quality rows. Keeping synthesizer narrow is intentional: the low-latency write path stays decoupled from heavy batch governance.
+
+### 3.6 Pattern Curator (offline memory-governance job, v2) ⭐
+
+> **Not an agent in the §4.1 chain.** A standalone, independently-triggered batch job (cron / Cloud Run Job / Elastic Workflow), built like `supervisor_agent` — orchestration/batch **code that is NOT an ADK `LlmAgent`** and has **no synchronous dependency** on the real-time flow. It calls an LLM internally for exactly one decision (see §3.6.3) but is not itself a reasoning engine.
+
+**Purpose**: purify the base rates that §3.2's `severity_calibration` depends on. Duplicate patterns (same phenomenon split across rows) corrupt the rate — a real `support_count=20` phenomenon miscounted as two `support_count=10` rows. Index slimming is a side effect, not the goal.
+
+#### 3.6.1 Trigger & scan policy
+
+- Periodic / threshold trigger, off-peak. **Incremental, never full-index.** Routine cost is O(new-since-last-run), not O(index size):
+  - **duplicates** → deterministic keyword pre-filter (`pattern_type` equal AND `domain_tags` overlap) → ELSER top-k neighbor recall on survivors → one LLM call (§3.6.3);
+  - **hygiene** → `last_updated_at` high-watermark incremental;
+  - **eviction** → filtered query (`support_count < threshold`, or old + never-retrieved).
+- The only near-full pass is a rare, human-triggered taxonomy/spec backfill — batched + throttled through `claimdrift-elser-batch` (§2.2.5), never the live endpoint.
+
+#### 3.6.2 Code-vs-LLM boundary & guardrails
+
+- **Deterministic (code)**: keyword pre-filter; hygiene (reject hallucinated `source_event_ids`, fill timestamps, recompute `support_count == len(source_event_ids)` — the §3.5.1 invariant); filtered eviction (reuse the targeted-delete pattern from [cleanup_probe_patterns.py](../agents/scripts/cleanup_probe_patterns.py)).
+- **LLM (one call only)**: judge "same phenomenon?" for a candidate pair, and rewrite a merged `pattern_description`.
+- **Guardrails (all deterministic, wrap the LLM)**: LLM output passes a strict schema gate before any write; merge/delete are *proposals* that code validates then writes (writing to ES is always code); conservative default — if "same phenomenon?" is uncertain, do **not** merge; writes use optimistic concurrency (`if_seq_no` / `if_primary_term`) so a curator merge cannot clobber an in-flight `memory_synthesizer` append.
+
+#### 3.6.3 LLM call I/O schema (the only AI touchpoint)
+
+**Input** (one candidate pair surfaced by the deterministic recall):
+
+```json
+{
+  "candidate_a": {
+    "pattern_id": "uuid-a",
+    "pattern_description": "...",
+    "pattern_type": "effect_size_reduction",
+    "domain_tags": ["covid-19", "clinical-trial"],
+    "support_count": 12
+  },
+  "candidate_b": {
+    "pattern_id": "uuid-b",
+    "pattern_description": "...",
+    "pattern_type": "effect_size_reduction",
+    "domain_tags": ["covid-19", "rct"],
+    "support_count": 8
+  }
+}
+```
+
+**Output** (schema-gated; code executes the merge, the LLM only proposes):
+
+```json
+{
+  "same_phenomenon": true,                     // false ⇒ code keeps both rows, ignores merged_description
+  "confidence": "high",                        // high | medium | low — code treats anything below "high" as do-not-merge (conservative default)
+  "merge_into_pattern_id": "uuid-a",           // which id survives (typically the higher support_count); null when same_phenomenon=false
+  "merged_description": "COVID-related clinical RCT preprints frequently show 50%+ effect-size reductions between final preprint and published version, often with added hedging.",  // 30-80 words, reusable, no DOIs/author names; null when not merging
+  "rationale": "Both describe large effect-size reductions in COVID clinical trials; b's 'rct' tag is a narrower case of a's 'clinical-trial'."
+}
+```
+
+#### 3.6.4 Default LLM prompt (v2 baseline — role B may iterate)
+
+```text
+You are a memory-governance reviewer for ClaimDrift. You are given TWO drift
+patterns that a deterministic pre-filter judged to be POSSIBLE duplicates (same
+pattern_type, overlapping domain_tags, and ELSER-near). Your only job is to
+decide whether they describe THE SAME UNDERLYING DRIFT PHENOMENON and, if so,
+propose a single merged description. You do NOT write to any store — code acts
+on your proposal.
+
+Read both pattern_description fields carefully. Judge "same phenomenon?" using
+ALL THREE criteria (all must hold):
+- Same broad domain (e.g. both COVID-clinical — not one COVID and one cosmology).
+- Same drift type (an effect-size reduction must not merge into a hedging-addition).
+- Compatible magnitude / direction (both large reductions; a 5% wobble does not
+  match a 70% collapse).
+
+Bias toward NOT merging. Wrongly merging two distinct phenomena corrupts the
+historical base rate that downstream severity calibration depends on, which is
+worse than leaving a duplicate. Therefore:
+- If the two are clearly the same phenomenon on all three criteria, return
+  same_phenomenon=true with confidence "high".
+- If they merely look similar but you are not certain, return
+  same_phenomenon=false. Do NOT guess.
+- Never set confidence "high" unless all three criteria are unambiguously met.
+
+When merging:
+- Set merge_into_pattern_id to the SURVIVING id — normally the one with the
+  higher support_count (more accumulated evidence). On a tie, pick candidate_a.
+- Write merged_description as a REUSABLE summary of the general phenomenon:
+  include domain + drift type + rough magnitude; 30-80 words; NO DOIs, author
+  names, or one-off specifics. It should be at least as informative as the
+  better of the two inputs, generalized to cover both.
+
+When NOT merging, set merge_into_pattern_id and merged_description to null.
+
+Always fill rationale with one sentence explaining your decision.
+
+Return ONLY a JSON object matching contracts.md §3.6.3 output schema. No prose
+outside the JSON.
+
+Input:
+{paste the §3.6.3 input JSON here}
+```
+
 ---
 
 ## 4. Agent invocation order and orchestration
@@ -657,6 +780,12 @@ done
 [Memory Synthesizer]
     ↓
 drift_patterns created/updated
+
+[Periodic / off-peak, fully decoupled from the above]    (v2, §3.6)
+    ↓
+[Pattern Curator]  merges stale duplicates, refreshes descriptions, evicts low-quality rows
+    ↓
+drift_patterns governed (base rates purified for §3.2 severity_calibration)
 ```
 
 ### 4.3 Workflow implementation
