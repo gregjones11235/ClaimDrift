@@ -1,6 +1,6 @@
 # ClaimDrift Memory Loop A/B Test
 
-Last updated: 2026-05-28
+Last updated: 2026-05-30
 
 This runbook defines a small, reproducible experiment for proving that the
 ClaimDrift memory loop is doing more than displaying `drift_patterns` in the
@@ -39,6 +39,19 @@ The v1 fixture contains:
 The seed and treatment cases are intentionally similar. The negative control is
 intentionally different.
 
+The v2 fixture adds a flagship severity-calibration experiment:
+
+- `seed_oncology_primary_outcome_switch`: a clinical trial preprint frames an
+  efficacy endpoint as primary, while the publication demotes it to exploratory
+  or secondary status.
+- `treatment_cardiology_primary_outcome_switch`: a similar primary-outcome
+  switch in another clinical domain.
+- `negative_cardiology_units_copyedit`: a same-domain cosmetic wording/unit
+  edit that should not use outcome-switch memory.
+
+v2 is intentionally not just a retrieval proof. Its success criterion is that
+memory changes the calibrated severity judgment in a measurable way.
+
 ## Manual Agent Run Protocol
 
 For a repeatable run directory with ready-to-copy prompts, start with:
@@ -46,6 +59,34 @@ For a repeatable run directory with ready-to-copy prompts, start with:
 ```bash
 python3 agents/scripts/memory_loop_ab_eval.py init-run \
   --output-dir agents/evals/results/memory-loop-ab-YYYY-MM-DD
+```
+
+Use `--case-suite v2` for the severity-calibration fixture:
+
+```bash
+python3 agents/scripts/memory_loop_ab_eval.py init-run \
+  --case-suite v2 \
+  --output-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD
+```
+
+The v2 workflow also has a semi-automated runner for the non-LLM parts of the
+experiment:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --init
+```
+
+After the ADK outputs are captured, the same runner can check artifacts, run
+strict scoring, and write a demo summary:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --check \
+  --score \
+  --summary
 ```
 
 This creates:
@@ -60,6 +101,30 @@ This creates:
 Paste each prompt into the relevant LLM/ADK agent and save the captured JSON
 outputs into the same directory as `baseline.json`, `seed_drift_event.json`,
 `memory.json`, `treatment.json`, and `negative.json`.
+
+For v2, save the Memory Synthesizer's untrusted proposal as `memory_raw.json`
+first. Then run deterministic normalization so ids, timestamps, source event
+ids, support counts, and schema hygiene are owned by code rather than by the
+LLM:
+
+```bash
+python3 agents/scripts/memory_loop_ab_eval.py normalize-memory \
+  --input agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD/memory_raw.json \
+  --output agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD/memory.json \
+  --pattern-id memory-loop-v2-outcome-switch-0101 \
+  --source-event-id memory-loop-v2-seed-0101 \
+  --pattern-type outcome_switch \
+  --support-count 1 \
+  --action create_new
+```
+
+Or use the v2 runner shortcut:
+
+```bash
+python3 agents/scripts/run_memory_loop_ab_v2.py \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --normalize
+```
 
 ### 1. Print The Case Payloads
 
@@ -185,6 +250,40 @@ The script checks:
 - treatment has a valid `materiality_score`,
 - memory output has a valid action/pattern/support count,
 - negative control does not use the treatment pattern id.
+
+For v2 runs, also enable stricter checks:
+
+```bash
+python3 agents/scripts/memory_loop_ab_eval.py score-run \
+  --experiment-id memory-loop-ab-v2 \
+  --run-dir agents/evals/results/memory-loop-ab-v2-YYYY-MM-DD \
+  --min-materiality-delta 0.15 \
+  --strict-fields
+```
+
+Those checks reject nested `claim_diffs[].materiality_score`, invented
+machine-filled timestamps/ids, placeholder `source_event_ids`, and treatment
+runs whose calibrated materiality does not visibly exceed baseline.
+
+## v2 Severity-Calibration Goal
+
+The v1 A/B proves that the loop can write, retrieve, and use memory. v2 raises
+the bar: memory must supply information absent from the single input case.
+
+The flagship case is `outcome_switch`. A baseline analyzer can detect that the
+published paper changed the framing of an endpoint, but from one paper alone it
+may not know whether that is routine wording cleanup or a high-risk publication
+drift. A treatment analyzer should use retrieved memory such as
+`support_count`, historical recurrence, domain match, and pattern type to
+calibrate severity.
+
+The expected shape is:
+
+```text
+baseline: detects outcome switch, moderate/significant materiality
+treatment: retrieves recurring outcome-switch memory, raises calibrated severity
+negative: same broad domain, but cosmetic copy-edit, no outcome-switch memory use
+```
 
 ## Prompt-Tuning Interpretation
 

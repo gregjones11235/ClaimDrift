@@ -1,0 +1,30 @@
+Experiment: memory-loop-ab-v2
+
+PASS: baseline does not use retrieved_patterns
+PASS: treatment uses at least one retrieved pattern
+PASS: treatment uses expected pattern_id memory-loop-v2-outcome-switch-0101
+PASS: treatment output explicitly explains memory influence
+PASS: treatment emits claim_diffs with diff_type
+PASS: treatment diff_type remains comparable to baseline
+PASS: treatment materiality_score is numeric in [0, 1]
+PASS: treatment includes severity_calibration
+PASS: severity_calibration.calibration_delta is numeric
+PASS: treatment materiality_score exceeds baseline by at least 0.15
+PASS: severity_calibration.calibration_delta >= 0.15
+PASS: baseline does not invent event_id/analyzed_at
+PASS: baseline claim_diffs do not contain nested materiality_score
+PASS: treatment does not invent event_id/analyzed_at
+PASS: treatment claim_diffs do not contain nested materiality_score
+PASS: negative does not invent event_id/analyzed_at
+PASS: negative claim_diffs do not contain nested materiality_score
+PASS: memory_synthesizer action is create_new or update_existing
+PASS: memory_synthesizer output includes pattern.pattern_id
+PASS: memory pattern support_count >= 1
+PASS: memory pattern has source_event_ids
+PASS: memory pattern source_event_ids do not contain placeholder ids
+PASS: memory_synthesizer does not invent synthesized_at
+PASS: memory_synthesizer does not invent created_at/last_updated_at
+PASS: negative control does not use treatment pattern_id
+PASS: negative control rationale is not dominated by diagnostic-tool memory
+
+Verdict: PASS

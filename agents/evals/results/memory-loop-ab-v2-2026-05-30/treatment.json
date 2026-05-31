@@ -1,0 +1,48 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.v2.treatment.0102",
+  "preprint_version_compared": "v3",
+  "published_doi": "10.1000/eval.v2.treatment.0102",
+  "drift_summary": "The primary clinical endpoint was switched from heart-failure readmission to medication adherence, demoting the original endpoint to an exploratory secondary outcome with no statistical significance. Furthermore, a strong recommendation for immediate protocol adoption was significantly hedged, requiring further confirmation.",
+  "claim_diffs": [
+    {
+      "diff_type": "outcome_switch",
+      "preprint_claim_id": "10.1101/eval.v2.treatment.0102::v3::abstract::0",
+      "published_claim_id": "10.1000/eval.v2.treatment.0102::published::abstract::0",
+      "preprint_text": "The multicenter trial achieved its primary clinical endpoint, reducing 90-day heart-failure readmission from 22% to 13% compared with usual care.",
+      "published_text": "The published article defines medication-adherence documentation as the primary outcome; 90-day readmission is reported only as an exploratory secondary endpoint and is not presented as statistically significant.",
+      "change_description": "The primary clinical endpoint was switched from 90-day heart-failure readmission to medication-adherence documentation, and the original primary endpoint was demoted to an exploratory secondary outcome and its statistical significance removed."
+    },
+    {
+      "diff_type": "hedging_added",
+      "preprint_claim_id": "10.1101/eval.v2.treatment.0102::v3::abstract::1",
+      "published_claim_id": "10.1000/eval.v2.treatment.0102::published::abstract::1",
+      "preprint_text": "These findings support immediate adoption of the remote titration protocol across cardiology clinics.",
+      "published_text": "The protocol may be useful for workflow redesign but requires confirmation in a dedicated outcomes trial.",
+      "change_description": "The strong recommendation for immediate adoption of the protocol was softened to a cautious statement indicating it may be useful but requires further confirmation."
+    }
+  ],
+  "materiality_score": 1.0,
+  "severity_calibration": {
+    "baseline_materiality_without_memory": 0.75,
+    "calibrated_materiality": 1.0,
+    "calibration_delta": 0.25,
+    "memory_pattern_ids": [
+      "memory-loop-v2-outcome-switch-0101"
+    ],
+    "evidence": [
+      {
+        "pattern_id": "memory-loop-v2-outcome-switch-0101",
+        "support_count": 1,
+        "pattern_type": "outcome_switch",
+        "calibration_effect": "raised"
+      }
+    ],
+    "rationale": "The primary outcome switch, which demoted the original primary endpoint and removed its statistical significance, is a high-severity event. Retrieved memory (memory-loop-v2-outcome-switch-0101) confirms this is a recurring, high-impact pattern in clinical trials, warranting an upward calibration of the materiality score from 0.75 to 1.0."
+  },
+  "retrieved_patterns_used": [
+    "memory-loop-v2-outcome-switch-0101",
+    "8c2b5e32-83b6-4552-81bb-6d1a0d0a51e6"
+  ],
+  "analyzed_at": null
+}

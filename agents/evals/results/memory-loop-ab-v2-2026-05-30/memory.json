@@ -1,0 +1,22 @@
+{
+  "action": "create_new",
+  "pattern": {
+    "pattern_id": "memory-loop-v2-outcome-switch-0101",
+    "pattern_description": "Clinical trials in preprints often demote primary efficacy endpoints (e.g., progression-free survival) to secondary or exploratory analyses at publication, replacing them with safety or feasibility outcomes. This is frequently accompanied by significant hedging of strong efficacy claims from the preprint, reflecting a reassessment of therapeutic benefit.",
+    "pattern_type": "outcome_switch",
+    "domain_tags": [
+      "clinical-trial",
+      "oncology",
+      "pancreatic-cancer",
+      "phase-2",
+      "outcome-reporting"
+    ],
+    "source_event_ids": [
+      "memory-loop-v2-seed-0101"
+    ],
+    "created_at": null,
+    "last_updated_at": null,
+    "support_count": 1
+  },
+  "synthesized_at": null
+}
