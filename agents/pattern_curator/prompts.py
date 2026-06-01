@@ -1,8 +1,8 @@
 """Default LLM prompt for the curator's dedup judgment (contracts.md §3.6.4).
 
 This is the v2 BASELINE prompt — it guarantees the curator "can run now". Tuning
-it to product quality is role B's required task (B3 / tasks_split.md), iterating
-under the §3.6.3 output schema (which must NOT change, so C is unaffected). The
+it to product quality is a follow-up task, iterating under the contracts.md
+§3.6.3 output schema (which must NOT change, so C is unaffected). The
 text below is the verbatim §3.6.4 contract baseline; do not edit it here without
 updating contracts.md §3.6.4 in the same change.
 """

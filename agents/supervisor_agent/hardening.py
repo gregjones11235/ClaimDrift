@@ -1,8 +1,9 @@
 """Deterministic hardening for supervisor sub-agent calls (C2 / D5).
 
 This is PURE CODE — no LLM, no tokens, fully reproducible and unit-testable.
-It implements the three guarantees from memory_loop_v2_design.md B.3 and
-tasks_split.md C2 around every remote sub-agent invocation:
+It implements the three guarantees from memory_loop_v2_design.md B.3 (the
+supervisor-hardening / staged-degradation design, contracts.md §3.x) around
+every remote sub-agent invocation:
 
   1. timeout     — a hung remote stream cannot block the supervisor forever.
   2. retry       — transient remote/network failures get N attempts with

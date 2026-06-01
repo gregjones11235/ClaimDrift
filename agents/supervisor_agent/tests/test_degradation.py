@@ -1,6 +1,7 @@
 """Per-phase degradation tests for the supervisor (C2 / D5).
 
-Asserts the decided failure policy (tasks_split.md C2, this session):
+Asserts the decided failure policy (staged degradation per contracts.md §3.x /
+memory_loop_v2_design.md B.3):
   - core chain (claim_extractor / drift_analyzer / citation_finder) failure
     => fail-fast (the whole run raises);
   - notifier ×N: one citation's notifier failing => that email is SKIPPED
