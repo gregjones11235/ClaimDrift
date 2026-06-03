@@ -7,7 +7,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   const links = [
-    { href: "/", label: "Dashboard" },
+    { href: "/dashboard", label: "Dashboard" },
     { href: "/live", label: "Live stream" },
     { href: "/patterns", label: "Patterns" },
   ];

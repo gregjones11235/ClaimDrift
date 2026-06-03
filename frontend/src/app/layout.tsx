@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/ui/sidebar";
-import { Topbar } from "@/components/ui/topbar";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -10,8 +8,14 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "ClaimDrift",
-  description: "Scientific Drift Detection",
+  title: 'ClaimDrift — Catch Scientific Claim Drifts Before They Become Citations',
+  description:
+    'When preprints become peer-reviewed papers, their core claims often shift. ClaimDrift uses a Vertex AI multi-agent pipeline to detect semantic drift in real time and notify every researcher whose work depends on the original findings.',
+  openGraph: {
+    title: 'ClaimDrift',
+    description: 'Multi-agent scientific integrity system.',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({
@@ -24,14 +28,8 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} font-sans h-full antialiased`}
     >
-      <body className="min-h-full flex bg-white text-black selection:bg-black selection:text-white">
-        <Sidebar />
-        <div className="flex-1 flex flex-col min-h-screen max-w-full overflow-hidden border-l border-black">
-          <Topbar />
-          <main className="flex-1 p-8 overflow-auto">
-            {children}
-          </main>
-        </div>
+      <body className="min-h-full m-0 p-0 selection:bg-black selection:text-white">
+        {children}
       </body>
     </html>
   );
