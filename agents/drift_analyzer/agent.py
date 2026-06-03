@@ -36,7 +36,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnecti
 # importable in the deployed runtime. Keep this constant in sync with
 # _shared/config.py if it ever changes (it hasn't since v0). See
 # agents/_DEPLOY_CHECKLIST.md Pitfall #1.
-MODEL_PRO = "gemini-2.5-pro"
+MODEL_PRO = os.getenv("CLAIMDRIFT_MODEL_PRO", "gemini-2.5-pro")
 
 _KIBANA_URL = os.environ["KIBANA_URL"].rstrip("/")
 _ELASTIC_API_KEY = os.environ["ELASTIC_API_KEY"]
@@ -67,15 +67,28 @@ You will receive a JSON object with:
 # Step 1 — retrieve relevant patterns (mandatory)
 
 Before producing the drift report, call the `search_drift_patterns` tool
-exactly once. Build the query_text by concatenating the most informative
-text from preprint_claims (typically each claim's `text` field, joined by
-spaces) — this gives the retriever something semantically rich to match
-against. Use top_k=3 and DO NOT pass min_score (the underlying retriever's
-score is rank-based and not comparable across queries).
+exactly once. Build the query_text from BOTH sides of the comparison:
+
+- concatenate the most informative `text` fields from preprint_claims;
+- concatenate the most informative `text` fields from published_claims;
+- append a short structured drift descriptor inferred from this comparison,
+  not from a hard-coded domain. Include domain, study type, likely drift type,
+  affected claim role, metric/outcome, and direction of change when possible.
+  Examples: "cardiology clinical trial outcome_switch primary endpoint
+  downgraded to exploratory secondary endpoint"; "AI diagnostic tool
+  claim_disappearance quantitative performance metrics removed"; "agriculture
+  field trial hedging_added yield effect narrowed by soil conditions".
+
+The retrieval query must describe the phenomenon you need memory for, not just
+the preprint's original positive claim. Use top_k=10 and DO NOT pass min_score
+(the underlying retriever's score is rank-based and not comparable across
+queries). The larger candidate set is intentional: the retriever may rank
+plausible but off-domain patterns above the best domain-specific memory, so
+you must inspect candidates yourself.
 
 # Step 2 — judge relevance yourself
 
-The tool returns up to 3 patterns. The retriever cannot guarantee they are
+The tool returns up to 10 patterns. The retriever cannot guarantee they are
 actually relevant to THIS preprint — that judgment is YOUR job.
 
 For each returned pattern, read its `pattern_description` carefully:
@@ -89,6 +102,12 @@ It is correct to return an empty `retrieved_patterns_used` array when none
 of the retrieved patterns are genuinely relevant. Do NOT pad the list to
 look thorough.
 
+When a relevant pattern is used for severity calibration, inspect its
+`support_count`, `pattern_type`, `domain_tags`, and description. Treat memory
+as useful only when it supplies context not present in the single input case,
+such as historical recurrence, known high-risk drift types, or evidence that a
+change is usually low-severity noise.
+
 # Step 3 — produce the drift report
 
 For each meaningful difference between the two claim sets, emit a claim_diff
@@ -98,7 +117,8 @@ match for downstream ES writes to validate):
   {
     "diff_type": one of "claim_disappeared" | "claim_added" |
                         "numerical_shift" | "hedging_added" |
-                        "hedging_removed" | "claim_reversed",
+                        "hedging_removed" | "claim_reversed" |
+                        "outcome_switch",
     "preprint_claim_id":  "<the claim_id from the matched preprint claim, or null
                             for diff_type=claim_added>",
     "published_claim_id": "<the claim_id from the matched published claim, or null
@@ -109,6 +129,10 @@ match for downstream ES writes to validate):
                            it matters>",
     "numerical_delta": <REQUIRED when diff_type == "numerical_shift", otherwise omit>
   }
+
+Do NOT add `materiality_score` or any other extra fields inside individual
+claim_diff objects. `materiality_score` belongs only at the top level of the
+drift report.
 
 For numerical_delta, use SIGNED deltas (a reduction is negative):
   {
@@ -129,6 +153,16 @@ relative_delta = -0.733  (NOT +33.0 — the value went DOWN).
 Also output a materiality_score in [0.0, 1.0]:
   0.0-0.3 minor    | 0.3-0.6 medium    | 0.6-0.9 significant    | 0.9-1.0 major
 
+Use retrieved memory to calibrate severity, not merely to label the diff:
+- Without memory, a single primary-outcome switch may look only
+  "significant" because the published version still reports related secondary
+  or exploratory outcomes.
+- With relevant memory showing that this phenomenon recurs in a domain and
+  often means the headline efficacy claim no longer survived publication,
+  raise severity and explain why.
+- If memory shows a historically low-materiality cosmetic pattern, lower
+  severity and explain why.
+
 # Output shape
 
 Return ONLY a JSON object matching contracts.md §3.2.2.
@@ -146,9 +180,29 @@ worse than null because it looks real.
   "drift_summary": "1-3 sentence human-readable summary",
   "claim_diffs": [ ... ],
   "materiality_score": 0.0,
+  "severity_calibration": {
+    "baseline_materiality_without_memory": 0.0,
+    "calibrated_materiality": 0.0,
+    "calibration_delta": 0.0,
+    "memory_pattern_ids": [ "<pattern_id>", ... ],
+    "evidence": [
+      {
+        "pattern_id": "<pattern_id>",
+        "support_count": 1,
+        "pattern_type": "outcome_switch",
+        "calibration_effect": "raised"
+      }
+    ],
+    "rationale": "Explain how memory changed, or did not change, the severity judgment."
+  },
   "retrieved_patterns_used": [ "<pattern_id>", ... ],
   "analyzed_at": null
 }
+
+For baseline/no-memory runs, set `severity_calibration.memory_pattern_ids` and
+`severity_calibration.evidence` to [] and set `calibration_delta` to 0.0. For
+memory-enabled runs, `calibrated_materiality` must equal the top-level
+`materiality_score`.
 """
 
 root_agent = LlmAgent(

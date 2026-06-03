@@ -220,7 +220,7 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `record_source`: keyword | null (see §2.3)
 - `pattern_id`: keyword (UUID)
 - `pattern_description`: semantic_text (human-readable + ELSER searchable, **this is the memory loop's retrieval field**)
-- `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `other`) // TODO A: may expand after Memory Synthesizer prompt iteration
+- `pattern_type`: keyword (`numerical_softening` | `hedging_addition` | `claim_disappearance` | `effect_size_reduction` | `outcome_switch` | `other`) // TODO A: may expand after Memory Synthesizer prompt iteration
 - `domain_tags`: keyword (array, e.g. `["covid-19", "clinical-trial", "rct"]`)
 - `source_event_ids`: keyword (array, list of drift_events that produced this pattern)
 - `support_count`: integer (number of drift_events supporting this pattern — higher = more reliable)
@@ -228,6 +228,8 @@ B fills in the mapping for each index. Below are the minimum field constraints �
 - `last_updated_at`: date
 
 **Authoritative mapping**: [elastic/mappings/drift_patterns.json](../elastic/mappings/drift_patterns.json). `pattern_description` is wired through ELSER (`semantic_text` with `.elser-2-elastic` inference id) — this is verified end-to-end by the Phase 4 `search_drift_patterns` ES|QL tool (changelog 2026-05-23).
+
+**Dual inference endpoint (v2, 2026-05-30)**: the `inference_id` on a `semantic_text` field is fixed at index time and cannot be swapped per-query, so real-time retrieval (`search_drift_patterns`) and any `pattern_curator` (§3.6) re-embedding would otherwise contend on the same `.elser-2-elastic` endpoint. To isolate live retrieval from batch governance load, a second inference endpoint `claimdrift-elser-batch` (same ELSER-2 model, independent capacity) is provisioned for curator writes. The curator writes governed patterns into a shadow index (`drift_patterns_v2`, whose `pattern_description` binds `inference_id: claimdrift-elser-batch`) and swaps via an alias that real-time reads go through; the rebuild does not touch the production endpoint. See [memory_loop_v2_design.md](memory_loop_v2_design.md) B.2 / Part C.1.
 
 #### 2.2.6 `notification_log` index
 
@@ -436,6 +438,21 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
     }
   ],
   "materiality_score": 0.82,                           // 0.0-1.0, overall severity
+  "severity_calibration": {                            // optional in legacy v1 events; required for v2 A/B eval
+    "baseline_materiality_without_memory": 0.68,        // agent's best single-case severity before memory calibration
+    "calibrated_materiality": 0.92,                     // equals top-level materiality_score after memory calibration
+    "calibration_delta": 0.24,                          // calibrated_materiality - baseline_materiality_without_memory
+    "memory_pattern_ids": ["pattern-uuid-1"],           // subset of retrieved_patterns_used used specifically for severity
+    "evidence": [
+      {
+        "pattern_id": "pattern-uuid-1",
+        "support_count": 12,
+        "pattern_type": "outcome_switch",
+        "calibration_effect": "raised"
+      }
+    ],
+    "rationale": "Prior outcome-switch patterns in comparable clinical trials indicate that demoting a headline primary endpoint to exploratory status is usually high-severity."
+  },
   "retrieved_patterns_used": [                         // which retrieved patterns actually entered the reasoning
     "pattern-uuid-1",
     "pattern-uuid-2"
@@ -454,6 +471,7 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 | `hedging_added` | The published version added hedging language |
 | `hedging_removed` | The published version removed hedging (rare) |
 | `claim_reversed` | The conclusion direction is reversed (most severe) |
+| `outcome_switch` | The publication switches or demotes the preprint's headline primary outcome/endpoint, e.g. primary efficacy endpoint becomes exploratory, secondary, feasibility, safety, or surrogate framing |
 
 **NOTE (v0 finding, 2026-05-21)**: In v0 testing, Drift Analyzer (Pro) spontaneously detected scope-narrowing drift (e.g. "in COVID-19 patients" → "in early-stage COVID-19 patients") but had to shoehorn it into `hedging_added`. Consider adding `scope_restricted` to the enum. Pending team discussion per §8.1 (rename/type change rules).
 
@@ -465,6 +483,17 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 - `0.9-1.0`: major (conclusion reversed, significance lost)
 
 **TODO A (feedback)**: After running a few real cases, if these thresholds seem off (e.g., most real cases cluster in 0.3-0.6 and the buckets don't discriminate), report on chat — C will adjust.
+
+**`severity_calibration` block (v2 flagship, 2026-05-30)** — this is the read-side payoff of the memory loop and the thing the v2 demo proves. The `materiality_score` scoring guide above is the *uncalibrated* judgment a stateless analyzer would produce. When a genuinely relevant pattern is retrieved (per §3.2.1 relevance rules), the analyzer must additionally place the current drift against that pattern's accumulated history and emit `severity_calibration`:
+
+- `baseline_materiality_without_memory`: the score the analyzer would assign from the diff alone, with no memory (baseline-equivalent).
+- `calibrated_materiality`: the score after applying the base rate; **this value equals the top-level `materiality_score`**.
+- `calibration_delta`: `calibrated_materiality - baseline_materiality_without_memory` — the visible movement the base rate caused.
+- `memory_pattern_ids`: the subset of `retrieved_patterns_used` actually used for severity (each MUST also appear in `retrieved_patterns_used`).
+- `evidence[]`: per supporting pattern, its `pattern_id`, `support_count` (the strength of the base rate — higher = more reliable calibration; this is why the loop gets sharper as it accumulates), `pattern_type`, and `calibration_effect` (`raised` | `lowered` | `unchanged`).
+- `rationale`: one sentence stating the base rate and how it moved the score.
+
+Set `severity_calibration: null` when no retrieved pattern is relevant (then `materiality_score == baseline_materiality_without_memory`). The v2 success criterion (E1) is that `calibrated_materiality` is *visibly different* from `baseline_materiality_without_memory` (a non-zero `calibration_delta`) because of the base rate — not merely that a `pattern_id` appears. The retrieval query that surfaces the pattern is built from a **structured drift descriptor** (domain + drift_type + magnitude), replacing the hard-coded example hint retired in v2. See [memory_loop_v2_design.md](memory_loop_v2_design.md) A.1 / Part C.2.
 
 ### 3.3 Citation Finder (Agent 3)
 
@@ -627,6 +656,154 @@ Note: a claim can be both `quantitative` + `causal`, but in v0 we take only the 
 
 **NOTE (v0 finding, 2026-05-21)**: v0 produces high-quality `pattern_description` (correctly avoids leaking specific DOIs / drug names). One observation: v0 returned only 2 `domain_tags` (e.g. `["medicine", "virology"]`) while §3.5.2 example shows 3-5. Prompt should encourage 3-6 tags mixing general + specific.
 
+**Governance handoff (v2, 2026-05-30)**: Memory Synthesizer remains write-time, local, and append-evidence-only — it does NOT refine `pattern_description`, merge duplicates, or rewrite tags. The post-v0 TODO to "promote `update_drift_pattern` past append-evidence-only" (§3.5.1) is now resolved NOT by widening synthesizer's write-time scope, but by a separate offline job, `pattern_curator` (§3.6), which periodically merges stale duplicates, refreshes aging descriptions, and evicts low-quality rows. Keeping synthesizer narrow is intentional: the low-latency write path stays decoupled from heavy batch governance.
+
+### 3.6 Pattern Curator (offline memory-governance job, v2) ⭐
+
+> **Not an agent in the §4.1 chain.** A standalone, independently-triggered batch job (cron / Cloud Run Job / Elastic Workflow), built like `supervisor_agent` — orchestration/batch **code that is NOT an ADK `LlmAgent`** and has **no synchronous dependency** on the real-time flow. It calls an LLM internally for exactly one decision (see §3.6.3) but is not itself a reasoning engine.
+
+**Purpose**: purify the base rates that §3.2's `severity_calibration` depends on. Duplicate patterns (same phenomenon split across rows) corrupt the rate — a real `support_count=20` phenomenon miscounted as two `support_count=10` rows. Index slimming is a side effect, not the goal.
+
+#### 3.6.1 Trigger & scan policy
+
+- Periodic / threshold trigger, off-peak. **Incremental, never full-index.** Routine cost is O(new-since-last-run), not O(index size):
+  - **duplicates** → deterministic keyword pre-filter (`pattern_type` equal AND `domain_tags` overlap) → ELSER top-k neighbor recall on survivors → one LLM call (§3.6.3);
+  - **hygiene** → `last_updated_at` high-watermark incremental;
+  - **eviction** → filtered query (`support_count < threshold`, or old + never-retrieved).
+- The only near-full pass is a rare, human-triggered taxonomy/spec backfill — batched + throttled through `claimdrift-elser-batch` (§2.2.5), never the live endpoint.
+
+#### 3.6.2 Code-vs-LLM boundary & guardrails
+
+- **Deterministic (code)**: keyword pre-filter; hygiene (reject hallucinated `source_event_ids`, fill timestamps, recompute `support_count == len(source_event_ids)` — the §3.5.1 invariant); filtered eviction (reuse the targeted-delete pattern from [cleanup_probe_patterns.py](../agents/scripts/cleanup_probe_patterns.py)).
+- **LLM (one call only)**: judge "same phenomenon?" for a candidate pair, and rewrite a merged `pattern_description`.
+- **Guardrails (all deterministic, wrap the LLM)**: LLM output passes a strict schema gate before any write; merge/delete are *proposals* that code validates then writes (writing to ES is always code); conservative default — if "same phenomenon?" is uncertain, do **not** merge; writes use optimistic concurrency (`if_seq_no` / `if_primary_term`) so a curator merge cannot clobber an in-flight `memory_synthesizer` append.
+
+#### 3.6.3 LLM call I/O schema (the only AI touchpoint)
+
+**Input** (one candidate pair surfaced by the deterministic recall):
+
+```json
+{
+  "candidate_a": {
+    "pattern_id": "uuid-a",
+    "pattern_description": "...",
+    "pattern_type": "effect_size_reduction",
+    "domain_tags": ["covid-19", "clinical-trial"],
+    "support_count": 12
+  },
+  "candidate_b": {
+    "pattern_id": "uuid-b",
+    "pattern_description": "...",
+    "pattern_type": "effect_size_reduction",
+    "domain_tags": ["covid-19", "rct"],
+    "support_count": 8
+  }
+}
+```
+
+**Output** (schema-gated; code executes the merge, the LLM only proposes):
+
+```json
+{
+  "same_phenomenon": true,                     // false ⇒ code keeps both rows, ignores merged_description
+  "confidence": "high",                        // high | medium | low — code treats anything below "high" as do-not-merge (conservative default)
+  "merge_into_pattern_id": "uuid-a",           // which id survives (typically the higher support_count); null when same_phenomenon=false
+  "merged_description": "COVID-related clinical RCT preprints frequently show 50%+ effect-size reductions between final preprint and published version, often with added hedging.",  // 30-80 words, reusable, no DOIs/author names; null when not merging
+  "rationale": "Both describe large effect-size reductions in COVID clinical trials; b's 'rct' tag is a narrower case of a's 'clinical-trial'."
+}
+```
+
+#### 3.6.4 Default LLM prompt (v2 baseline — role B may iterate)
+
+```text
+You are a memory-governance reviewer for ClaimDrift. You are given TWO drift
+patterns that a deterministic pre-filter judged to be POSSIBLE duplicates (same
+pattern_type, overlapping domain_tags, and ELSER-near). Your only job is to
+decide whether they describe THE SAME UNDERLYING DRIFT PHENOMENON and, if so,
+propose a single merged description. You do NOT write to any store — code acts
+on your proposal.
+
+Read both pattern_description fields carefully. Judge "same phenomenon?" using
+ALL THREE criteria (all must hold):
+- Same broad domain (e.g. both COVID-clinical — not one COVID and one cosmology).
+- Same drift type (an effect-size reduction must not merge into a hedging-addition).
+- Compatible magnitude / direction (both large reductions; a 5% wobble does not
+  match a 70% collapse).
+
+Bias toward NOT merging. Wrongly merging two distinct phenomena corrupts the
+historical base rate that downstream severity calibration depends on, which is
+worse than leaving a duplicate. Therefore:
+- If the two are clearly the same phenomenon on all three criteria, return
+  same_phenomenon=true with confidence "high".
+- If they merely look similar but you are not certain, return
+  same_phenomenon=false. Do NOT guess.
+- Never set confidence "high" unless all three criteria are unambiguously met.
+
+When merging:
+- Set merge_into_pattern_id to the SURVIVING id — normally the one with the
+  higher support_count (more accumulated evidence). On a tie, pick candidate_a.
+- Write merged_description as a REUSABLE summary of the general phenomenon:
+  include domain + drift type + rough magnitude; 30-80 words; NO DOIs, author
+  names, or one-off specifics. It should be at least as informative as the
+  better of the two inputs, generalized to cover both.
+
+When NOT merging, set merge_into_pattern_id and merged_description to null.
+
+Always fill rationale with one sentence explaining your decision.
+
+Return ONLY a JSON object matching contracts.md §3.6.3 output schema. No prose
+outside the JSON.
+
+Input:
+{paste the §3.6.3 input JSON here}
+```
+
+#### 3.6.5 Deployment status, bounded-dedup safeguards & ops model (2026-05-31)
+
+**Status**: implemented and live. The curator is a Cloud Run **Job**
+(`claimdrift-pattern-curator`) triggered by a daily Cloud Scheduler
+(`claimdrift-pattern-curator-daily`), NOT an Agent Engine reasoning engine
+(B.1). Its one Gemini judgment uses `google.genai` on the Vertex backend with
+structured output (`response_schema`) re-validated by a jsonschema gate
+(§3.6.3). Code: `agents/pattern_curator/`. Build/deploy + full runbook:
+[pattern_curator_ops.md](pattern_curator_ops.md). C1 (`claimdrift-elser-batch`
+endpoint + `drift_patterns_read` alias) and C2 (supervisor hardening) are also
+live.
+
+**Bounded dedup (the expensive serial step is capped):**
+
+- The LLM judgment runs **at most once per unordered pattern pair** (a
+  `judged_pairs` set), so A's recall of B and B's recall of A don't
+  double-judge.
+- Each run is capped at **`max_judgments`** LLM calls (default 50). When the cap
+  is hit, remaining pairs defer to the next run and the curator **holds the
+  incremental watermark** at its start value (it does not advance past a
+  partially-deduped window — merges stamp `last_updated_at=now`, so a naive
+  watermark advance would strand the leftover pairs). Pass `--max-judgments 0`
+  for unbounded.
+- Stage-level flushed progress logs (`[curator] …`, `[dedup] …`) make a long run
+  observable.
+
+**Operating model — dry-run by default, human-reviewed apply:** the scheduled
+daily run is **dry-run** (the image CMD has no `--apply`); it only *proposes*
+merges/evictions and logs them. A human reviews the proposed merges, then runs
+once with `--apply` to actually govern. This is safe-by-default because merges
+are irreversible aggregations.
+
+**Incident & lesson (2026-05-31)**: first-time deployment used an unbounded,
+`--apply`-by-default image and was run repeatedly by hand on live data; it merged
+21 pairs across four executions (one approached the 1800s task timeout). **No
+data was corrupted** — a conservation check confirmed `support_count ==
+len(unique source_event_ids)` on every row (0 violations) and the full
+`source_event_ids` set preserved. The row-count drop is the *intended*
+base-rate-purification effect (duplicate rows of the dominant
+`claim_disappearance` type collapsing into high-support survivors), only larger
+and less controlled than intended. **Lesson now mandatory in the runbook: before
+any `--apply` on real data, take a `reindex` snapshot of `drift_patterns`** — the
+absence of a pre-governance snapshot is what made the exact row-by-row accounting
+impossible to reconstruct after the fact. The bounded-dedup + dry-run-default
+changes above close the controllability gap.
+
 ---
 
 ## 4. Agent invocation order and orchestration
@@ -657,6 +834,12 @@ done
 [Memory Synthesizer]
     ↓
 drift_patterns created/updated
+
+[Periodic / off-peak, fully decoupled from the above]    (v2, §3.6)
+    ↓
+[Pattern Curator]  merges stale duplicates, refreshes descriptions, evicts low-quality rows
+    ↓
+drift_patterns governed (base rates purified for §3.2 severity_calibration)
 ```
 
 ### 4.3 Workflow implementation
@@ -1082,3 +1265,8 @@ Vertex AI Agent Engine — supervisor_agent (ADK)
 - 2026-05-28 [Jiayu Zhu] **Pub/Sub decoupling — `/dispatch` + `/run` split (§9.6.1 round 2).** Round-1 sync pipeline (await 200s before returning) failed in production: Elastic Workflows `http` step has a hardcoded ~60s connector timeout on Serverless that is NOT user-overridable — `timeout: "600s"` passes 9.4 schema validation but runtime still throws ECONNABORTED at 60000ms. Inserted Pub/Sub between workflow and pipeline: `/dispatch` does bearer auth + idempotency check + Pub/Sub publish + 202 in ~100ms (well under 60s); `/run` is the push-subscription target, verifies Google-signed OIDC token (`aud` + `email` claims), then awaits the full pipeline (ack-deadline=600s on the subscription is the new runtime budget). Cloud Run sizing flags unchanged — they apply to `/run` now, which Pub/Sub invokes as real HTTP requests the autoscaler can see. Workflow YAML drops the now-useless `timeout: "600s"`. Three GCP setup gotchas: (1) Pub/Sub managed SA needs project-level `roles/iam.serviceAccountTokenCreator` to sign OIDC tokens (post-2021 not implicit), plus `roles/run.invoker` to POST to Cloud Run. (2) `--push-auth-token-audience` MUST be set explicitly on the subscription, otherwise Pub/Sub normalizes the scheme to `http://` and the token's `aud` claim won't match what `request.url` reports inside Cloud Run. (3) `request.url` inside a Cloud Run container is unreliable for audience reconstruction (depends on proxy headers) — hardcode `PUBSUB_PUSH_AUDIENCE` env var to the public HTTPS URL. The "sync pipeline" + `timeout: "600s"` rationale in the 2026-05-28 SSE-adapter entry below is therefore obsolete — see updated §9.6.1.
 - 2026-05-28 [Jiayu Zhu] **TODO C — SSE adapter shipped (§6.3).** Shared translator [apps/bff/sse_adapter.py](../apps/bff/sse_adapter.py) imported by both dispatcher (producer) and BFF (consumer); single envelope-shape owner. Production path persists via new `agent_events` index (§2.2.8) — dispatcher translates inline during the supervisor stream and bulk-indexes; `drift_event_id` is back-filled via `update_by_query` after drift_analyzer mints it. BFF tails by `drift_event_id` or `dispatch_id` with `Last-Event-ID` resume + 15s heartbeats. Three notable rule decisions, fixed against the T1 golden (`stream_amblyopia_v2.jsonl`, 13 ADK events → 16 envelopes, regression-locked by `apps/bff/tests/test_sse_adapter.py`): `pattern_retrieved.pattern_ids` mined from ES|QL result columns NOT BM25 scores (per 2026-05-23 RRF finding); `update_drift_pattern` surfaced via its `agent.tool_call`, not a second `pattern_retrieved`; non-parseable text parts dropped (prevent spurious `agent.completed` from intermediate reasoning). `agent.step` stays reserved — ADK has no native "step" concept, synthesizing one would mislead the UI. `SSE_REPLAY_GOLDEN=1` replays the golden JSONL through the same translator so evaluators without GCP creds see real event flow. `apps/bff/mock_server.py` → `server.py` (no longer a mock; `git mv`). **Backlog-processing gotchas hit during the end-to-end shakedown**: (1) elasticsearch-py 8.x rejects `body=` on `update_by_query`/`delete_by_query` — must pass `query=`/`script=` as keyword args, else the back-fill + retention sweep silently no-op. (2) `agent_events.refresh_interval=5s` (Elastic Serverless minimum) means the last batch of envelopes written just before `update_by_query` is still in the indexing buffer and gets missed by the back-fill — added an explicit `indices.refresh("agent_events")` between the final `bulk_index` and the `update_by_query` to close the race. (3) Cloud Run `--min-instances=0` + Elastic Workflow `http.request` 60s hard timeout = the very first dispatch after a scale-to-zero hits a ~40s cold start, the workflow tick errors out, and `write_new_watermark` is skipped — so the next tick scans the same backlog and dispatcher idempotency masks the symptom (envelopes still flow for the small subset of unprocessed pairs, but the watermark sticks). Cold start alone (`--min-instances=1`) is insufficient — even on a warm container, default concurrency=80 means a single instance tries to serve a new `POST /dispatch` while a previous handler's ~200s background task is still on the event loop, pushing later POSTs in the same workflow `foreach` past 60s. Concurrency-isolation (`--concurrency=1 --max-instances=20 --cpu-boost --min-instances=1`) was tried next but is ALSO insufficient: Cloud Run's autoscaler only counts in-flight HTTP requests, not `asyncio.create_task` background work. The handler returning 202 in 100ms made every instance look idle from the autoscaler's perspective, so it never scaled past 1 instance and a single event loop kept saturating. **Real fix: drop the fire-and-forget pattern entirely.** The dispatcher now `await`s the full pipeline before returning, so each instance is visibly busy and Cloud Run scales to `--max-instances`. This costs three additional config knobs: workflow http step `timeout: "600s"` (the connector default is 60s; pipelines run ~200s), Cloud Run service `--timeout=600` (default 300s would kill long pipelines), and the original four sizing flags still apply. The §9.6.1 "fire-and-forget 202" rationale is therefore obsolete — see updated §9.6.1.
 - 2026-05-29 [Jiayu Zhu] **Frontend + BFF live on real data; Cloud Run deploy artifacts added (hosted-demo layer).** `frontend/` (Next.js 16 + React 19, 6 views) is wired to the BFF via `NEXT_PUBLIC_BFF_URL` (REST `fetch` + browser `EventSource`); no more mock data. BFF (`apps/bff/server.py`) hardened for Cloud Run: honors `$PORT` and binds `0.0.0.0` when containerized (was loopback-only). New deploy artifacts so the Devpost "hosted Project URL" can be a real Cloud Run service, keeping the whole demo on Google Cloud (no third-party PaaS): `apps/bff/{Dockerfile,cloudbuild.yaml,requirements.txt}` (repo-root build context — bundles `ingestion/common` + `apps/bff/sse_adapter.py`, same constraint as the dispatcher) and `frontend/{Dockerfile,cloudbuild.yaml,.dockerignore}` (`NEXT_PUBLIC_BFF_URL` baked in at build time via `--build-arg`, since Next.js inlines `NEXT_PUBLIC_*` into the client bundle). Root README gains a "Deploy the hosted demo (frontend + BFF)" section; `frontend/README.md` rewritten from "pending" to live + deploy steps. **Repo hygiene**: removed 20 turbopack build-artifact files committed under a malformed absolute-path directory name (`frontend/Y…/.next/...`) — dev-server junk that escaped `.gitignore` because the mangled top-level dir name didn't match `/.next/`.
+- 2026-05-31 [Jiayu Zhu] **E3 — pattern_curator correctness + live-retrieval latency isolation both verified on the real cluster.** Two read-only probes under `agents/pattern_curator/scripts/`: (1) `_e2e_probe.py` plants two duplicate patterns + one garbage row (hallucinated `source_event_id`), runs the curator dry-run, and asserts hygiene detects+recomputes support_count, ELSER recall pairs the duplicates, and the real Gemini judgment merges them schema-gated (conservative default holds). (2) New `_e3_latency_probe.py` measures `search_drift_patterns` p50/p95 with the curator idle vs. looping a dry-run pass under load: **p95 411ms → 420ms (+2.3%)**, well under the 50% regression bar — confirms the dedicated `claimdrift-elser-batch` endpoint + dry-run isolation shield live reads from curator load (design B.2).
+- 2026-05-31 [Jiayu Zhu] **Hybrid retrieval RESTORED (reverses the 2026-05-23 single-MATCH simplification).** The 2026-05-23 finding — `match` on a `semantic_text` field auto-routes through ELSER, so RRF fused ELSER-with-itself — was worked around back then by dropping to single-MATCH, which silently left `_build_rrf_query`'s two-retriever RRF as ELSER⊕ELSER (lexical leg dead; verified byte-identical BM25/ELSER `_score`s). Fix lands a genuine lexical leg **with zero write-code change**: add `copy_to: pattern_description_text` to the semantic_text field + a `text` mirror field in both `drift_patterns.json` and `drift_patterns_v2.json` (copy_to ON an existing semantic_text field is accepted on Serverless 9.5 — probed), and point the BM25 sub-retriever at the mirror. Retrofitted the LIVE primary index **in place** via new `elastic/scripts/retrofit_hybrid_lexical.py --apply` (PUT _mapping + `_update_by_query` backfilled 35/35 docs). Verified by `agents/scripts/verify_hybrid_fix.py` (BM25≠ELSER ordering, lexical scales 1–8 vs ELSER 8–23) + 53 unit tests green. **Process note / correction:** the first deploy attempt wrongly used `manage_pattern_alias.py rebuild` to ship this, which parks the read alias on the `drift_patterns_v2` SHADOW index — that blue-green path is ONLY for the rare human-triggered curator taxonomy backfill (B.1), NOT a steady-state read target, and it split writes (`memory_synthesizer` → `drift_patterns`) from reads (alias → v2). Corrected to the in-place retrofit; `rollback --apply` restored the alias to `drift_patterns`; shadow index deleted. **Steady state: alias `drift_patterns_read` → `drift_patterns`, reads==writes, no shadow index present.** New diagnostic scripts: `diagnose_retrieval_stack.py`, `probe_bm25_subfield.py`, `probe_copyto_feasibility.py`, `probe_hotadd_lexical.py`, `verify_hybrid_fix.py`.
+- 2026-05-31 [Jiayu Zhu] **E4 — de-hardcoded structured retrieval generalizes off-fixture (both layers PASS).** Layer 1 (`agents/scripts/e4_generalization_probe.py`): inject two out-of-fixture patterns (economics `effect_size_reduction`, neuroscience `claim_disappearance`), query with structured descriptors (no AI-diagnostic hard-coded hint) — both retrieved at hybrid rank 1; hybrid vs ELSER-only tie on this semantically-clean corpus (lexical leg adds little when descriptions are full natural-language sentences — its value is proper-noun/abbreviation queries the current 35-pattern corpus rarely exercises). Layer 2 (`e4_e2e_setup.py` + `e4_e2e_check.py`): ran `drift_analyzer` end-to-end on an economics minimum-wage effect-size-reduction case — agent built an economics-flavored query, used the economics pattern, did NOT misuse the clinical outcome-switch memory, no AI-diagnostic residue; 7/7 checks pass. Confirms the `agent.py:74-80` hard-coded hint removal (design D2) is real, not just present in the prompt.
+- 2026-05-31 [Jiayu Zhu] **E2 (accumulation curve) — data-source decision: synthetic *controlled* base rate over real cases, NOT real accumulation.** Two hard constraints forced this: (1) **reproducibility ⟺ synthetic** — the memory loop is monotonic/append-only, so once a pattern accumulates to support=120 there is no way to return it to the support=50 state for a re-film; only an independently-constructed per-bucket state is reproducible. (2) **real accumulation ≈ 0** — a live audit found 391 drift_events / 35 patterns / **zero `outcome_switch` patterns** across 10,671 preprints; primary-outcome switch is too rare + clinical-only to self-accumulate at demo scale. Decision: E2 stays a **controlled experiment** — `support_count` is the set independent variable, `calibrated_materiality` the measured (un-faked) response — sourced from **real COMPARE/published-audit outcome-switch cases** as the `source_event_ids` (case-true, base-rate controlled). Honest framing for the demo: "real audited outcome-switch cases; we *control* how many the agent has seen (5/20/50) and watch severity calibration converge." Curve buckets + real-case harvest are the open E2 task (closed in the next entry).
+- 2026-05-31 [Jiayu Zhu] **E2 (accumulation curve) — CLOSED; blind run is the trustworthy result.** Harvested 51 real, registered (NCT/ISRCTN/ACTRN), DOI-bearing outcome-switch cases from the COMPARE 67-row public dataset (`agents/evals/fixtures/compare_outcome_switch_cases.json`); deep-research (adversarially verified) capped the traceable set at COMPARE's 58 misreported trials, so tiers are **[5,20,35,50] all-real**, NOT the originally-sketched 120 (Chan 2004's 3736 outcomes are deliberately anonymized → zero traceable cases). Harness `agents/scripts/e2_accumulation_curve.py` (setup N / record N / plot / teardown): each tier injects N real cases as one pattern's `source_event_ids`, honoring the §3.5.1 invariant `support_count == len(source_event_ids)` at every tier; tagged `record_source=e2_accum_probe`, torn down between tiers (the hand-set support is an experiment prop — leaving it would duplicate the production outcome_switch pattern and corrupt the base rate §3.6 protects). Fixed dependent variable is a REAL deliberately-ambiguous case: tasimelteon SET (NCT01163032, Lancet 2015), whose pre-registered co-primary clinical-response endpoint was demoted to a subordinate "step-down" endpoint in publication (COMPARE `primary_switched=1`) — ambiguous because a step-down testing order is itself legitimate (diff-alone baseline 0.50). **Methodology finding (the important one):** the first pass leaked the tier number into the prompt (`support_count={tier}` + `~5/~20/~35/~50` anchors), producing a prettier 0.60→0.85 curve whose low end was *anchored by the prompt, not the base rate*. The reported run is **blind** — prompt byte-identical across all four tiers, no count revealed; the agent must read `support_count` from the pattern it retrieves out of ES. Blind result: **0.75 / 0.75 / 0.80 / 0.82** (baseline-no-memory 0.50). Two facts proven: (1) memory loop works (0.50→0.75, memory vs none); (2) the agent genuinely reads the ES base rate — under the blind prompt its `severity_calibration.evidence[].support_count` equals the injected value at every tier (5/20/35/50) and higher tiers score higher, so the lift cannot be the prompt feeding the number. Scope: E2 validates the **read** side (retrieve base rate → calibrate); accumulation/write dynamics are E3's. The "smooth monotonic rise" shape carries a modeling assumption (a soft "continuous base-rate, diminishing returns" anchor in the prompt); the hard claims are the two above. Reproducible summary: `agents/evals/results/memory-loop-e2-2026-05-31/demo_summary.md`. **Lesson: for any "curve vs X" experiment, first check whether X leaked from the prompt to the LLM.**

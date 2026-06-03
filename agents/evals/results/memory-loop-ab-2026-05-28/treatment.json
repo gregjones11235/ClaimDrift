@@ -1,0 +1,32 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.treatment.0002",
+  "preprint_version_compared": "v3",
+  "published_doi": "10.1000/eval.treatment.0002",
+  "drift_summary": "Key quantitative performance metrics (AUROC, false-negative reduction) and qualitative claims about AI system generalization across subgroups were removed from the published abstract. The published version explicitly states these omissions and presents the system as exploratory.",
+  "claim_diffs": [
+    {
+      "diff_type": "claim_disappeared",
+      "preprint_claim_id": "10.1101/eval.treatment.0002::v3::abstract::0",
+      "published_claim_id": null,
+      "preprint_text": "The AI triage system reached an AUROC of 0.96 and reduced false-negative referrals by 38% in a multicenter validation study.",
+      "published_text": null,
+      "change_description": "The AI system's reported AUROC and false-negative reduction metrics were removed from the published abstract, indicating a retraction of specific quantitative performance claims.",
+      "materiality_score": 0.95
+    },
+    {
+      "diff_type": "claim_disappeared",
+      "preprint_claim_id": "10.1101/eval.treatment.0002::v3::abstract::1",
+      "published_claim_id": null,
+      "preprint_text": "The system generalized robustly across hospital sites and demographic groups.",
+      "published_text": null,
+      "change_description": "The claim about the AI system's robust generalization across diverse demographic groups and hospital sites was removed, suggesting a retreat from previous assurances of broad applicability.",
+      "materiality_score": 0.8
+    }
+  ],
+  "materiality_score": 0.9,
+  "retrieved_patterns_used": [
+    "c31f4560-611c-4335-a7a2-97b744d014da"
+  ],
+  "analyzed_at": null
+}

@@ -1,0 +1,54 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.e4.econ.0001",
+  "preprint_version_compared": "v2",
+  "published_doi": "10.1000/eval.e4.econ.0001",
+  "drift_summary": "The paper's central finding, a statistically significant 6.2% reduction in teen employment from a minimum wage increase, was dramatically weakened upon publication. After adding robustness checks, the effect shrank to a non-significant 1.1% reduction, effectively reversing the main conclusion of the preprint.",
+  "claim_diffs": [
+    {
+      "diff_type": "numerical_shift",
+      "preprint_claim_id": "10.1101/eval.e4.econ.0001::v2::abstract::0",
+      "published_claim_id": "10.1000/eval.e4.econ.0001::published::abstract::0",
+      "preprint_text": "A minimum-wage increase of 10% reduced teen employment by 6.2% (p<0.01) in our two-way fixed-effects specification across 48 states.",
+      "published_text": "After adding county-level controls and a border-discontinuity robustness check, a 10% minimum-wage increase is associated with a 1.1% reduction in teen employment, not statistically significant at conventional levels (p=0.21).",
+      "change_description": "The estimated effect of a minimum wage increase on teen employment was reduced by over 80% and lost statistical significance after adding robustness checks requested during peer review.",
+      "numerical_delta": {
+        "metric": "teen_employment_reduction_percent",
+        "preprint_value": 6.2,
+        "published_value": 1.1,
+        "absolute_delta": -5.1,
+        "relative_delta": -0.82258
+      }
+    },
+    {
+      "diff_type": "claim_reversed",
+      "preprint_claim_id": "10.1101/eval.e4.econ.0001::v2::abstract::1",
+      "published_claim_id": "10.1000/eval.e4.econ.0001::published::abstract::1",
+      "preprint_text": "These results provide robust causal evidence of large disemployment effects.",
+      "published_text": "The evidence for a disemployment effect is weaker than initially reported.",
+      "change_description": "A strong claim of 'robust causal evidence' for 'large' effects was reversed to a weak claim that the evidence is now weaker, reflecting the collapse of the quantitative result."
+    }
+  ],
+  "materiality_score": 0.85,
+  "severity_calibration": {
+    "baseline_materiality_without_memory": 0.8,
+    "calibrated_materiality": 0.85,
+    "calibration_delta": 0.05,
+    "memory_pattern_ids": [
+      "e4-e2e-econ-effectsize-0001"
+    ],
+    "evidence": [
+      {
+        "pattern_id": "e4-e2e-econ-effectsize-0001",
+        "support_count": 18,
+        "pattern_type": "effect_size_reduction",
+        "calibration_effect": "raised"
+      }
+    ],
+    "rationale": "Without memory, the collapse of the main finding from statistically significant to non-significant is a major drift, rated 0.8. The highly relevant retrieved memory pattern (e4-e2e-econ-effectsize-0001) describes this exact phenomenon as a recurring drift in empirical economics, with a support count of 18. This strong evidence that the change is not an isolated incident but a known outcome of peer review adding robustness checks confirms the high materiality and justifies a slight increase in the score to 0.85."
+  },
+  "retrieved_patterns_used": [
+    "e4-e2e-econ-effectsize-0001"
+  ],
+  "analyzed_at": null
+}

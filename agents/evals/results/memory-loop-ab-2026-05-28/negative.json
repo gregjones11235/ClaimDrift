@@ -1,0 +1,22 @@
+{
+  "event_id": null,
+  "preprint_doi": "10.1101/eval.negative.0003",
+  "preprint_version_compared": "v1",
+  "published_doi": "10.1000/eval.negative.0003",
+  "drift_summary": "A definitive claim of a 12% soybean yield increase across all field sites was significantly hedged and narrowed in the published version, becoming a conditional statement about potential increases under specific soil conditions with acknowledged site variability.",
+  "claim_diffs": [
+    {
+      "diff_type": "hedging_added",
+      "preprint_claim_id": "10.1101/eval.negative.0003::v1::abstract::0",
+      "published_claim_id": "10.1000/eval.negative.0003::published::abstract::0",
+      "preprint_text": "The seed treatment increased soybean yield by 12% across all field sites.",
+      "published_text": "The seed treatment may increase soybean yield under selected soil conditions, although effects varied across sites.",
+      "change_description": "The strong, quantitative claim of a 12% yield increase across all sites was significantly hedged and narrowed to a potential increase under selected soil conditions, with acknowledged variability across sites, transforming a definitive statement into a more cautious and conditional one."
+    }
+  ],
+  "materiality_score": 0.8,
+  "retrieved_patterns_used": [
+    "probe-agri-001"
+  ],
+  "analyzed_at": null
+}
