@@ -14,7 +14,7 @@
     "citation_context": null,
     "severity_tier": "central",
     "severity_reasoning": "The citing paper relies on the original 45% effect size as a central argument.",
-    "scored_at": "2026-05-21T04:49:25Z"
+    "scored_at": "2026-06-07T07:09:17Z"
   },
   {
     "affected_citation_id": "demo-drift-002::10.1001/demo.2024.200",
@@ -31,6 +31,6 @@
     "citation_context": null,
     "severity_tier": "comparative",
     "severity_reasoning": "The citing paper compares several interventions and uses the original 31% effect as favorable evidence.",
-    "scored_at": "2026-05-21T04:49:25Z"
+    "scored_at": "2026-06-07T07:09:17Z"
   }
 ]

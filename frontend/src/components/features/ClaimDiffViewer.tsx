@@ -1,73 +1,81 @@
-import { ClaimDiff } from "@/types/claimdrift";
-import { FileDiff } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+"use client";
 
-export function ClaimDiffViewer({ diff }: { diff: ClaimDiff }) {
-  const getBadgeLabel = (type: string) => {
-    switch (type) {
-      case "claim_disappeared": return "Retracted";
-      case "claim_added": return "Added";
-      case "numerical_shift": return "Value changed";
-      case "hedging_added": return "Hedging added";
-      case "hedging_removed": return "Hedging removed";
-      case "claim_reversed": return "Reversed";
-      default: return type;
-    }
+import { ClaimDiff } from "@/types/claimdrift";
+
+export function ClaimDiffViewer({ diff, index = 0 }: { diff: ClaimDiff; index?: number }) {
+  const badgeColorMap: Record<string, string> = {
+    numerical_shift:   "cd-badge-r",
+    hedging_added:     "cd-badge-y",
+    hedging_removed:   "cd-badge-b",
+    claim_disappeared: "cd-badge-r",
+    claim_added:       "cd-badge-g",
+    claim_reversed:    "cd-badge-r",
   };
 
   const isDisappeared = diff.diff_type === "claim_disappeared";
-  const isReversed = diff.diff_type === "claim_reversed";
+  const isReversed    = diff.diff_type === "claim_reversed";
 
   return (
-    <div className="grid grid-cols-2 gap-4 mt-4">
-      {/* LEFT: Preprint */}
-      <div className={`border border-black flex flex-col ${isDisappeared || isReversed ? 'bg-[#EAEAEA]' : 'bg-[#F5F5F5]'}`}>
-        <div className="border-b border-black p-3 bg-[#EAEAEA] flex items-center gap-2 text-[12px] font-sans text-black">
-          <FileDiff className="w-3.5 h-3.5" /> Preprint version &middot; hedging_level: none
-        </div>
-        <div className="p-4 flex-1">
-          <div className="flex flex-wrap gap-2 mb-3">
-            <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-sans border-black text-[#666] bg-white rounded-none">
-              {diff.diff_type}
-            </Badge>
-            <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-sans border-black text-black bg-white rounded-none">
-              claim_type: quantitative
-            </Badge>
-            {isDisappeared && <Badge variant="destructive" className="bg-black text-white border-black rounded-none text-[10px] px-1.5 py-0 hover:bg-black">Retracted</Badge>}
-            {isReversed && <Badge variant="destructive" className="bg-black text-white border-black rounded-none text-[10px] px-1.5 py-0 hover:bg-black">Reversed</Badge>}
+    <div className="cd-panel" style={{ marginBottom: 4 }}>
+      <div className="cd-panel-header">
+        <span className="cd-panel-label">claim_diff [{index}] — {diff.diff_type}</span>
+        <span className="specimen">{diff.change_description}</span>
+      </div>
+
+      <div className="cd-diff-cols">
+        {/* Preprint column */}
+        <div className="cd-diff-col" style={{ background: isDisappeared || isReversed ? "var(--bk3)" : "var(--bk2)" }}>
+          <div className="cd-diff-col-hdr">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="1" width="10" height="10" rx="1" stroke="var(--gr)" strokeWidth="1"/>
+              <path d="M4 6h4M6 4v4" stroke="var(--gr)" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+            <span className="specimen">Preprint version · hedging: {diff.preprint_claim_id ? "none" : "—"}</span>
           </div>
-          <div className="text-[13px] leading-[1.6] text-black font-sans">
-            {diff.preprint_text}
+          <div style={{ padding: 14 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              <span className={`cd-badge ${badgeColorMap[diff.diff_type] ?? ""}`}>{diff.diff_type}</span>
+              {isDisappeared && <span className="cd-badge cd-badge-r">Retracted</span>}
+              {isReversed    && <span className="cd-badge cd-badge-r">Reversed</span>}
+            </div>
+            <div className="cd-diff-text">{diff.preprint_text}</div>
+          </div>
+        </div>
+
+        {/* Published column */}
+        <div className="cd-diff-col cd-diff-col-hdr-pub" style={{ borderLeft: "1px solid var(--gr3)", background: isReversed ? "var(--bk3)" : "var(--bk2)" }}>
+          <div className="cd-diff-col-hdr cd-diff-col-hdr-pub">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="1" width="10" height="10" rx="1" stroke="var(--y)" strokeWidth="1"/>
+              <path d="M4 6h4" stroke="var(--y)" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+            <span className="specimen specimen-y">Published version · hedging: strong</span>
+          </div>
+          <div style={{ padding: 14 }}>
+            {!isDisappeared ? (
+              <>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                  <span className={`cd-badge ${badgeColorMap[diff.diff_type] ?? ""}`}>{diff.diff_type}</span>
+                  {diff.diff_type === "hedging_added" && <span className="cd-badge cd-badge-y">hedging added</span>}
+                </div>
+                <div className="cd-diff-text">{diff.published_text}</div>
+              </>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontFamily: "var(--mono)", fontSize: 11, color: "var(--gr)", fontStyle: "italic", padding: 20 }}>
+                Claim removed in published version.
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* RIGHT: Published */}
-      <div className={`border border-black flex flex-col ${isReversed ? 'bg-[#EAEAEA]' : 'bg-white'}`}>
-        <div className="border-b border-black p-3 bg-[#F5F5F5] flex items-center gap-2 text-[12px] font-sans text-black">
-          <FileDiff className="w-3.5 h-3.5" /> Published version &middot; hedging_level: strong
+      {/* Deviation footer */}
+      <div style={{ padding: "9px 14px", borderTop: "1px solid var(--gr3)", display: "flex", alignItems: "center", gap: 12, background: "rgba(229,56,59,0.03)" }}>
+        <span className="specimen specimen-r">Semantic deviation</span>
+        <div style={{ flex: 1, height: 2, background: "var(--gr3)", position: "relative" }}>
+          <div style={{ position: "absolute", left: 0, top: 0, height: "100%", background: "linear-gradient(90deg, var(--y), var(--rd))", width: "82%" }} />
         </div>
-        <div className="p-4 flex-1">
-          {!isDisappeared ? (
-            <>
-              <div className="flex flex-wrap gap-2 mb-3">
-                <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-sans border-black text-black bg-white rounded-none">
-                  {diff.diff_type}
-                </Badge>
-                <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-sans border-black text-black bg-white rounded-none">
-                  hedging added
-                </Badge>
-              </div>
-              <div className="text-[13px] leading-[1.6] text-black font-sans">
-                {diff.published_text}
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full text-[13px] text-[#666] italic">
-              Claim was removed in published version.
-            </div>
-          )}
-        </div>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--rd)", fontWeight: 700 }}>HIGH</span>
       </div>
     </div>
   );

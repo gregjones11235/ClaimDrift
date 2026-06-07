@@ -1,17 +1,17 @@
 import { Sidebar } from "@/components/ui/sidebar";
 import { Topbar } from "@/components/ui/topbar";
 
-export default function DashboardLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-full flex bg-white text-black selection:bg-black selection:text-white w-full">
+    <div style={{ display: "flex", minHeight: "100vh", background: "var(--bk)", position: "relative" }}>
+      {/* Lab grid background */}
+      <div className="lab-grid-bg" />
+
       <Sidebar />
-      <div className="flex-1 flex flex-col min-h-screen max-w-full overflow-hidden border-l border-black">
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh", position: "relative", zIndex: 2, overflow: "hidden" }}>
         <Topbar />
-        <main className="flex-1 p-8 overflow-auto">
+        <main style={{ flex: 1, padding: "22px 24px", overflowY: "auto" }}>
           {children}
         </main>
       </div>

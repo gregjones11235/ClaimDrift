@@ -380,7 +380,7 @@ export default function ClaimDriftLanding() {
             Explore the interactive dashboard and observe how ClaimDrift maps the evolution of scientific claims across the global literature in real time.
           </p>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a href="#" data-h style={{ background: 'var(--y)', color: 'var(--bk)', padding: '16px 40px', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase', transition: 'all 0.2s' }}
+            <a href="/dashboard" data-h style={{ background: 'var(--y)', color: 'var(--bk)', padding: '16px 40px', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase', transition: 'all 0.2s' }}
               onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--wh)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--y)'; }}>
               Launch Dashboard

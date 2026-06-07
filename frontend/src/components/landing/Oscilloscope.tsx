@@ -12,13 +12,13 @@ export default function Oscilloscope({ color = '#F5C518', height = 48, speed = 6
   const midY = height / 2;
 
   const p = (x: number, yNorm: number) => `${x.toFixed(1)},${(midY + yNorm * amplitude).toFixed(1)}`;
-  
+
   const buildCycle = (offsetX: number) => [
-    p(offsetX + 0,   0),
-    p(offsetX + 30,  0),
+    p(offsetX + 0, 0),
+    p(offsetX + 30, 0),
     p(offsetX + 50, -1),
-    p(offsetX + 70,  0),
-    p(offsetX + 90,  0),
+    p(offsetX + 70, 0),
+    p(offsetX + 90, 0),
     p(offsetX + 110, 1),
     p(offsetX + 130, 0),
     p(offsetX + 160, 0),
@@ -38,8 +38,8 @@ export default function Oscilloscope({ color = '#F5C518', height = 48, speed = 6
         style={{ animation: `wave-scroll ${speed}s linear infinite`, display: 'block' }}
       >
         <line x1="0" y1={midY} x2={w * 2} y2={midY} stroke={color} strokeWidth="0.5" opacity="0.3" />
-        <polyline points={pts}  fill="none" stroke={color} strokeWidth="1.5" opacity="0.8"/>
-        <polyline points={pts2} fill="none" stroke={color} strokeWidth="1.5" opacity="0.8"/>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" opacity="0.8" />
+        <polyline points={pts2} fill="none" stroke={color} strokeWidth="1.5" opacity="0.8" />
       </svg>
     </div>
   );

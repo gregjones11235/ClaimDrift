@@ -4,7 +4,7 @@
     "preprint_doi": "10.1101/2024.01.15.123456",
     "preprint_version_compared": "v3",
     "published_doi": "10.1016/j.cell.2024.05.001",
-    "detected_at": "2026-05-21T04:49:25Z",
+    "detected_at": "2026-06-07T07:09:17Z",
     "drift_summary": "Effect size for viral load reduction changed from 45% to 12%, and strong hedging was added.",
     "claim_diffs": [
       {
@@ -24,15 +24,26 @@
       }
     ],
     "materiality_score": 0.82,
-    "analyzed_at": "2026-05-21T04:49:25Z",
-    "retrieved_patterns_used": ["pattern-demo-001"]
+    "retrieved_patterns": [
+      {
+        "pattern_id": "pattern-demo-001",
+        "pattern_description": "COVID-related clinical preprints may show large effect-size reductions at publication with added hedging.",
+        "pattern_type": "effect_size_reduction",
+        "domain_tags": [
+          "covid-19",
+          "clinical-trial"
+        ],
+        "support_count": 3,
+        "similarity_score": 0.84
+      }
+    ]
   },
   {
     "event_id": "demo-drift-002",
     "preprint_doi": "10.1101/2024.02.20.654321",
     "preprint_version_compared": "v2",
     "published_doi": "10.1056/demo.2024.002",
-    "detected_at": "2026-05-21T04:49:25Z",
+    "detected_at": "2026-06-07T07:09:17Z",
     "drift_summary": "A readmission reduction claim softened from 31% to 8%, with uncertainty strong enough that the interval crossed no effect.",
     "claim_diffs": [
       {
@@ -52,7 +63,18 @@
       }
     ],
     "materiality_score": 0.76,
-    "analyzed_at": "2026-05-21T04:49:25Z",
-    "retrieved_patterns_used": ["pattern-demo-001"]
+    "retrieved_patterns": [
+      {
+        "pattern_id": "pattern-demo-001",
+        "pattern_description": "Clinical preprints may show large effect-size reductions at publication with added hedging.",
+        "pattern_type": "effect_size_reduction",
+        "domain_tags": [
+          "clinical-trial",
+          "remote-monitoring"
+        ],
+        "support_count": 4,
+        "similarity_score": 0.79
+      }
+    ]
   }
 ]

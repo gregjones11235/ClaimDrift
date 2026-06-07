@@ -1,22 +1,38 @@
 import { getPatterns } from "@/lib/api/client";
-import { PatternList } from "./PatternList";
+import { PatternList } from "@/components/features/PatternList";
 
 export default async function PatternsPage() {
   const { items: patterns } = await getPatterns();
 
+  const statCells = [
+    { label: "Total patterns",  val: patterns.length,                                                            color: "var(--pu)" },
+    { label: "Avg support",     val: patterns.length ? (patterns.reduce((s, p) => s + p.support_count, 0) / patterns.length).toFixed(1) : 0, color: "var(--y)" },
+    { label: "Top type",        val: patterns.sort((a, b) => b.support_count - a.support_count)[0]?.pattern_type ?? "—", color: "var(--grn)" },
+    { label: "Total events",    val: patterns.reduce((s, p) => s + p.support_count, 0),                         color: "var(--bl)" },
+  ];
+
   return (
-    <div className="max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-[22px] font-medium font-sans text-black mb-2 flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-5.224 4.468C.69 10.63.13 11.83 1.13 13.06c.92 1.12 2.58 1.44 3.73 1.05.77 1.8 2.57 3.05 4.64 3.05 1.55 0 2.94-.74 3.8-1.89A5 5 0 0 0 17 17c2.76 0 5-2.24 5-5s-2.24-5-5-5a5 5 0 0 0-5-2z"></path></svg>
-          Pattern memory
-        </h1>
-        <div className="text-[13px] text-[#666] font-sans">
-          {patterns.length} pattern{patterns.length === 1 ? "" : "s"} — written by memory_synthesizer after processing drift events
-        </div>
+    <div style={{ maxWidth: 1100 }}>
+      {/* Stats */}
+      <div className="cd-stat-grid" style={{ gridTemplateColumns: "repeat(4,1fr)", marginBottom: 18 }}>
+        {statCells.map(({ label, val, color }, i) => (
+          <div key={i} className="cd-stat-cell">
+            <style>{`.cd-stat-cell:nth-child(${i+1})::before { background: ${color}; }`}</style>
+            <div className="specimen">{label}</div>
+            <div className="cd-stat-val" style={{ color, fontSize: typeof val === "string" && val.length > 10 ? 14 : 26 }}>{val}</div>
+          </div>
+        ))}
       </div>
 
-      <PatternList patterns={patterns} />
+      {/* Panel */}
+      <div className="cd-panel">
+        <div className="cd-panel-header">
+          <span className="cd-panel-label">drift_patterns — memory loop base rates ⭐</span>
+          <span className="specimen specimen-p">ELSER hybrid retrieval · memory_synthesizer agent</span>
+        </div>
+        <PatternList patterns={patterns} />
+
+      </div>
     </div>
   );
 }
