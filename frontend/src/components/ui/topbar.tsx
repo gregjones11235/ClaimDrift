@@ -19,7 +19,7 @@ export function Topbar() {
   } else if (pathname?.startsWith("/event/")) {
     title = "Drift Detail"; sub = "drift_analyzer · Gemini 2.5 Pro";
   } else if (pathname === "/live") {
-    title = "Live Stream"; sub = "agent_events · SSE";
+    title = "Event Stream"; sub = "agent_events · SSE";
   } else if (pathname === "/patterns") {
     title = "Pattern Memory"; sub = "drift_patterns · ELSER";
   } else if (pathname === "/citations") {
@@ -55,7 +55,8 @@ export function Topbar() {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {/* Live indicator — only shown on /live */}
+        {/* Connection indicator — only shown on /live. Reflects whether the SSE
+            EventSource is currently open (Streaming) or not (Idle). */}
         {mounted && pathname === "/live" && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", border: `1px solid ${isListening ? "var(--grn)" : "var(--gr3)"}` }}>
             <div style={{
@@ -64,7 +65,7 @@ export function Topbar() {
               animation: isListening ? "pulse-dot 1.5s ease-out infinite" : "none",
             }} />
             <span className="specimen" style={{ color: isListening ? "var(--grn)" : "var(--gr2)" }}>
-              {isListening ? "Live" : "Idle"}
+              {isListening ? "Streaming" : "Idle"}
             </span>
           </div>
         )}

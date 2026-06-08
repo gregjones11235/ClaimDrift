@@ -6,7 +6,11 @@ interface NavProps {
   scrollY: number;
 }
 
-const NAV_LINKS = ['How It Works', 'Live Demo', 'Documentation', 'GitHub'];
+// Single nav link to the on-page agent-pipeline section. (GitHub lives in the
+// footer; the agent-activity dashboard is reachable from the hero CTA.)
+const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
+  { label: 'How It Works', href: '#how-it-works' },
+];
 
 export default function Nav({ scrollY }: NavProps) {
   const pinned = scrollY > 50;
@@ -25,10 +29,11 @@ export default function Nav({ scrollY }: NavProps) {
       </a>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-        {NAV_LINKS.map(l => (
+        {NAV_LINKS.map(({ label, href, external }) => (
           <a
-            key={l}
-            href="#"
+            key={label}
+            href={href}
+            {...(external ? { target: '_blank', rel: 'noopener' } : {})}
             data-h
             style={{
               fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--gr)',
@@ -43,7 +48,7 @@ export default function Nav({ scrollY }: NavProps) {
               (e.target as HTMLAnchorElement).style.color = 'var(--gr)';
               (e.target as HTMLAnchorElement).style.borderBottomColor = 'transparent';
             }}
-          >{l}</a>
+          >{label}</a>
         ))}
       </div>
 

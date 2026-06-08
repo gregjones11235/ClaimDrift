@@ -10,7 +10,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: 'ClaimDrift — Catch Scientific Claim Drifts Before They Become Citations',
   description:
-    'When preprints become peer-reviewed papers, their core claims often shift. ClaimDrift uses a Vertex AI multi-agent pipeline to detect semantic drift in real time and notify every researcher whose work depends on the original findings.',
+    'When preprints become peer-reviewed papers, their core claims often shift. ClaimDrift uses a Vertex AI multi-agent pipeline to detect semantic drift the moment a preprint is published and notify every researcher whose work depends on the original findings.',
   openGraph: {
     title: 'ClaimDrift',
     description: 'Multi-agent scientific integrity system.',

@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSseStore } from "@/lib/store/sse";
-import { useEffect, useState } from "react";
 import Logo from "../landing/Logo";
 
 /* ── nav items ── */
@@ -22,14 +20,13 @@ const MONITOR_LINKS = [
   },
   {
     href: "/live",
-    label: "Live stream",
+    label: "Event stream",
     icon: (
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
         <circle cx="7" cy="7" r="2"/>
         <path d="M3.5 10.5A5 5 0 0 1 3.5 3.5M10.5 3.5A5 5 0 0 1 10.5 10.5"/>
       </svg>
     ),
-    badge: "live",
   },
   {
     href: "/patterns",
@@ -87,21 +84,6 @@ const EVENT_LINKS = [
     badgeLabel: "sent",
   },
 ];
-
-function LiveDot() {
-  const isListening = useSseStore((s) => s.isListening);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted || !isListening) return null;
-  return (
-    <span style={{
-      width: 6, height: 6, borderRadius: "50%",
-      background: "var(--grn)",
-      animation: "pulse-dot 1.5s ease-out infinite",
-      display: "inline-block",
-    }} />
-  );
-}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -162,11 +144,6 @@ export function Sidebar() {
             onMouseLeave={(e) => { if (!isActive(link.href)) { (e.currentTarget as HTMLElement).style.color = "var(--gr)"; (e.currentTarget as HTMLElement).style.background = "transparent"; } }}>
             <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: isActive(link.href) ? 1 : 0.7 }}>{link.icon}</span>
             <span style={{ flex: 1 }}>{link.label}</span>
-            {link.badge === "live" && (
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, padding: "1px 6px", border: "1px solid var(--grn)", color: "var(--grn)", display: "flex", alignItems: "center", gap: 4 }}>
-                <LiveDot />live
-              </span>
-            )}
           </Link>
         ))}
 

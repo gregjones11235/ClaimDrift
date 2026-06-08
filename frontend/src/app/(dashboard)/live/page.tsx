@@ -17,6 +17,77 @@ const AGENT_LEGEND = [
   { label: "pattern_retrieved ⭐", color: "var(--pu)", glow: true },
 ];
 
+// Map materiality_score (0–1) to a severity tier + colour, matching the
+// dashboard's thresholds: ≥0.7 high (red), ≥0.4 medium (orange), else low.
+function severityOf(score: number): { tier: string; color: string; dot: string } {
+  if (score >= 0.7) return { tier: "HIGH",   color: "var(--rd)",  dot: "🔴" };
+  if (score >= 0.4) return { tier: "MEDIUM", color: "var(--or)",  dot: "🟠" };
+  return { tier: "LOW", color: "var(--grn)", dot: "🟢" };
+}
+
+// The first claim diff's type is the most representative single label for the
+// event (the dashboard's DIFF_TYPE column uses the same convention).
+function primaryDiffType(ev: DriftEventSummary): string {
+  return ev.claim_diffs?.[0]?.diff_type ?? "—";
+}
+
+function shortDate(iso: string): string {
+  // detected_at is an ISO string; show YYYY-MM-DD without pulling in a date lib.
+  return (iso || "").slice(0, 10);
+}
+
+// Plain-text label for a native <option>: severity dot + materiality + diff
+// type + full preprint DOI + date. Options cannot wrap or be styled, but the
+// front-loaded fields (severity, score, diff type) survive truncation on narrow
+// widths. The DOI is shown in full and prefixed with "doi:" so it isn't
+// mistaken for the trailing date. Full detail is in <SelectedEventCard>.
+function driftEventOptionLabel(ev: DriftEventSummary): string {
+  const { dot } = severityOf(ev.materiality_score);
+  return `${dot} ${ev.materiality_score.toFixed(2)}  ${primaryDiffType(ev)}  doi:${ev.preprint_doi}  ${shortDate(ev.detected_at)}`;
+}
+
+// Rich, human-readable card describing the currently selected event. This is
+// where the full drift_summary, severity bar, DOIs and date are shown — the
+// detail a native <option> cannot render.
+function SelectedEventCard({ ev }: { ev: DriftEventSummary }) {
+  const sev = severityOf(ev.materiality_score);
+  const pct = Math.round(ev.materiality_score * 100);
+  return (
+    <div style={{ marginBottom: 16, padding: "12px 14px", border: "1px solid var(--gr3)", borderLeft: `2px solid ${sev.color}`, background: "var(--bk2)" }}>
+      {/* Header row: severity tier + materiality bar + diff type + date */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: sev.color, border: `1px solid ${sev.color}`, padding: "2px 7px" }}>
+          {sev.tier}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span className="specimen" style={{ color: "var(--gr2)" }}>materiality</span>
+          <div style={{ width: 90, height: 4, background: "var(--gr3)", position: "relative" }}>
+            <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${pct}%`, background: sev.color }} />
+          </div>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, color: sev.color }}>{ev.materiality_score.toFixed(2)}</span>
+        </div>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--wh2)", border: "1px solid var(--gr3)", padding: "2px 7px" }}>
+          {primaryDiffType(ev)}
+        </span>
+        <span className="specimen" style={{ color: "var(--gr2)", marginLeft: "auto" }}>{shortDate(ev.detected_at)}</span>
+      </div>
+
+      {/* Full drift summary */}
+      <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--wh2)", margin: "0 0 8px" }}>
+        {ev.drift_summary || "No drift summary available for this event."}
+      </p>
+
+      {/* DOIs (preprint → published), labelled so they read as DOIs not dates */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--mono)", fontSize: 9, color: "var(--gr)" }}>
+        <span className="specimen" style={{ color: "var(--gr3)" }}>doi</span>
+        <span style={{ color: "var(--gr2)" }}>{ev.preprint_doi}</span>
+        <span style={{ color: "var(--gr3)" }}>→</span>
+        <span style={{ color: "var(--gr2)" }}>{ev.published_doi}</span>
+      </div>
+    </div>
+  );
+}
+
 function LiveStreamContent() {
   const { events, isListening, startListening, stopListening } = useSseStore();
   const searchParams = useSearchParams();
@@ -62,30 +133,40 @@ function LiveStreamContent() {
     router.replace(`/live?${params.toString()}`);
   };
 
+  const selectedEvent = allEvents.find((e) => e.event_id === driftEventId) ?? null;
+
   return (
     <>
       {/* Picker row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "10px 14px", border: "1px solid var(--gr3)", background: "var(--bk2)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, padding: "10px 14px", border: "1px solid var(--gr3)", background: "var(--bk2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", border: `1px solid ${driftEventId ? "var(--grn)" : "var(--gr3)"}` }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: driftEventId ? "var(--grn)" : "var(--gr2)", animation: driftEventId ? "pulse-dot 1.5s ease-out infinite" : "none" }} />
           <span className="specimen" style={{ color: driftEventId ? "var(--grn)" : "var(--gr2)" }}>
-            {driftEventId ? "LIVE — tailing agent_events" : "Select a drift event"}
+            {driftEventId ? "Streaming agent_events" : "Select a drift event"}
           </span>
         </div>
 
-        <span className="specimen" style={{ color: "var(--gr2)", whiteSpace: "nowrap" }}>drift_event_id:</span>
+        <span className="specimen" style={{ color: "var(--gr2)", whiteSpace: "nowrap" }}>drift event:</span>
+        {/* Native <select> kept for keyboard/a11y/mobile reliability. Each
+            <option> is plain single-line text (no rich markup possible), so it
+            only carries scannable identifiers: severity dot + materiality +
+            diff type + short DOI + date. The full summary lives in the rich
+            card below. */}
         <select value={driftEventId} onChange={onSelect} disabled={loadingList || !!listError}
-          style={{ flex: 1, background: "var(--bk3)", border: "1px solid var(--gr3)", color: "var(--wh2)", fontFamily: "var(--mono)", fontSize: 9, padding: "5px 8px", outline: "none", cursor: "pointer" }}>
+          style={{ flex: 1, background: "var(--bk3)", border: "1px solid var(--gr3)", color: "var(--wh2)", fontFamily: "var(--mono)", fontSize: 11, padding: "6px 8px", outline: "none", cursor: "pointer" }}>
           <option value="" disabled>
             {loadingList ? "loading…" : listError ? listError : "— pick one —"}
           </option>
           {allEvents.map((e) => (
             <option key={e.event_id} value={e.event_id}>
-              {e.event_id.slice(0, 8)}… · {e.preprint_doi}
+              {driftEventOptionLabel(e)}
             </option>
           ))}
         </select>
       </div>
+
+      {/* Rich card for the currently selected event. */}
+      {selectedEvent && <SelectedEventCard ev={selectedEvent} />}
 
       {/* Timeline panel */}
       <div className="cd-panel">

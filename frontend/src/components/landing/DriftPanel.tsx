@@ -2,24 +2,27 @@
 
 import Panel from './Panel';
 
+// Real drift event from the live `drift_events` index (event_id
+// c3878f4b-0724-46dd-9e16-0b0a7beca1ea): a POTS whole-exome sequencing study
+// whose top-line numbers were drastically moderated through peer review. The
+// preprint claimed 55 significant genes / 92 pathogenic variants; the
+// published version reports 15 genes / 16 variants. materiality_score = 0.9.
+//   preprint:  10.1101/2024.05.03.24306814  (medRxiv, v1)
+//   published: 10.1007/s10286-025-01110-2   (Clinical Autonomic Research)
 const PREPRINT = [
-  { w: 'Drug X ',                          d: false },
-  { w: 'cures ',                            d: true,  del: true },
-  { w: 'treatment-resistant depression in ', d: false },
-  { w: '87% ',                              d: true,  del: true },
-  { w: 'of patients within ',               d: false },
-  { w: '2 weeks ',                          d: true,  del: true },
-  { w: 'of administration.',                d: false },
+  { w: 'WES revealed ',                     d: false },
+  { w: '55 genes ',                         d: true,  del: true },
+  { w: 'with genome-wide significance, harboring ', d: false },
+  { w: '92 variants ',                      d: true,  del: true },
+  { w: 'classified as pathogenic.',         d: false },
 ];
 
 const PUBLISHED = [
-  { w: 'Drug X ',                          d: false },
-  { w: 'may alleviate ',                   d: true, add: true },
-  { w: 'treatment-resistant depression in ', d: false },
-  { w: '42% ',                             d: true, add: true },
-  { w: 'of patients within ',              d: false },
-  { w: '4 to 6 weeks ',                   d: true, add: true },
-  { w: 'of administration.',               d: false },
+  { w: 'WES identified ',                    d: false },
+  { w: '16 rare variants ',                 d: true, add: true },
+  { w: 'in ',                                d: false },
+  { w: '15 genes ',                         d: true, add: true },
+  { w: 'found in more than one case, predicted to be pathogenic.', d: false },
 ];
 
 interface DriftPanelProps {
@@ -28,13 +31,13 @@ interface DriftPanelProps {
 
 export default function DriftPanel({ active }: DriftPanelProps) {
   return (
-    <Panel label="FIG. 01 / CLAIM COMPARISON" labelRight="arxiv:2024.08211" style={{ background: 'var(--bk2)' }}>
+    <Panel label="FIG. 01 / CLAIM COMPARISON" labelRight="medrxiv:2024.05.03.24306814" style={{ background: 'var(--bk2)' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
         {/* Preprint */}
         <div style={{ padding: '28px 28px 20px', borderRight: '1px solid var(--gr3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--gr)' }}/>
-            <span className="specimen">bioRxiv preprint / Mar 2026</span>
+            <span className="specimen">medRxiv preprint / May 2024</span>
           </div>
           <p style={{ fontSize: 15, lineHeight: 1.9, fontWeight: 300, color: 'var(--wh2)' }}>
             {PREPRINT.map((t, i) => (
@@ -61,7 +64,7 @@ export default function DriftPanel({ active }: DriftPanelProps) {
               boxShadow: active ? '0 0 8px var(--rd)' : 'none',
             }}/>
             <span className={`specimen ${active ? 'specimen-r' : ''}`} style={{ transition: 'color 0.4s' }}>
-              Nature Medicine / peer reviewed / Aug 2026
+              Clin. Auton. Research / peer reviewed / 2025
             </span>
           </div>
           <p style={{ fontSize: 15, lineHeight: 1.9, fontWeight: 300, color: 'var(--wh2)' }}>
@@ -91,7 +94,7 @@ export default function DriftPanel({ active }: DriftPanelProps) {
           <div style={{
             position: 'absolute', left: 0, top: 0, height: '100%',
             background: 'linear-gradient(90deg, var(--y), var(--rd))',
-            width: active ? '45%' : '0%',
+            width: active ? '90%' : '0%',
             transition: 'width 1.8s cubic-bezier(0.4,0,0.2,1) 0.6s',
           }}/>
           {[0, 25, 50, 75, 100].map(p => (
@@ -99,16 +102,16 @@ export default function DriftPanel({ active }: DriftPanelProps) {
           ))}
         </div>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 18, color: active ? 'var(--rd)' : 'var(--gr)', fontWeight: 700, transition: 'color 0.5s', minWidth: 48 }}>
-          {active ? '45%' : '0%'}
+          {active ? '90%' : '0%'}
         </div>
       </div>
 
       {/* Metadata footer */}
       <div style={{ borderTop: '1px solid var(--gr3)', padding: '10px 28px', display: 'flex', gap: 32 }}>
         {([
-          ['Drift severity',   'HIGH',   'var(--rd)'],
-          ['Papers affected',  '34',     'var(--y)'],
-          ['Authors notified', '12',     'var(--grn)'],
+          ['Materiality',      '0.90',   'var(--rd)'],
+          ['Papers affected',  '2',      'var(--y)'],
+          ['Authors notified', '2',      'var(--grn)'],
           ['Detection latency','< 2.1s', 'var(--bl)'],
         ] as [string, string, string][]).map(([l, v, c]) => (
           <div key={l}>

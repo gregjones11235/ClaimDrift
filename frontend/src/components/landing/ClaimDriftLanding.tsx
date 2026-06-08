@@ -10,9 +10,10 @@ import Panel from './Panel';
 import DriftPanel from './DriftPanel';
 import CitGraph from './CitGraph';
 import Logo from './Logo';
+import type { DashboardStats } from '@/types/claimdrift';
 
 /* ── HERO ─────────────────────────────── */
-function Hero() {
+function Hero({ stats }: { stats: DashboardStats | null }) {
   const pos = useMousePos();
   const px = (pos.x / (typeof window !== 'undefined' ? window.innerWidth  : 1) - 0.5) * 20;
   const py = (pos.y / (typeof window !== 'undefined' ? window.innerHeight : 1) - 0.5) * 10;
@@ -53,11 +54,11 @@ function Hero() {
             <div style={{ width: 60, height: 2, background: 'var(--y)', marginBottom: 24 }}/>
 
             <p style={{ fontSize: 17, fontWeight: 300, lineHeight: 1.8, color: 'var(--gr)', maxWidth: 480, marginBottom: 36 }}>
-              When preprints become peer-reviewed papers, their core claims often shift without notice. ClaimDrift uses a Vertex AI multi-agent pipeline to detect semantic drift in real time and notify every researcher whose work depends on the original findings.
+              When preprints become peer-reviewed papers, their core claims often shift without notice. ClaimDrift uses a Vertex AI multi-agent pipeline to detect semantic drift the moment a preprint is published and notify every researcher whose work depends on the original findings.
             </p>
 
             <div style={{ display: 'flex', gap: 12 }}>
-              <a href="#demo" data-h style={{
+              <a href="/dashboard" data-h style={{
                 background: 'var(--y)', color: 'var(--bk)',
                 padding: '13px 28px', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
                 textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase',
@@ -65,7 +66,7 @@ function Hero() {
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--wh)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--y)'; }}>
-                View Live Drift
+                Open Dashboard
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
@@ -77,21 +78,20 @@ function Hero() {
               }}
               onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'var(--y)'; el.style.color = 'var(--y)'; }}
               onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'var(--gr3)'; el.style.color = 'var(--gr)'; }}>
-                Open Source
+                GitHub
               </a>
             </div>
           </div>
 
-          {/* Right: live signal panel */}
-          <Panel label="Signal / Live" labelRight="SSE stream" style={{ background: 'var(--bk2)', padding: 24 }}>
-            <div className="specimen" style={{ marginBottom: 12 }}>Waveform / Semantic deviation over time</div>
+          {/* Right: monitoring panel (decorative waveform) */}
+          <Panel label="Monitoring active" style={{ background: 'var(--bk2)', padding: 24 }}>
             <Oscilloscope color="var(--y)" height={52} speed={5}/>
             <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {([
-                ['Active monitors', '4,712', 'var(--y)'],
-                ['Drifts this week', '23',    'var(--rd)'],
-                ['Authors alerted',  '146',   'var(--grn)'],
-                ['Avg detection',    '1.8s',  'var(--bl)'],
+                ['Drift events tracked', stats ? stats.drift_events_total.toLocaleString() : '4,712', 'var(--y)'],
+                ['High-severity drifts', stats ? stats.high_severity_count.toLocaleString() : '146',  'var(--rd)'],
+                ['Authors notified',     stats ? stats.notifications_sent.toLocaleString()  : '742',  'var(--grn)'],
+                ['Avg materiality',      stats ? stats.avg_materiality_score.toFixed(2)     : '0.49', 'var(--bl)'],
               ] as [string, string, string][]).map(([l, v, c]) => (
                 <div key={l} style={{ background: 'var(--bk3)', padding: '12px 14px' }}>
                   <div className="specimen" style={{ marginBottom: 4 }}>{l}</div>
@@ -104,7 +104,7 @@ function Hero() {
 
         {/* Scroll indicator */}
         <div style={{ position: 'absolute', bottom: -40, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-          <span className="specimen" style={{ color: 'var(--gr2)' }}>Scroll to explore</span>
+          <span className="specimen" style={{ color: 'var(--wh2)' }}>Scroll to explore</span>
           <div style={{ width: 1, height: 36, background: 'linear-gradient(var(--y), transparent)' }}/>
         </div>
       </div>
@@ -194,7 +194,7 @@ function HowItWorks() {
   ];
 
   return (
-    <section style={{ maxWidth: 1200, margin: '0 auto', padding: '96px 60px' }}>
+    <section id="how-it-works" style={{ maxWidth: 1200, margin: '0 auto', padding: '96px 60px', scrollMarginTop: 60 }}>
       <div style={{ marginBottom: 56 }}>
         <span className="specimen specimen-y" style={{ display: 'block', marginBottom: 12 }}>Section 03 / Agent pipeline</span>
         <h2 style={{ fontFamily: 'var(--display)', fontSize: 'clamp(40px,5vw,72px)', lineHeight: 0.9, color: 'var(--wh)' }}>HOW THE AGENTS WORK</h2>
@@ -259,16 +259,18 @@ function Audience() {
 }
 
 /* ── ROOT EXPORT ──────────────────────── */
-export default function ClaimDriftLanding() {
+export default function ClaimDriftLanding({ stats }: { stats: DashboardStats | null }) {
   const scrollY = useScrollY();
   const [driftRef, driftInView] = useInView(0.2);
   const [statsRef, statsInView] = useInView(0.25);
   const [netRef,   netInView]   = useInView(0.15);
 
-  const papers   = useCounter(34,   1800, statsInView);
-  const dev      = useCounter(45,   2200, statsInView);
-  const authors  = useCounter(12,   1400, statsInView);
-  const monitors = useCounter(4712, 2400, statsInView);
+  // The "measured impact" counters animate to real whole-index totals when the
+  // BFF responds, falling back to representative demo values otherwise.
+  const citations = useCounter(stats?.affected_citations_total ?? 796, 1800, statsInView);
+  const avgPct    = useCounter(stats ? Math.round(stats.avg_materiality_score * 100) : 49, 2200, statsInView);
+  const notified  = useCounter(stats?.notifications_sent ?? 742, 1400, statsInView);
+  const events    = useCounter(stats?.drift_events_total ?? 389, 2400, statsInView);
 
   return (
     <>
@@ -278,10 +280,18 @@ export default function ClaimDriftLanding() {
       <LabCursor/>
       <Nav scrollY={scrollY}/>
 
-      <Hero/>
+      <Hero stats={stats}/>
 
       <Ticker
-        items={['Claim drift detected','45% semantic deviation','34 downstream papers mapped','12 authors notified in real time','Blast radius: OpenAlex traversal','Agent pipeline: Vertex AI','Indexed: Elasticsearch']}
+        items={[
+          'Claim drift detected',
+          stats ? `${stats.drift_events_total.toLocaleString()} drift events tracked` : 'Real-time drift detection',
+          stats ? `${stats.affected_citations_total.toLocaleString()} affected citations mapped` : 'Citation blast-radius mapped',
+          stats ? `${stats.notifications_sent.toLocaleString()} authors notified` : 'Affected authors notified',
+          'Blast radius: OpenAlex traversal',
+          'Agent pipeline: Vertex AI',
+          'Indexed: Elasticsearch',
+        ]}
         bg="var(--y)" fg="var(--bk)" speed={28}
       />
 
@@ -296,10 +306,10 @@ export default function ClaimDriftLanding() {
       <section id="demo" style={{ background: 'var(--bk2)', padding: '96px 60px', position: 'relative' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <div style={{ marginBottom: 48 }}>
-            <span className="specimen specimen-y" style={{ display: 'block', marginBottom: 12 }}>Section 02 / Live comparison</span>
+            <span className="specimen specimen-y" style={{ display: 'block', marginBottom: 12 }}>Section 02 / Claim comparison</span>
             <h2 style={{ fontFamily: 'var(--display)', fontSize: 'clamp(40px,5vw,72px)', lineHeight: 0.9, color: 'var(--wh)', marginBottom: 16 }}>THE DRIFT, SIDE BY SIDE</h2>
             <p style={{ fontSize: 15, color: 'var(--gr)', fontWeight: 300, maxWidth: 560, lineHeight: 1.8 }}>
-              The Analyzer agent performs sentence-level semantic comparison between the preprint and the published manuscript. Each claim receives a deviation score. At 45 percent deviation, full blast-radius mapping is triggered automatically.
+              The Analyzer agent performs sentence-level semantic comparison between the preprint and the published manuscript. Each claim receives a deviation score. This real event scored 90 percent — high enough to trigger full blast-radius mapping automatically.
             </p>
           </div>
           <div ref={driftRef}>
@@ -311,13 +321,13 @@ export default function ClaimDriftLanding() {
       {/* ── STATS */}
       <section ref={statsRef} style={{ background: 'var(--bk)', borderTop: '1px solid var(--gr3)', borderBottom: '1px solid var(--gr3)', padding: '72px 60px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <span className="specimen specimen-y" style={{ display: 'block', marginBottom: 36, textAlign: 'center' }}>Measured impact / one preprint</span>
+          <span className="specimen specimen-y" style={{ display: 'block', marginBottom: 36, textAlign: 'center' }}>Measured impact / whole index</span>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1, background: 'var(--gr3)' }}>
             {([
-              { val: papers,                        label: 'Downstream papers in blast radius', color: 'var(--y)',   sub: 'Mapped via OpenAlex graph'      },
-              { val: `${dev}%`,                     label: 'Semantic deviation detected',       color: 'var(--rd)',  sub: 'Above 30% triggers full alert'  },
-              { val: authors,                       label: 'Unique authors notified',           color: 'var(--grn)', sub: 'ORCID-resolved identities'       },
-              { val: `${monitors.toLocaleString()}+`, label: 'Preprints monitored live',        color: 'var(--bl)',  sub: 'Updated every 60 seconds'        },
+              { val: events.toLocaleString(),       label: 'Drift events tracked',          color: 'var(--y)',   sub: 'Across the indexed corpus'      },
+              { val: `${avgPct}%`,                  label: 'Average materiality score',     color: 'var(--rd)',  sub: 'Higher = more consequential drift' },
+              { val: notified.toLocaleString(),     label: 'Author notifications sent',     color: 'var(--grn)', sub: 'Dispatched via Gmail'           },
+              { val: citations.toLocaleString(),    label: 'Affected citations mapped',     color: 'var(--bl)',  sub: 'Blast radius via OpenAlex graph' },
             ] as { val: number | string; label: string; color: string; sub: string }[]).map(({ val, label, color, sub }, i) => (
               <div key={i} style={{ background: 'var(--bk)', padding: '40px 36px', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 16, right: 16 }}>
@@ -347,7 +357,12 @@ export default function ClaimDriftLanding() {
               One drifted claim propagates through every paper that cited the preprint. ClaimDrift maps the full blast radius using OpenAlex graph traversal and resolves affected author identities automatically.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--bk)', border: '2px solid var(--bk)' }}>
-              {([['34', 'Papers in blast radius'], ['12', 'Unique authors identified'], ['3', 'Citation levels traversed'], ['< 2s', 'Time to full mapping']] as [string, string][]).map(([n, l]) => (
+              {([
+                [stats ? stats.affected_citations_total.toLocaleString() : '796', 'Citations in blast radius'],
+                [stats ? stats.notifications_sent.toLocaleString() : '742', 'Author notifications sent'],
+                ['3', 'Citation levels'],
+                ['< 2s', 'Time to full mapping'],
+              ] as [string, string][]).map(([n, l]) => (
                 <div key={l} style={{ background: 'var(--y)', padding: '18px 22px' }}>
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 36, color: 'var(--bk)', fontWeight: 700, lineHeight: 1 }}>{n}</div>
                   <div className="specimen" style={{ color: '#555', marginTop: 4 }}>{l}</div>
@@ -355,7 +370,7 @@ export default function ClaimDriftLanding() {
               ))}
             </div>
           </div>
-          <Panel label="FIG. 02 / Citation flow / Live" style={{ background: 'rgba(10,10,10,0.6)', padding: 24 }}>
+          <Panel label="FIG. 02 / Citation flow" style={{ background: 'rgba(10,10,10,0.6)', padding: 24 }}>
             <CitGraph active={netInView}/>
           </Panel>
         </div>
@@ -377,25 +392,13 @@ export default function ClaimDriftLanding() {
             SEE THE<br/>DRIFT.
           </h2>
           <p style={{ fontSize: 16, color: 'var(--gr)', fontWeight: 300, lineHeight: 1.8, maxWidth: 480, margin: '0 auto 48px' }}>
-            Explore the interactive dashboard and observe how ClaimDrift maps the evolution of scientific claims across the global literature in real time.
+            Explore the interactive dashboard and observe how ClaimDrift maps the evolution of scientific claims across the global literature.
           </p>
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a href="/dashboard" data-h style={{ background: 'var(--y)', color: 'var(--bk)', padding: '16px 40px', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase', transition: 'all 0.2s' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--wh)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--y)'; }}>
-              Launch Dashboard
-            </a>
-            <a href="https://github.com/gregjones11235/ClaimDrift" target="_blank" rel="noopener" data-h style={{ background: 'transparent', border: '1px solid var(--gr3)', color: 'var(--gr)', padding: '16px 40px', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase', transition: 'all 0.2s' }}
-              onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'var(--gr)'; el.style.color = 'var(--wh)'; }}
-              onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'var(--gr3)'; el.style.color = 'var(--gr)'; }}>
-              View Source
-            </a>
-          </div>
-          <div style={{ marginTop: 72, paddingTop: 40, borderTop: '1px solid var(--gr3)' }}>
-            <div className="specimen" style={{ color: 'var(--gr3)', marginBottom: 20 }}>Built with</div>
+          <div style={{ marginTop: 16, paddingTop: 40, borderTop: '1px solid var(--gr3)' }}>
+            <div className="specimen" style={{ color: 'var(--wh2)', marginBottom: 20 }}>Built with</div>
             <div style={{ display: 'flex', gap: 28, justifyContent: 'center', flexWrap: 'wrap' }}>
               {['Google Vertex AI', 'Elasticsearch', 'bioRxiv', 'medRxiv', 'OpenAlex', 'Crossref'].map(t => (
-                <span key={t} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--gr3)', letterSpacing: '0.1em' }}>{t}</span>
+                <span key={t} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--wh2)', letterSpacing: '0.1em' }}>{t}</span>
               ))}
             </div>
           </div>
@@ -406,10 +409,10 @@ export default function ClaimDriftLanding() {
       <footer style={{ background: 'var(--y)', padding: '20px 60px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <Logo variant="footer"/>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#555', letterSpacing: '0.1em' }}>
-          Ranjan Yadav / Taiyang / Jeremy / Jiayu Zhu (Alec)
+          Jiayu Zhu (Alec) / Jeremy / Ranjan Yadav
         </span>
         <div style={{ display: 'flex', gap: 24 }}>
-          {([['GitHub', 'https://github.com/gregjones11235/ClaimDrift'], ['Elastic Cloud', '#'], ['Vertex AI', '#']] as [string, string][]).map(([l, h]) => (
+          {([['GitHub', 'https://github.com/gregjones11235/ClaimDrift']] as [string, string][]).map(([l, h]) => (
             <a key={l} href={h} target={h.startsWith('http') ? '_blank' : undefined} rel="noopener" data-h
               style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#555', textDecorationLine: 'none', letterSpacing: '0.1em', textTransform: 'uppercase', transition: 'color 0.2s' }}
               onMouseEnter={e => { (e.target as HTMLAnchorElement).style.color = 'var(--bk)'; }}

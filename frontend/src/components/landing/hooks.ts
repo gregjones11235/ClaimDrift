@@ -6,9 +6,19 @@ export function useInView(threshold = 0.12): [React.RefObject<HTMLDivElement | n
   const ref = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
   useEffect(() => {
+    // A tall block can never reach a high intersection ratio in a short
+    // viewport, so a single threshold like 0.2 may never fire and the panel
+    // stays stuck in its inactive (0%) state. Watch both 0 and the requested
+    // threshold, and trip as soon as ANY part is visible — combined with a
+    // bottom rootMargin this reads as "the block has scrolled into view".
     const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setInView(true); obs.disconnect(); } },
-      { threshold }
+      ([entry]) => {
+        if (entry.isIntersecting && entry.intersectionRatio > 0) {
+          setInView(true);
+          obs.disconnect();
+        }
+      },
+      { threshold: [0, threshold], rootMargin: '0px 0px -10% 0px' }
     );
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
