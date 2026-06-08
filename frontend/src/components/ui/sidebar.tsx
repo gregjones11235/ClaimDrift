@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Logo from "../landing/Logo";
@@ -41,6 +42,25 @@ const MONITOR_LINKS = [
     ),
   },
 ];
+
+// Playground is an expandable section (not a plain link): clicking the header
+// toggles a sub-menu of experiments rather than navigating. See PlaygroundNav.
+const PLAYGROUND_EXPERIMENTS: {
+  href: string;
+  label: string;
+  comingSoon?: boolean;
+}[] = [
+  { href: "/playground/memory-ab", label: "A/B · Memory calibration" },
+  { href: "/playground/orchestration", label: "5-Agent orchestration" },
+];
+
+const PLAYGROUND_ICON = (
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <path d="M7 1v12"/>
+    <rect x="1.5" y="3.5" width="3.5" height="7" rx=".5"/>
+    <rect x="9" y="3.5" width="3.5" height="7" rx=".5"/>
+  </svg>
+);
 
 const EVENT_LINKS = [
   {
@@ -147,6 +167,9 @@ export function Sidebar() {
           </Link>
         ))}
 
+        {/* Playground — expandable section of experiments (not a plain link) */}
+        <PlaygroundNav pathname={pathname} navItemStyle={navItemStyle} />
+
         {/* Events section */}
         <div style={{ padding: "12px 16px 4px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--gr3)" }}>
           Events
@@ -240,5 +263,80 @@ export function Sidebar() {
       </div>
 
     </aside>
+  );
+}
+
+/* Playground = expandable section. The header toggles a sub-menu of experiments
+   instead of navigating; it auto-expands when you're on any /playground route. */
+function PlaygroundNav({
+  pathname,
+  navItemStyle,
+}: {
+  pathname: string | null;
+  navItemStyle: (active: boolean) => React.CSSProperties;
+}) {
+  const onPlayground = pathname?.startsWith("/playground") ?? false;
+  const [open, setOpen] = useState(onPlayground);
+
+  return (
+    <>
+      {/* Section header — toggles open/closed, does NOT navigate */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
+        style={{ ...navItemStyle(onPlayground), userSelect: "none" }}
+        onMouseEnter={(e) => { if (!onPlayground) { (e.currentTarget as HTMLElement).style.color = "var(--wh2)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)"; } }}
+        onMouseLeave={(e) => { if (!onPlayground) { (e.currentTarget as HTMLElement).style.color = "var(--gr)"; (e.currentTarget as HTMLElement).style.background = "transparent"; } }}
+      >
+        <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: onPlayground ? 1 : 0.7 }}>
+          {PLAYGROUND_ICON}
+        </span>
+        <span style={{ flex: 1 }}>Playground</span>
+        {/* chevron: points down when open, right when closed */}
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+          style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", opacity: 0.7 }}
+        >
+          <path d="M3 1.5 6.5 5 3 8.5" />
+        </svg>
+      </div>
+
+      {/* Sub-items */}
+      {open && PLAYGROUND_EXPERIMENTS.map((exp) => {
+        const active = pathname?.startsWith(exp.href) ?? false;
+        if (exp.comingSoon) {
+          return (
+            <div
+              key={exp.href}
+              title="Coming soon"
+              style={{
+                ...navItemStyle(false),
+                paddingLeft: 40,
+                fontSize: 12,
+                opacity: 0.4,
+                cursor: "not-allowed",
+              }}
+            >
+              <span style={{ flex: 1 }}>{exp.label}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 9, padding: "1px 6px", border: "1px solid var(--gr3)", color: "var(--gr)" }}>soon</span>
+            </div>
+          );
+        }
+        return (
+          <Link
+            key={exp.href}
+            href={exp.href}
+            style={{ ...navItemStyle(active), paddingLeft: 40, fontSize: 12 }}
+            onMouseEnter={(e) => { if (!active) { (e.currentTarget as HTMLElement).style.color = "var(--wh2)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)"; } }}
+            onMouseLeave={(e) => { if (!active) { (e.currentTarget as HTMLElement).style.color = "var(--gr)"; (e.currentTarget as HTMLElement).style.background = "transparent"; } }}
+          >
+            <span style={{ flex: 1 }}>{exp.label}</span>
+          </Link>
+        );
+      })}
+    </>
   );
 }

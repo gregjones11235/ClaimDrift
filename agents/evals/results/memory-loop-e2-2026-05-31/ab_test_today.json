@@ -1,0 +1,70 @@
+{
+  "reports": [
+    {
+      "ts": "03:22",
+      "support": [],
+      "retrieved": [],
+      "materiality": 0.75,
+      "baseline": 0.75,
+      "delta": 0.0,
+      "drift_summary": "A pre-specified co-primary endpoint from the clinical trial registration was downgraded to a subordinate 'step-down' endpoint in the published paper. This change promotes the other, less comprehensive co-primary endpoint to the sole primary outcome, a significant change in how the trial's success is defined.",
+      "rationale": "No relevant memory was retrieved. The severity score is based on the intrinsic significance of downgrading a pre-specified co-primary endpoint in a clinical trial, which represents a major change to the study's evaluation criteria and can be a vehicle for selective reporting."
+    },
+    {
+      "ts": "01:57",
+      "support": [
+        5
+      ],
+      "retrieved": [
+        "e2-accum-outcome-switch-0001"
+      ],
+      "materiality": 0.85,
+      "baseline": 0.7,
+      "delta": 0.15,
+      "drift_summary": "A pre-specified co-primary endpoint measuring clinical response was downgraded to a 'subordinate step-down endpoint' in the published version. This leaves a less comprehensive biomarker-only endpoint as the sole primary outcome, a change that can inflate the trial's apparent success.",
+      "rationale": "The baseline severity is high because downgrading a co-primary endpoint is a significant change to a trial's success criteria. Retrieved memory (pattern e2-accum-outcome-switch-0001) confirms that this type of primary outcome switching is a known, recurring pattern in clinical trials, often used to inflate apparent success. The pattern's existence and support count (5) increase confidence that this drift is not incidental but a high-severity change, justifying an upward calibration of the materiality score."
+    },
+    {
+      "ts": "02:09",
+      "support": [
+        20
+      ],
+      "retrieved": [
+        "e2-accum-outcome-switch-0001"
+      ],
+      "materiality": 0.85,
+      "baseline": 0.7,
+      "delta": 0.15,
+      "drift_summary": "A pre-specified co-primary endpoint from the clinical trial protocol, which required both biochemical and clinical response, was downgraded to a subordinate 'step-down' endpoint in the published paper. The other co-primary endpoint, based only on a biochemical marker, was presented as the sole primary endpoint, representing a significant outcome switch that alters the trial's original success criteria.",
+      "rationale": "The baseline materiality is high because downgrading a co-primary endpoint fundamentally alters a trial's success criteria. The retrieved memory pattern `e2-accum-outcome-switch-0001`, which has strong support (support_count=20), confirms that this specific type of outcome switching is a recurring and high-severity issue in clinical trials that often serves to inflate apparent success. This historical context justifies raising the materiality score, as the observed drift is an instance of a known problematic pattern."
+    },
+    {
+      "ts": "02:11",
+      "support": [
+        35
+      ],
+      "retrieved": [
+        "e2-accum-outcome-switch-0001"
+      ],
+      "materiality": 0.9,
+      "baseline": 0.75,
+      "delta": 0.15000000000000002,
+      "drift_summary": "The published paper downgraded one of its two pre-specified co-primary endpoints to a subordinate, step-down endpoint. While the study still met its other primary endpoint, this change weakens the originally planned basis for claiming clinical success and represents a significant outcome switch.",
+      "rationale": "The baseline severity is high because downgrading a co-primary endpoint fundamentally alters a trial's pre-specified success criteria. The retrieved memory pattern (e2-accum-outcome-switch-0001), with a high support count of 35, confirms that this specific type of outcome switching is a recurring, high-severity issue in clinical trial reporting, often used to inflate the appearance of success. This strong historical precedent justifies raising the materiality score from 0.75 to 0.9."
+    },
+    {
+      "ts": "02:16",
+      "support": [
+        50
+      ],
+      "retrieved": [
+        "e2-accum-outcome-switch-0001"
+      ],
+      "materiality": 0.85,
+      "baseline": 0.7,
+      "delta": 0.15,
+      "drift_summary": "A pre-specified co-primary endpoint was demoted to a 'subordinate step-down endpoint' in the published article, weakening the trial's original success criteria. This represents a significant outcome switch, a type of drift known to be a recurring issue in clinical trial reporting.",
+      "rationale": "The baseline materiality was already 'significant' (0.7) because demoting a co-primary endpoint fundamentally alters a trial's success criteria. The retrieved memory pattern, with a high support count of 50, confirms that this type of outcome switching is a frequent and severe issue in clinical trials, often used to reframe results when a trial fails to meet all of its pre-specified goals. This strong evidence of a recurring, systematic drift pattern warrants raising the materiality score to 0.85."
+    }
+  ]
+}

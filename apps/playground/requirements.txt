@@ -1,0 +1,33 @@
+# claimdrift-playground — backend deps for BOTH experiments.
+#
+# Experiment 1 (A/B memory): serves SSE, streams the drift_analyzer Agent
+# Engine, injects/tears down probe docs in ES.
+# Experiment 2 (5-agent orchestration): drives the full supervisor Agent Engine,
+# sends the judge a drift-alert email (Gmail OAuth via Secret Manager), and
+# tears down its writes by captured id.
+#
+# NOTE: ES access goes through ingestion.common.elastic.ElasticsearchHttpClient,
+# which is a pure-urllib HTTP client — so there is NO `elasticsearch` package
+# dependency here on purpose.
+
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.32,<0.33
+
+# Vertex AI Agent Engine SDK — drives the deployed drift_analyzer (exp 1) and
+# supervisor (exp 2) via agent_engines.get(...).async_stream_query(...).
+google-cloud-aiplatform[agent-engines]>=1.112,<2.0
+
+# .env loading at import time (matches the local-dev path; harmless in-container
+# when no .env is present and real config comes from Cloud Run env vars).
+python-dotenv>=1.0,<2.0
+
+# Experiment 2 email path: Gmail v1 send + OAuth creds from Secret Manager
+# (same versions as apps/dispatcher/requirements.txt).
+google-api-python-client>=2.150,<3.0
+google-auth>=2.35,<3.0
+google-cloud-secret-manager>=2.20,<3.0
+
+# Read the drift_analyzer reasoning-engine logs to CONFIRM a 429 RESOURCE_EXHAUSTED
+# (gemini-2.5-pro Dynamic Shared Quota) when a run comes back empty, so the UI can
+# state the quota cause definitively instead of guessing. Root-caused 2026-06-08.
+google-cloud-logging>=3.11,<4.0

@@ -71,14 +71,14 @@ function Hero({ stats }: { stats: DashboardStats | null }) {
                   <path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </a>
-              <a href="https://github.com/gregjones11235/ClaimDrift" target="_blank" rel="noopener" data-h style={{
+              <a href="/playground/memory-ab" data-h style={{
                 background: 'transparent', border: '1px solid var(--gr3)', color: 'var(--gr)',
                 padding: '13px 28px', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
                 textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase', transition: 'all 0.2s',
               }}
               onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'var(--y)'; el.style.color = 'var(--y)'; }}
               onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'var(--gr3)'; el.style.color = 'var(--gr)'; }}>
-                GitHub
+                Playground
               </a>
             </div>
           </div>

@@ -35,12 +35,28 @@ if [[ -z "${BFF_URL}" || "${BFF_URL}" != https://* ]]; then
 fi
 echo "Using NEXT_PUBLIC_BFF_URL=${BFF_URL}"
 
-# 2. Build the image via Cloud Build, baking in the BFF URL at build time.
-echo "Building image (this runs 'next build' with the BFF URL inlined)..."
+# 1b. Resolve the Playground URL (override via PLAYGROUND_URL env var, else read
+# from the deployed claimdrift-playground service). The A/B Playground page
+# fetches its SSE from this separate backend.
+if [[ -z "${PLAYGROUND_URL:-}" ]]; then
+  echo "Resolving Playground URL from the deployed claimdrift-playground service..."
+  PLAYGROUND_URL="$(gcloud run services describe claimdrift-playground \
+    --region="${REGION}" --project="${PROJECT_ID}" \
+    --format='value(status.url)' 2>/dev/null || true)"
+fi
+if [[ -z "${PLAYGROUND_URL}" || "${PLAYGROUND_URL}" != https://* ]]; then
+  echo "ERROR: could not resolve a valid Playground URL (got: '${PLAYGROUND_URL:-}')." >&2
+  echo "Deploy the Playground backend first, or pass it: PLAYGROUND_URL=https://<url> ./deploy.sh" >&2
+  exit 1
+fi
+echo "Using NEXT_PUBLIC_PLAYGROUND_URL=${PLAYGROUND_URL}"
+
+# 2. Build the image via Cloud Build, baking both URLs in at build time.
+echo "Building image (this runs 'next build' with the backend URLs inlined)..."
 gcloud builds submit . \
   --config=cloudbuild.yaml \
   --project="${PROJECT_ID}" \
-  --substitutions=_BFF_URL="${BFF_URL}"
+  --substitutions=_BFF_URL="${BFF_URL}",_PLAYGROUND_URL="${PLAYGROUND_URL}"
 
 # 3. Roll the new image out to Cloud Run.
 echo "Deploying claimdrift-frontend to Cloud Run..."

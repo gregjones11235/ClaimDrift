@@ -1,0 +1,34 @@
+# Cloud Build config for the claimdrift-playground service.
+#
+# Mirrors apps/dispatcher/cloudbuild.yaml: the Dockerfile needs repo-root build
+# context (it COPYs from agents/ and ingestion/), and `gcloud run deploy
+# --source` can't target a Dockerfile outside the context root, so we build via
+# `gcloud builds submit` then `gcloud run deploy --image`.
+#
+# Usage (from repo root):
+#   gcloud builds submit . --config=apps/playground/cloudbuild.yaml
+#   gcloud run deploy claimdrift-playground \
+#     --image=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-playground:latest \
+#     --region=us-central1 \
+#     --allow-unauthenticated \
+#     --update-env-vars="GOOGLE_CLOUD_PROJECT=tensile-topic-496519-i1,GOOGLE_CLOUD_LOCATION=us-central1,ELASTIC_ENDPOINT=...,PLAYGROUND_ALLOWED_ORIGINS=https://<frontend-url>" \
+#     --set-secrets="ELASTIC_API_KEY=..." \
+#     --timeout=600 --cpu-boost
+#
+# NOTE: --timeout=600 (was 300) — experiment 2 (5-agent orchestration) runs the
+# FULL supervisor live; a local smoke run took ~300s end to end (citation_finder's
+# OpenAlex calls dominate). 300 would cut the stream off, so 600 is required.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=apps/playground/Dockerfile
+      - --tag=us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-playground:latest
+      - .
+
+images:
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/claimdrift-playground:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

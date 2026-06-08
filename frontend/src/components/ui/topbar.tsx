@@ -70,10 +70,11 @@ export function Topbar() {
           </div>
         )}
 
-        {/* Global monitoring status */}
+        {/* Global online indicator. Deliberately carries NO count: there was a
+            hard-coded "2 active" here that mapped to no real data. */}
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <div style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--grn)" }} />
-          <span className="specimen specimen-g">2 active</span>
+          <span className="specimen specimen-g">Active</span>
         </div>
       </div>
     </div>

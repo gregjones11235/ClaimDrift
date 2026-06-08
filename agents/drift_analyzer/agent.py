@@ -163,6 +163,25 @@ Use retrieved memory to calibrate severity, not merely to label the diff:
 - If memory shows a historically low-materiality cosmetic pattern, lower
   severity and explain why.
 
+Treat a relevant pattern's `support_count` as a CONTINUOUS measure of base-rate
+strength — how many independent prior cases confirm this drift phenomenon — not
+as an on/off switch:
+- Read `support_count` FROM THE RETRIEVED PATTERN ITSELF; do not assume any
+  particular value. A higher support_count is stronger evidence that the change
+  is a recurring, systematic phenomenon rather than an isolated incident, and
+  should pull `calibrated_materiality` higher / make the calibration more
+  confident. With little support, the base rate is weak and severity should stay
+  near the memory-free baseline.
+- Scale the lift above the baseline MONOTONICALLY with the actual support_count,
+  but with DIMINISHING marginal returns: each additional supporting case adds
+  less than the last, so the response flattens toward an asymptote rather than
+  jumping to a ceiling. Derive the exact `calibrated_materiality` yourself from
+  this case's merits and the retrieved base-rate strength.
+- Always judge the case on its own merits FIRST (the memory-free baseline), then
+  apply the base-rate adjustment. Record the pre-memory value as
+  `severity_calibration.baseline_materiality_without_memory` and the retrieved
+  count in `severity_calibration.evidence[].support_count`.
+
 # Output shape
 
 Return ONLY a JSON object matching contracts.md §3.2.2.

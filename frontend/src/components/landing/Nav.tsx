@@ -6,10 +6,11 @@ interface NavProps {
   scrollY: number;
 }
 
-// Single nav link to the on-page agent-pipeline section. (GitHub lives in the
-// footer; the agent-activity dashboard is reachable from the hero CTA.)
+// On-page section link plus the external repo. (GitHub moved here from the hero
+// CTA row, which now hosts the A/B Playground entry next to Open Dashboard.)
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: 'How It Works', href: '#how-it-works' },
+  { label: 'GitHub', href: 'https://github.com/gregjones11235/ClaimDrift', external: true },
 ];
 
 export default function Nav({ scrollY }: NavProps) {

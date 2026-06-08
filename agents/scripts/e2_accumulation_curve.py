@@ -44,12 +44,19 @@ Workflow (per the agreed manual-LLM convention, same as E4):
     cd agents/
     # tier 5:
     uv run python scripts/e2_accumulation_curve.py --setup 5
-    #   ... paste the printed prompt into drift_analyzer (uv run adk web /
-    #       adk run), read calibrated_materiality from its JSON output ...
+    #   ... paste the printed prompt (now JUST the case JSON — same payload the
+    #       production supervisor sends) into the PRODUCTION drift_analyzer
+    #       (uv run adk web / adk run), read calibrated_materiality from its
+    #       JSON output ...
     uv run python scripts/e2_accumulation_curve.py --record 5 <calibrated_materiality>
     uv run python scripts/e2_accumulation_curve.py --teardown
     # repeat for 20, 35, 50
     uv run python scripts/e2_accumulation_curve.py --plot
+
+NOTE (2026-06-08): the E2 method now lives in the production drift_analyzer
+prompt, so the pasted message contains NO analysis instructions — only the case.
+The previously recorded 0.75->0.82 curve was produced by the old per-probe
+INSTRUCTIONS and MUST be re-captured against the production prompt.
 """
 from __future__ import annotations
 
@@ -143,40 +150,22 @@ CASE_INPUT = {
     ],
 }
 
-INSTRUCTIONS = [
-    "Use memory retrieval normally.",
-    "When calling search_drift_patterns, build query_text from preprint claims, "
-    "published claims, and a STRUCTURED drift descriptor inferred from THIS case "
-    "(clinical trial outcome_switch: a pre-specified co-primary endpoint demoted to "
-    "a subordinate step-down endpoint between registration and publication). Do NOT "
-    "use any hard-coded hint.",
-    "Note this case is deliberately ambiguous: a step-down / hierarchical testing "
-    "order is itself a legitimate pre-specified design, so from the diff alone the "
-    "severity is genuinely uncertain (medium). Judge it on its merits first.",
-    "Perform a relevance audit: only list a pattern in retrieved_patterns_used if "
-    "its domain and drift type genuinely match THIS primary-outcome-switch case.",
-    f"If the retrieved outcome_switch pattern ({PATTERN_ID}) is relevant, read its "
-    "support_count FROM THE RETRIEVED PATTERN ITSELF and use that number as the base "
-    "rate for severity calibration. A higher support_count is stronger evidence that "
-    "pre-specified primary/co-primary demotion is a recurring phenomenon used to "
-    "protect a borderline headline result, and should pull calibrated_materiality "
-    "higher / make the calibration more confident. With little support the base rate "
-    "is weak and severity should stay near the ambiguous baseline.",
-    "Treat the retrieved support_count as a CONTINUOUS base-rate strength, not an "
-    "on/off switch: scale the lift above the ambiguous baseline monotonically with "
-    "the actual support_count you retrieved, but with DIMINISHING marginal returns "
-    "(each additional supporting case adds less than the last, so the response "
-    "flattens toward an asymptote rather than jumping to a ceiling). Derive the exact "
-    "calibrated_materiality yourself from this case's merits and the retrieved "
-    "base-rate strength. Do NOT assume any particular support_count — use whatever "
-    "number the retrieval actually returns.",
-    "Return severity_calibration with baseline_materiality_without_memory, "
-    "calibrated_materiality, calibration_delta, memory_pattern_ids, evidence "
-    "(include the pattern's support_count), and rationale.",
-    "Make top-level materiality_score equal severity_calibration.calibrated_materiality.",
-    "Do not put materiality_score inside individual claim_diffs.",
-    "Return JSON only.",
-]
+# E2 sends NO analysis instructions. As of 2026-06-08 the entire E2 method
+# (read support_count from the retrieved pattern, treat it as a CONTINUOUS
+# base-rate strength, scale severity monotonically with diminishing returns,
+# judge merits first) lives in the PRODUCTION drift_analyzer INSTRUCTION
+# (agents/drift_analyzer/agent.py). E2 therefore exercises the shipped agent
+# with its default prompt — the curve is now a property of the product, not of
+# a probe-only prompt. Two consequences:
+#   1. The curve must be RE-CAPTURED against the new production prompt; the
+#      historical 0.75->0.82 readings were produced by the old per-probe
+#      INSTRUCTIONS and no longer describe default behavior.
+#   2. "Did you write the curve into the prompt?" is now answerable with the
+#      strongest possible no: the same prompt ships in production, and it names
+#      no support_count value — the agent reads the count from ES.
+# The only thing E2 still controls is the staged support_count tier (the
+# injected pattern), exactly as before. See README "Blind design".
+INSTRUCTIONS: list[str] = []
 
 
 def _load_cases() -> list[dict]:
@@ -273,18 +262,21 @@ def _make_pattern(event_ids: list[str]) -> dict:
 
 
 def _prompt(tier: int) -> str:
-    # BLIND by design: the prompt must NOT reveal the tier / support_count. The
-    # agent has to read the support_count from the pattern it retrieves out of ES,
-    # so the accumulation curve can only come from the injected base rate, not from
-    # a number we fed it. (tier is still the function arg only for the filename.)
-    lines = [
-        "Run Drift Analyzer on the following case.",
-        "",
-        "Important:",
-    ]
-    lines += [f"- {i}" for i in INSTRUCTIONS]
-    lines += ["", "Input:", json.dumps(CASE_INPUT, indent=2), ""]
-    return "\n".join(lines)
+    """The agent's user message: the case payload and NOTHING ELSE.
+
+    This is deliberately byte-for-byte the same kind of input the production
+    supervisor hands drift_analyzer — `json.dumps(envelope)` with no surrounding
+    prose (see agents/supervisor_agent/agent.py: `message = json.dumps(envelope)`).
+    The agent therefore sees ONLY case data; the entire analysis method,
+    including how to use a retrieved pattern's support_count, comes from the
+    production drift_analyzer INSTRUCTION (its system prompt) — not from here.
+
+    BLIND by design: this message reveals neither the tier nor the support_count.
+    The agent must read support_count from the pattern it retrieves out of ES, so
+    the accumulation curve can only come from the injected base rate, not from a
+    number we fed it. (`tier` is used only for the output filename.)
+    """
+    return json.dumps(CASE_INPUT, indent=2) + "\n"
 
 
 def _cleanup(client) -> tuple[int, int]:
@@ -292,6 +284,31 @@ def _cleanup(client) -> tuple[int, int]:
     rp = client.request("POST", f"/{DRIFT_PATTERNS_INDEX}/_delete_by_query?refresh=true", body)
     re = client.request("POST", f"/{DRIFT_EVENTS_INDEX}/_delete_by_query?refresh=true", body)
     return int(rp.get("deleted", 0)), int(re.get("deleted", 0))
+
+
+def _baseline(client) -> int:
+    """No-memory baseline: ensure NO probe pattern exists, then write the SAME
+    case prompt the tiers use. Pasted into drift_analyzer, the agent retrieves
+    but finds no relevant pattern (cold start) and must judge the case on its
+    own merits. This is the honest memory-free control for the 3-state demo
+    (no-memory -> support5 -> support20), produced by the production prompt with
+    the identical case payload — the only difference from a tier run is that ES
+    has nothing to retrieve.
+    """
+    dp, de = _cleanup(client)
+    print(f"baseline: cleared {dp} probe pattern(s) + {de} probe event(s); ES has "
+          f"no e2_accum_probe pattern, so retrieval will come up empty.")
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    prompt_path = RUN_DIR / "e2_prompt_baseline.md"
+    prompt_path.write_text(_prompt(0), encoding="utf-8")  # same CASE_INPUT, tier only names the file
+    print(f"wrote prompt: {prompt_path}")
+    print("\nNext (manual):")
+    print(f"  1. paste {prompt_path} into the PRODUCTION drift_analyzer (uv run adk web)")
+    print("  2. confirm retrieved_patterns_used == [] (no memory retrieved)")
+    print("  3. read severity_calibration.baseline_materiality_without_memory and")
+    print("     materiality_score — this is the no-memory control for the demo.")
+    print("  (nothing to teardown; baseline injects nothing.)")
+    return 0
 
 
 def _setup(client, tier: int) -> int:
@@ -377,14 +394,16 @@ def _plot() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="E2 accumulation curve probe.")
     ap.add_argument("--setup", type=int, metavar="N", help="inject tier N (real cases + pattern, support_count=N)")
+    ap.add_argument("--baseline", action="store_true",
+                    help="no-memory control: clear probe pattern + write the same case prompt (retrieval comes up empty)")
     ap.add_argument("--record", nargs=2, metavar=("N", "MATERIALITY"),
                     help="record the calibrated_materiality read for tier N")
     ap.add_argument("--plot", action="store_true", help="print the ASCII convergence curve")
     ap.add_argument("--teardown", action="store_true", help="delete all e2_accum_probe docs")
     args = ap.parse_args()
 
-    if not (args.setup or args.record or args.plot or args.teardown):
-        ap.error("choose one of --setup N / --record N V / --plot / --teardown")
+    if not (args.setup or args.baseline or args.record or args.plot or args.teardown):
+        ap.error("choose one of --setup N / --baseline / --record N V / --plot / --teardown")
 
     if args.plot:
         return _plot()
@@ -396,6 +415,8 @@ def main() -> int:
         dp, de = _cleanup(client)
         print(f"teardown: deleted {dp} pattern(s) + {de} drift_event(s) tagged {PROBE_TAG}.")
         return 0
+    if args.baseline:
+        return _baseline(client)
     return _setup(client, args.setup)
 
 

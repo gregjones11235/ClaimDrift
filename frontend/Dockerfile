@@ -17,6 +17,10 @@ COPY . .
 
 ARG NEXT_PUBLIC_BFF_URL
 ENV NEXT_PUBLIC_BFF_URL=${NEXT_PUBLIC_BFF_URL}
+# Separate backend for the A/B Playground (apps/playground), also inlined at
+# build time because the page fetches its SSE from the browser.
+ARG NEXT_PUBLIC_PLAYGROUND_URL
+ENV NEXT_PUBLIC_PLAYGROUND_URL=${NEXT_PUBLIC_PLAYGROUND_URL}
 RUN npm run build
 
 FROM node:22-slim AS runner
