@@ -128,14 +128,22 @@ class ElasticDataSource:
         self.client = ElasticsearchHttpClient()
 
     def visible_query(self, query: dict) -> dict:
-        if INCLUDE_DEMO_RECORDS:
-            return query
-        return {
-            "bool": {
-                "must": [query],
-                "must_not": [{"term": {"record_source": "demo_seed"}}],
-            }
-        }
+        # Two visibility filters are layered here:
+        #   1. demo_seed records — hidden unless BFF_INCLUDE_DEMO is set.
+        #   2. suspected false positives — ALWAYS hidden (independent of the
+        #      demo toggle). These are drift_events whose published side had a
+        #      title-placeholder abstract (Crossref returned no abstract, so
+        #      ingestion fell back to the title), making drift_analyzer flag
+        #      every claim as "disappeared" and inflate materiality. 105 such
+        #      events were tagged 2026-06-09; see records.py and the
+        #      published-abstract-missing bug. `suspected_false_positive` is a
+        #      boolean field only on drift_events; a must_not term on indices
+        #      that lack it (affected_citations/notifications/patterns/claims)
+        #      simply matches nothing, so this filter is a no-op there.
+        must_not: list[dict] = [{"term": {"suspected_false_positive": True}}]
+        if not INCLUDE_DEMO_RECORDS:
+            must_not.append({"term": {"record_source": "demo_seed"}})
+        return {"bool": {"must": [query], "must_not": must_not}}
 
     def search(self, index_name: str, body: dict) -> list[dict]:
         return es_hits(self.client.request("POST", f"/{index_name}/_search", body))

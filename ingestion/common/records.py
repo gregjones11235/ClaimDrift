@@ -109,7 +109,18 @@ def published_record_from_crossref(
     ingested_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     title = clean_text(row.get("title"))
-    abstract = clean_text(row.get("abstract")) or title
+    abstract = clean_text(row.get("abstract"))
+    # Do NOT fall back to the title when no abstract is available. Crossref
+    # returns no abstract for many publishers (Nature/Elsevier/Cell/ACS behind
+    # auth walls), and silently using the title as the abstract poisons drift
+    # analysis: drift_analyzer compares the real preprint abstract against a
+    # title-only published side and flags every claim as "disappeared",
+    # inflating materiality (877 published rows / 105 drift_events were affected
+    # this way; see the published-abstract-missing bug). Leave abstract None and
+    # mark abstract_missing so the dispatcher/drift step can skip the pair (a
+    # missing published abstract = no honest comparison) until a real published
+    # abstract is backfilled from another source (Europe PMC / OpenAlex / S2).
+    abstract_missing = abstract is None
     return {
         "doi": normalize_doi(row.get("doi")),
         "source": source,
@@ -118,6 +129,7 @@ def published_record_from_crossref(
         "published_doi": normalize_doi(row.get("doi")),
         "title": title,
         "abstract": abstract,
+        "abstract_missing": abstract_missing,
         "conclusion": None,
         "authors": normalize_authors(row.get("authors")),
         "posted_date": parse_date(date_parts_to_iso(row.get("published_date"))),
