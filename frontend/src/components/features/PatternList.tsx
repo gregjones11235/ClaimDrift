@@ -17,9 +17,16 @@ const TYPE_COLORS: Record<string, string> = {
 export function PatternList({ patterns }: { patterns: DriftPattern[] }) {
   const allTags = Array.from(new Set(patterns.flatMap((p) => p.domain_tags))).sort();
   const [activeTag, setActiveTag] = useState("All");
+  const [tagsOpen, setTagsOpen] = useState(false);
 
   const maxSupport = Math.max(...patterns.map((p) => p.support_count), 1);
   const filtered = activeTag === "All" ? patterns : patterns.filter((p) => p.domain_tags.includes(activeTag));
+
+  const tagOptions = ["All", ...allTags];
+  const selectTag = (tag: string) => {
+    setActiveTag(tag);
+    setTagsOpen(false);
+  };
 
   if (patterns.length === 0) {
     return (
@@ -31,14 +38,54 @@ export function PatternList({ patterns }: { patterns: DriftPattern[] }) {
 
   return (
     <>
-      {/* Tag filter */}
-      <div className="cd-filter-row" style={{ marginBottom: 2 }}>
-        {["All", ...allTags].map((tag) => (
-          <button key={tag} className="cd-filter-tab" data-active={activeTag === tag ? "true" : "false"}
-            onClick={() => setActiveTag(tag)}>
-            {tag}
-          </button>
-        ))}
+      {/* Tag filter — collapsible dropdown (domain tags can be dozens-wide) */}
+      <div style={{ position: "relative", marginBottom: 2, background: "var(--bk2)", borderBottom: "1px solid var(--gr3)" }}>
+        <button
+          onClick={() => setTagsOpen((v) => !v)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+            width: "100%", padding: "14px 20px", border: "none", cursor: "pointer",
+            fontFamily: "var(--mono)", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase",
+            color: activeTag === "All" ? "var(--gr)" : "var(--y)",
+            background: activeTag === "All" ? "var(--bk2)" : "rgba(245,197,24,0.08)",
+          }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: "var(--gr2)", textTransform: "uppercase", letterSpacing: "0.1em" }}>filter:</span>
+            <span>{activeTag}</span>
+            {activeTag !== "All" && <span className="specimen" style={{ color: "var(--gr2)" }}>({filtered.length})</span>}
+          </span>
+          {/* chevron: down when open, right when closed */}
+          <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+            style={{ transform: tagsOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", opacity: 0.7 }}>
+            <path d="M3 1.5 6.5 5 3 8.5" />
+          </svg>
+        </button>
+
+        {tagsOpen && (
+          <div style={{
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30,
+            background: "var(--bk2)", border: "1px solid var(--gr3)", borderTop: "none",
+            maxHeight: 320, overflowY: "auto",
+            display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 1,
+            padding: 1,
+          }}>
+            {tagOptions.map((tag) => (
+              <button key={tag} onClick={() => selectTag(tag)}
+                style={{
+                  padding: "9px 14px", border: "none", cursor: "pointer", textAlign: "left",
+                  fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.05em", textTransform: "uppercase",
+                  color: activeTag === tag ? "var(--y)" : "var(--gr)",
+                  background: activeTag === tag ? "rgba(245,197,24,0.08)" : "var(--bk3)",
+                  transition: "color 0.12s",
+                }}
+                onMouseEnter={(e) => { if (activeTag !== tag) (e.currentTarget as HTMLElement).style.color = "var(--wh)"; }}
+                onMouseLeave={(e) => { if (activeTag !== tag) (e.currentTarget as HTMLElement).style.color = "var(--gr)"; }}>
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Grid */}

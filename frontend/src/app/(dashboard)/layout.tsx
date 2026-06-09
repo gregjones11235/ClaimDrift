@@ -11,7 +11,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh", position: "relative", zIndex: 2, overflow: "hidden" }}>
         <Topbar />
-        <main style={{ flex: 1, padding: "22px 24px", overflowY: "auto" }}>
+        <main style={{ flex: 1, padding: "22px 24px", overflowY: "auto", overflowX: "hidden" }}>
           {children}
         </main>
       </div>
