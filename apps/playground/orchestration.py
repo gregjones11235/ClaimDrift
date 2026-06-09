@@ -141,24 +141,116 @@ def _which_recent_429(within_s: int = 180) -> list[str]:
             hit.append(name)
     return hit
 
-# Canonical HCQ demo envelope — the SAME preprint+published pair that validated
-# the supervisor smoke test (verbatim from
-# agents/supervisor_agent/scripts/capture_stream.py:41-56). Real DOIs, real
-# drift (45% -> 12% viral-load reduction, with added hedging).
+# Canonical demo envelope — a REAL preprint→published pair with a REAL,
+# verified drift. Replaces the prior synthetic HCQ stub (fabricated DOIs
+# 10.1101/2024.01.15.123456 → 10.1016/j.cell.2024.05.001), which OpenAlex 404'd,
+# so citation_finder always found N=0 citing works and the notifier node never
+# lit up. This pair is real end-to-end:
+#
+#   preprint  10.1101/2023.01.07.523095  (bioRxiv, "The NO Answer for ASD")
+#   published 10.1002/advs.202205783     (Advanced Science)
+#
+# WHY THIS PAIR (all verified 2026-06-08):
+#   - Both DOIs resolve in OpenAlex; the PREPRINT has 13 citing works, ALL with
+#     DOIs — so citation_finder returns 13 affected_citations and the notifier
+#     fans out 13 lanes and sends 13 real alert emails (the whole point of
+#     swapping the case). Verified via api.openalex.org cites: filter.
+#   - The drift is REAL, not a published-abstract-missing false positive: the
+#     production `preprints` index holds a genuine 1380-char published abstract
+#     for this pair (NOT a title placeholder), and the production drift_event
+#     scored materiality 0.75 with substantive claim_diffs — a strong causal
+#     claim ("treated WT mice with an NO donor, which led to an autism-like
+#     phenotype") was REMOVED in publication, and "NO plays a *pathological*
+#     role" was softened to "*significant* role". See the drift_events record
+#     and the verbatim abstracts below (both pulled from production ES /
+#     bioRxiv, unedited).
+#
+# The abstracts below are the REAL, full published/preprint abstracts (verbatim
+# from the production `preprints` index, themselves sourced from bioRxiv and the
+# Advanced Science article), so drift_analyzer sees exactly what production saw
+# and reproduces the ~0.75 outcome honestly.
 ENVELOPE: dict[str, Any] = {
     "preprint": {
-        "doi": "10.1101/2024.01.15.123456",
-        "version": "v3",
-        "title": "Hydroxychloroquine and viral load dynamics in early COVID-19",
-        "abstract": "Hydroxychloroquine reduced viral load by 45% in early COVID-19 patients.",
-        "conclusion": "The treatment reduced viral load substantially in the studied cohort.",
+        "doi": "10.1101/2023.01.07.523095",
+        "version": "v1",
+        "title": "The NO Answer for Autism Spectrum Disorder",
+        "abstract": (
+            "Autism spectrum disorders (ASDs) include a range of developmental "
+            "disorders that share a core of neurobehavioral deficits manifested by "
+            "abnormalities in social interactions, deficits in communication, "
+            "restricted interests, and repetitive behaviors. Several reports showed "
+            "that mutations in different high-risk ASD genes, including SHANK3 and "
+            "CNTNAP2, lead to ASD. However, to date, the underlying molecular "
+            "mechanisms have not been deciphered, and no effective pharmacological "
+            "treatment has been established for ASD. Recently, we reported a dramatic "
+            "increase of nitric oxide (NO) in ASD mouse models. NO is a "
+            "multifunctional neurotransmitter that plays a key role in different "
+            "neurological disorders. However, its role in ASD has not yet been "
+            "investigated. To reveal the novel molecular, cellular, and behavioral "
+            "role of NO in ASD, we conducted multidisciplinary experiments using "
+            "cellular and mouse models as well as clinical samples. First, we treated "
+            "WT mice with an NO donor, which led to an autism-like phenotype. Next, we "
+            "measured and found high levels of nitrosative stress biomarkers in both "
+            "the Shank3 and Cntnap2 ASD mouse models. Treating both mouse models with "
+            "a selective neuronal NO synthase (nNOS) inhibitor led to a reversal in "
+            "the molecular, synaptic, and behavioral ASD phenotypes. Using a primary "
+            "neuronal cell culture, we confirmed that NO is specifically involved in "
+            "neurons in ASD pathology. Next, using genetic manipulations in the human "
+            "SH-SY5Y cell line, we found that nNOS plays a key role in the pathology. "
+            "Finally, we examined human plasma samples from 19 low-functioning ASD "
+            "patients, compared to 20 typically developed volunteers, and found a "
+            "significant elevation in the NO levels in the ASD patients. Furthermore, "
+            "using the SNOTRAP technology, which is an innovative mass spectrometric "
+            "method to identify the SNO-proteome, we revealed that the complement "
+            "systems in the synaptic and neuronal development processes are enriched "
+            "in the ASD group. This work indicates, for the first time, that NO plays "
+            "a pathological role in ASD development. Our findings will open future and "
+            "novel directions to examine NO in diverse mutations on the autism "
+            "spectrum as well as other neurodevelopmental disorders and psychiatric "
+            "diseases. Most importantly, it suggests a novel treatment strategy for "
+            "ASD. Nitric oxide plays a key role in ASD pathology development and "
+            "progression, and targeting its production leads to a reversal in the "
+            "autistic phenotype."
+        ),
+        "conclusion": (
+            "This work indicates, for the first time, that NO plays a pathological "
+            "role in ASD development. Treating WT mice with an NO donor led to an "
+            "autism-like phenotype, and targeting NO production reversed the autistic "
+            "phenotype — suggesting a novel treatment strategy for ASD."
+        ),
     },
     "published": {
-        "doi": "10.1016/j.cell.2024.05.001",
+        "doi": "10.1002/advs.202205783",
         "version": "published",
-        "title": "Hydroxychloroquine and viral load dynamics in early COVID-19",
-        "abstract": "Hydroxychloroquine was associated with a 12% viral load reduction, with uncertainty across subgroups.",
-        "conclusion": "The treatment may reduce viral load modestly in selected patients.",
+        "title": "The NO Answer for Autism Spectrum Disorder",
+        "abstract": (
+            "Autism spectrum disorders (ASDs) include a wide range of "
+            "neurodevelopmental disorders. Several reports showed that mutations in "
+            "different high-risk ASD genes lead to ASD. However, the underlying "
+            "molecular mechanisms have not been deciphered. Recently, they reported a "
+            "dramatic increase in nitric oxide (NO) levels in ASD mouse models. Here, "
+            "they conducted a multidisciplinary study to investigate the role of NO in "
+            "ASD. High levels of nitrosative stress biomarkers are found in both the "
+            "Shank3 and Cntnap2 ASD mouse models. Pharmacological intervention with a "
+            "neuronal NO synthase (nNOS) inhibitor in both models led to a reversal of "
+            "the molecular, synaptic, and behavioral ASD-associated phenotypes. "
+            "Importantly, treating iPSC-derived cortical neurons from patients with "
+            "SHANK3 mutation with the nNOS inhibitor showed similar therapeutic "
+            "effects. Clinically, they found a significant increase in nitrosative "
+            "stress biomarkers in the plasma of low-functioning ASD patients. "
+            "Bioinformatics of the SNO-proteome revealed that the complement system is "
+            "enriched in ASD. This novel work reveals, for the first time, that NO "
+            "plays a significant role in ASD. Their important findings will open novel "
+            "directions to examine NO in diverse mutations on the spectrum as well as "
+            "in other neurodevelopmental disorders. Finally, it suggests a novel "
+            "strategy for effectively treating ASD."
+        ),
+        "conclusion": (
+            "This novel work reveals, for the first time, that NO plays a significant "
+            "role in ASD. Pharmacological nNOS inhibition reversed ASD-associated "
+            "phenotypes in mouse models and in iPSC-derived patient neurons, "
+            "suggesting a novel strategy for effectively treating ASD."
+        ),
     },
 }
 
@@ -245,6 +337,37 @@ def _first_json_part(chunk: dict) -> dict | None:
 
 
 # --- stream translation: chunk -> node lighting -----------------------------
+
+def _friendly_node_error(node: str, raw: str) -> str:
+    """Turn a raw sub-agent error into a short, judge-friendly line.
+
+    The most jarring one on stage is a Gemini MALFORMED_FUNCTION_CALL: the model
+    occasionally emits its tool call as a block of Python (`import uuid ...
+    print(default_api.create_drift_pattern(...))`) instead of a structured
+    function call, and the whole script then surfaces as the error text — a wall
+    of code in a red box. We keep the run honest (still an error, node still goes
+    red) but replace the code dump with a one-line explanation. The memory write
+    is non-blocking (the drift_event + emails already succeeded), so this is a
+    degraded-but-not-fatal state. Any unrecognized error is passed through
+    verbatim so we never hide a real failure.
+    """
+    low = raw.lower()
+    looks_malformed = (
+        "malformed function call" in low
+        or "malformed_function_call" in low
+        or ("print(default_api" in low)
+        or ("import uuid" in low and "create_drift_pattern" in low)
+    )
+    if looks_malformed:
+        label = "memory write" if node == "memory_synthesizer" else node
+        return (
+            f"{label} skipped (non-blocking): the model emitted a malformed "
+            "tool call this run. The drift event and alerts already succeeded; "
+            "the pattern store can be updated by a later event."
+        )
+    # Trim absurdly long raw errors so the card stays readable.
+    return raw if len(raw) <= 280 else raw[:277] + "…"
+
 
 def _summarize_node(author: str, chunk: dict) -> dict[str, Any] | None:
     """Translate one raw supervisor chunk into a node-update payload, or None if
@@ -487,15 +610,35 @@ def _get_gmail_service() -> Any:
 
 def _send_sync(to: str, subject: str, body: str) -> str:
     """Blocking Gmail send. Returns the Gmail message id.
-    Mirrors apps/dispatcher/main.py:670-683."""
+    Mirrors apps/dispatcher/main.py:670-683.
+
+    The cached Gmail service wraps a single keep-alive httplib2 socket. When we
+    send several alerts back-to-back, Gmail's server can close that socket
+    between requests; reusing the dead connection then raises BrokenPipeError /
+    ConnectionError mid-send (every other alert showed `[Errno 32] Broken pipe`
+    and silently failed to deliver). On a connection-level error we drop the
+    cached service so the next attempt builds a fresh socket, and retry once."""
+    global _gmail_service
     msg = MIMEText(body)
     msg["To"] = to
     msg["Subject"] = subject
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
-    resp = _get_gmail_service().users().messages().send(
-        userId="me", body={"raw": raw},
-    ).execute()
-    return resp.get("id", "")
+
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            resp = _get_gmail_service().users().messages().send(
+                userId="me", body={"raw": raw},
+            ).execute()
+            return resp.get("id", "")
+        except (BrokenPipeError, ConnectionError, OSError) as exc:
+            # Stale/closed socket — discard the cached service so the retry
+            # rebuilds a fresh connection, then try once more.
+            last_exc = exc
+            log.warning("Gmail send hit a connection error (attempt %d); "
+                        "rebuilding service and retrying: %s", attempt + 1, exc)
+            _gmail_service = None
+    raise last_exc  # type: ignore[misc]
 
 
 # --- notifier output extraction (mirrors dispatcher.extract_notifier_outputs) -
@@ -631,6 +774,19 @@ async def orchestrate(email: str) -> AsyncIterator[str]:
     # §3.2.2 drift_summary. Root-caused / hardened 2026-06-08.
     MAX_ATTEMPTS = 3          # 1 initial + 2 retries
     RETRY_BACKOFF_S = 15      # minute-scale waits for shared-quota recovery
+    # Transient Agent-Engine stream failures: the gRPC stream is killed mid-run
+    # (server-side RST_STREAM → InternalServerError "Stream removed", or a 503
+    # ServiceUnavailable / RPC abort). These are NOT our logic errors and NOT a
+    # 429 — they surface as an exception OUT of `async_stream_query`, so without
+    # catching them the whole run dies after claim_extractor with only a
+    # teardown.warning. Treat them like an empty attempt: retry with backoff.
+    from google.api_core import exceptions as _gapi_exc  # local: keep top light
+    _TRANSIENT_STREAM_ERRORS = (
+        _gapi_exc.InternalServerError,   # 500, incl. RST_STREAM "Stream removed"
+        _gapi_exc.ServiceUnavailable,    # 503
+        _gapi_exc.Aborted,               # RPC aborted mid-stream
+        _gapi_exc.DeadlineExceeded,      # stream stalled past deadline
+    )
     email_skipped = False
     try:
         for attempt in range(MAX_ATTEMPTS):
@@ -642,58 +798,71 @@ async def orchestrate(email: str) -> AsyncIterator[str]:
             captured_event_id = None
             captured_pattern = None
             drift_summary = None
+            stream_error: Exception | None = None
 
-            async for chunk in engine.async_stream_query(message=message, user_id="playground::orchestration"):
-                all_events.append(chunk)
-                author = chunk.get("author") or ""
+            try:
+                async for chunk in engine.async_stream_query(message=message, user_id="playground::orchestration"):
+                    all_events.append(chunk)
+                    author = chunk.get("author") or ""
 
-                # capture write ids regardless of which node they ride on
-                ev_id = _extract_drift_event_id(chunk)
-                if ev_id:
-                    captured_event_id = ev_id
-                    parsed = _first_json_part(chunk)
-                    if parsed:
-                        drift_summary = parsed.get("drift_summary") or drift_summary
-                    yield _sse("drift.minted", {"event_id": ev_id, "drift_summary": drift_summary})
+                    # capture write ids regardless of which node they ride on
+                    ev_id = _extract_drift_event_id(chunk)
+                    if ev_id:
+                        captured_event_id = ev_id
+                        parsed = _first_json_part(chunk)
+                        if parsed:
+                            drift_summary = parsed.get("drift_summary") or drift_summary
+                        yield _sse("drift.minted", {"event_id": ev_id, "drift_summary": drift_summary})
 
-                pw = _extract_pattern_write(chunk)
-                if pw:
-                    # merge across the call chunk and the response chunk
-                    captured_pattern = {**(captured_pattern or {}), **pw}
+                    pw = _extract_pattern_write(chunk)
+                    if pw:
+                        # merge across the call chunk and the response chunk
+                        captured_pattern = {**(captured_pattern or {}), **pw}
 
-                # error events
-                if chunk.get("error_code") or chunk.get("error_message"):
-                    node = author if author in _NODE_IDS else "supervisor"
-                    yield _sse("node.error", {
-                        "node": node, "lane": _lane(author, chunk),
-                        "message": str(chunk.get("error_message") or chunk.get("error_code")),
-                    })
-                    continue
+                    # error events
+                    if chunk.get("error_code") or chunk.get("error_message"):
+                        node = author if author in _NODE_IDS else "supervisor"
+                        raw_msg = str(chunk.get("error_message") or chunk.get("error_code"))
+                        yield _sse("node.error", {
+                            "node": node, "lane": _lane(author, chunk),
+                            "message": _friendly_node_error(node, raw_msg),
+                        })
+                        continue
 
-                if author not in _NODE_IDS:
-                    continue  # supervisor_agent / unknown — already handled above
+                    if author not in _NODE_IDS:
+                        continue  # supervisor_agent / unknown — already handled above
 
-                lane = _lane(author, chunk)
-                if author not in seen_authors or (lane is not None and lane > 0):
-                    seen_authors.add(author)
-                    yield _sse("node.started", {
-                        "node": author, "lane": lane,
-                        "label": next((p["label"] for p in PIPELINE if p["id"] == author), author),
-                    })
+                    lane = _lane(author, chunk)
+                    if author not in seen_authors or (lane is not None and lane > 0):
+                        seen_authors.add(author)
+                        yield _sse("node.started", {
+                            "node": author, "lane": lane,
+                            "label": next((p["label"] for p in PIPELINE if p["id"] == author), author),
+                        })
 
-                upd = _summarize_node(author, chunk)
-                if upd is None:
-                    continue
-                kind = upd.pop("kind")
-                if kind == "active":
-                    yield _sse("node.active", {"node": author, "lane": lane, **upd})
-                elif kind == "output":
-                    yield _sse("node.output", {"node": author, "lane": lane, **upd})
-                elif kind == "done":
-                    if author == "drift_analyzer":
-                        parsed = upd.get("output") or {}
-                        drift_summary = parsed.get("drift_summary") or drift_summary
-                    yield _sse("node.done", {"node": author, "lane": lane, **upd})
+                    upd = _summarize_node(author, chunk)
+                    if upd is None:
+                        continue
+                    kind = upd.pop("kind")
+                    if kind == "active":
+                        yield _sse("node.active", {"node": author, "lane": lane, **upd})
+                    elif kind == "output":
+                        yield _sse("node.output", {"node": author, "lane": lane, **upd})
+                    elif kind == "done":
+                        if author == "drift_analyzer":
+                            parsed = upd.get("output") or {}
+                            drift_summary = parsed.get("drift_summary") or drift_summary
+                        yield _sse("node.done", {"node": author, "lane": lane, **upd})
+
+            except _TRANSIENT_STREAM_ERRORS as exc:
+                # Agent-Engine stream killed mid-run (e.g. RST_STREAM →
+                # "Stream removed"). Not a logic error and not a 429; the
+                # run otherwise dies after claim_extractor with only a
+                # teardown.warning. Record it and fall through to the same
+                # retry/backoff path used for an empty (suspected-429) attempt.
+                stream_error = exc
+                log.warning("supervisor stream interrupted on attempt %d: %s",
+                            attempt + 1, exc)
 
             # --- did drift_analyzer produce anything this attempt? --------
             if captured_event_id is not None or drift_summary is not None:
@@ -712,42 +881,73 @@ async def orchestrate(email: str) -> AsyncIterator[str]:
             who = " + ".join(hits) if hits else "drift_analyzer"
 
             if attempt < MAX_ATTEMPTS - 1:
-                # retry: tell the judge we're retrying, reset the board, back off
-                yield _sse("pipeline.retrying", {
-                    "node": culprit,
-                    "attempt": attempt + 1,
-                    "max_attempts": MAX_ATTEMPTS,
-                    "confirmed": confirmed,
-                    "backoff_s": RETRY_BACKOFF_S,
-                    "detail": (
+                # retry: tell the judge we're retrying, reset the board, back off.
+                # Two failure modes share this path: (a) the stream was killed
+                # mid-run (stream_error set — RST_STREAM/503/abort), (b) the stream
+                # ended cleanly but drift_analyzer produced nothing (suspected 429).
+                if stream_error is not None:
+                    retry_node = "supervisor"
+                    retry_detail = (
+                        f"The supervisor stream was interrupted ({type(stream_error).__name__}: "
+                        f"{str(stream_error)[:120]}) — a transient Agent-Engine error, not a "
+                        f"pipeline fault. Retrying (attempt {attempt + 2}/{MAX_ATTEMPTS}) "
+                        f"after a {RETRY_BACKOFF_S}s backoff…"
+                    )
+                else:
+                    retry_node = culprit
+                    retry_detail = (
                         f"{who} (gemini-2.5-pro) returned no drift report — "
                         + ("429 RESOURCE_EXHAUSTED confirmed in engine logs"
                            if confirmed else "suspected Vertex shared-quota 429")
                         + f". Retrying the pipeline (attempt {attempt + 2}/{MAX_ATTEMPTS}) "
                         f"after a {RETRY_BACKOFF_S}s backoff for shared-quota recovery…"
-                    ),
+                    )
+                yield _sse("pipeline.retrying", {
+                    "node": retry_node,
+                    "attempt": attempt + 1,
+                    "max_attempts": MAX_ATTEMPTS,
+                    "confirmed": confirmed,
+                    "backoff_s": RETRY_BACKOFF_S,
+                    "detail": retry_detail,
                 })
                 yield _sse("pipeline.reset", {"detail": "clearing pipeline for retry"})
                 await asyncio.sleep(RETRY_BACKOFF_S)
                 continue
 
-            # retries exhausted → quota_error, and DO NOT send a fallback email
+            # retries exhausted → surface the failure, and DO NOT send a fallback
+            # email. Distinguish a persistent stream interruption from a 429 so the
+            # judge sees the true cause (both reuse the quota_error banner).
             email_skipped = True
-            yield _sse("pipeline.quota_error", {
-                "node": culprit,
-                "confirmed": confirmed,
-                "attempts": MAX_ATTEMPTS,
-                "detail": (
-                    f"{who} (gemini-2.5-pro) hit Vertex Dynamic Shared "
-                    "Quota (429 RESOURCE_EXHAUSTED) — "
-                    + ("CONFIRMED in engine logs" if confirmed
-                       else "suspected (empty model stream)")
-                    + f". Retried {MAX_ATTEMPTS - 1}× with backoff and still no "
-                    "capacity. The pipeline cannot continue without the drift "
-                    "report, so no alert email was sent. Capacity is shared "
-                    "region-wide and fluctuates per minute; please retry shortly."
-                ),
-            })
+            if stream_error is not None:
+                yield _sse("pipeline.quota_error", {
+                    "node": "supervisor",
+                    "confirmed": False,
+                    "attempts": MAX_ATTEMPTS,
+                    "detail": (
+                        f"The supervisor stream kept getting interrupted "
+                        f"({type(stream_error).__name__}: {str(stream_error)[:120]}) — a "
+                        f"transient Agent-Engine error on Vertex. Retried {MAX_ATTEMPTS - 1}× "
+                        "and the stream was cut each time, so the pipeline could not finish "
+                        "and no alert email was sent. This usually clears on its own; please "
+                        "retry shortly."
+                    ),
+                })
+            else:
+                yield _sse("pipeline.quota_error", {
+                    "node": culprit,
+                    "confirmed": confirmed,
+                    "attempts": MAX_ATTEMPTS,
+                    "detail": (
+                        f"{who} (gemini-2.5-pro) hit Vertex Dynamic Shared "
+                        "Quota (429 RESOURCE_EXHAUSTED) — "
+                        + ("CONFIRMED in engine logs" if confirmed
+                           else "suspected (empty model stream)")
+                        + f". Retried {MAX_ATTEMPTS - 1}× with backoff and still no "
+                        "capacity. The pipeline cannot continue without the drift "
+                        "report, so no alert email was sent. Capacity is shared "
+                        "region-wide and fluctuates per minute; please retry shortly."
+                    ),
+                })
 
         # --- email: send the judge their drift alert ---------------------
         # Only when drift_analyzer actually produced a report. On quota failure

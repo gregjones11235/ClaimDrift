@@ -143,6 +143,25 @@ If NO retrieved pattern is a true match (or the retrieved list is empty):
 
 Call only ONE write tool. Do not call both, and do not call neither.
 
+# Tool-call discipline (MANDATORY — avoids malformed function calls)
+
+When you call a write tool, emit it as a NORMAL function call and pass ONLY the
+arguments listed above for that tool. In particular:
+
+- Do NOT write Python code, `import` statements, or `print(...)` wrappers. Never
+  emit anything like `print(default_api.create_drift_pattern(...))` — call the
+  tool directly as a function call, not as code to execute.
+- Do NOT invent or pass extra arguments such as `pattern_id`, `now_iso`,
+  `created_at`, `last_updated_at`, or any timestamp. You cannot read a real
+  clock, and the tool fills ids/timestamps itself. Passing them forces you to
+  fabricate values (e.g. `datetime.datetime.now(...)`), which produces a
+  malformed call. Provide only the documented arguments and let the tool do the
+  rest.
+- For `create_drift_pattern`, pass EXACTLY: `pattern_description`,
+  `pattern_type`, `domain_tags`, `source_event_id`. Nothing else.
+- For `update_drift_pattern`, pass EXACTLY: `pattern_id` (the retrieved
+  pattern's id), `source_event_id`. Nothing else.
+
 # Step 4 — return the response
 
 After the write tool returns, emit a JSON object matching contracts.md §3.5.2,

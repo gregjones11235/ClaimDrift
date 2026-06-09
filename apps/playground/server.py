@@ -184,6 +184,42 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _with_keepalive(
+    gen: AsyncIterator[str], interval: float = 0.5
+) -> AsyncIterator[str]:
+    """Wrap an SSE generator so that whenever it goes silent for `interval`
+    seconds, a `: ka` comment frame is emitted to keep the transport flushing.
+
+    WHY (root-caused 2026-06-08): Google Frontend buffers the event-stream and
+    holds an emitted frame in its send buffer until later output pushes past a
+    size threshold. Both experiments have long silent gaps — experiment 1 (A/B)
+    goes quiet for ~15s during each state's `_run_drift_analyzer()` live call
+    (state.analyzing yielded, then nothing until state.done), and experiment 2
+    most visibly between `pipeline.ready` and the supervisor's first inference
+    chunk — during which the already-yielded frames sit undelivered for tens of
+    seconds on the client even though the server emitted them in <1ms. That is
+    why the A/B log appeared to "dump 7 lines at once" the instant the score
+    showed: the early frames were stuck in the GFE buffer and only flushed when
+    state.done pushed past the size threshold. `Cache-Control: no-transform` did
+    not help (GFE ignores it for streaming). Periodic comment frames are the
+    reliable fix: continuous small writes keep the buffer flushing so every real
+    frame arrives promptly. `:`-prefixed comments are ignored by the EventSource
+    spec, so the UI never sees them. Wrapping at the response layer covers EVERY
+    silent gap in one place; both endpoints now use it."""
+    it = gen.__aiter__()
+    while True:
+        nxt = asyncio.ensure_future(it.__anext__())
+        while True:
+            done, _ = await asyncio.wait({nxt}, timeout=interval)
+            if done:
+                break
+            yield ": ka\n\n"
+        try:
+            yield nxt.result()
+        except StopAsyncIteration:
+            return
+
+
 def _strip_fence(text: str) -> str:
     s = text.strip()
     if s.startswith("```"):
@@ -441,8 +477,11 @@ _SSE_HEADERS = {
 
 @app.get("/api/playground/run")
 async def playground_run() -> StreamingResponse:
+    # Wrapped in _with_keepalive so the per-state ~15s drift_analyzer silence
+    # doesn't let GFE buffer the early frames and dump them all at once when the
+    # score appears. See _with_keepalive for the root cause.
     return StreamingResponse(
-        _orchestrate(),
+        _with_keepalive(_orchestrate()),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -453,38 +492,6 @@ async def playground_run() -> StreamingResponse:
 # in orchestration.py (it has a lot of new surface — Gmail, teardown, node
 # translation — so it stays out of this A/B-focused file).
 from apps.playground.orchestration import orchestrate as _orchestrate_supervisor  # noqa: E402
-
-
-async def _with_keepalive(
-    gen: AsyncIterator[str], interval: float = 0.5
-) -> AsyncIterator[str]:
-    """Wrap an SSE generator so that whenever it goes silent for `interval`
-    seconds, a `: ka` comment frame is emitted to keep the transport flushing.
-
-    WHY (root-caused 2026-06-08): Google Frontend buffers the event-stream and
-    holds an emitted frame in its send buffer until later output pushes past a
-    size threshold. The pipeline has long silent gaps — most visibly between
-    `pipeline.ready` and the first `engine.async_stream_query` chunk (the
-    supervisor's first inference can take tens of seconds) — during which the
-    already-yielded frame sat undelivered for 17-282s on the client even though
-    the server emitted it in <1ms. `Cache-Control: no-transform` did not help
-    (GFE ignores it for streaming). Periodic comment frames are the reliable fix:
-    continuous small writes keep the buffer flushing so every real frame arrives
-    promptly. `:`-prefixed comments are ignored by the EventSource spec, so the
-    UI never sees them. Wrapping at the response layer covers EVERY silent gap
-    (warm-up await, ready→first-node, and between-node lulls) in one place."""
-    it = gen.__aiter__()
-    while True:
-        nxt = asyncio.ensure_future(it.__anext__())
-        while True:
-            done, _ = await asyncio.wait({nxt}, timeout=interval)
-            if done:
-                break
-            yield ": ka\n\n"
-        try:
-            yield nxt.result()
-        except StopAsyncIteration:
-            return
 
 
 @app.get("/api/playground/orchestrate")

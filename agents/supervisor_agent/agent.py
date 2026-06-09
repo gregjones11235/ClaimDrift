@@ -355,7 +355,7 @@ class SupervisorAgent(BaseAgent):
         # --- Phase 4: notifier ×N in DYNAMIC PARALLEL --------------------
         # ParallelAgent.sub_agents is fixed at construction; for per-element
         # fan-out we build the envelope list dynamically and run the guarded
-        # notifier calls concurrently via asyncio.gather.
+        # notifier calls concurrently.
         affected_citations = citation_result.get("affected_citations", [])
         if affected_citations:
             notifier_envelopes = [
@@ -375,15 +375,32 @@ class SupervisorAgent(BaseAgent):
                 }
                 for c in affected_citations
             ]
-            # Per-citation degradation: a single recipient's notifier call
-            # failing (timeout / bad schema after retries) must NOT abort the
-            # others or the already-completed analysis. Guard each independently
-            # and skip the ones that exhaust retries; the rest still send.
-            notifier_results = await asyncio.gather(
-                *(self._guarded("notifier", env, user_id) for env in notifier_envelopes),
-                return_exceptions=True,
-            )
-            for env, r in zip(notifier_envelopes, notifier_results):
+
+            # STREAM the fan-out: previously this awaited asyncio.gather (which
+            # blocks until ALL notifiers finish) and only then yielded every
+            # buffered event at once — so the UI saw a long silent gap after
+            # citation_finder, then ~13 notifier lanes light up simultaneously.
+            # Instead, run all notifiers concurrently but yield each one's events
+            # AS IT COMPLETES (asyncio.as_completed), so the board fills in 1/N,
+            # 2/N, … live. Concurrency is identical to gather (all tasks start at
+            # once); only the collection timing changes.
+            #
+            # Per-citation degradation is preserved: each notifier runs inside
+            # its own coroutine that catches SubAgentError (and any unexpected
+            # error) and reports it as a per-citation skip event, so one
+            # recipient failing never aborts the others or the completed
+            # analysis — the same guarantee the old return_exceptions=True gave.
+            async def _run_notifier(env: dict) -> tuple[dict, GuardedResult | BaseException]:
+                try:
+                    return env, await self._guarded("notifier", env, user_id)
+                except BaseException as exc:  # noqa: BLE001 — mirror gather(return_exceptions=True)
+                    return env, exc
+
+            tasks = [
+                asyncio.ensure_future(_run_notifier(env)) for env in notifier_envelopes
+            ]
+            for fut in asyncio.as_completed(tasks):
+                env, r = await fut
                 if isinstance(r, GuardedResult):
                     for ev in r.events:
                         yield ev

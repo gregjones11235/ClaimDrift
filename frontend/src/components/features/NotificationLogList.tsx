@@ -61,7 +61,12 @@ function NotifCard({ notif }: { notif: NotificationLog }) {
             <div style={{ padding: "7px 12px", borderTop: "1px solid var(--gr3)", display: "flex", alignItems: "center", gap: 10, background: notif.status === "sent" ? "rgba(62,207,142,0.04)" : "transparent" }}>
               <div style={{ width: 5, height: 5, borderRadius: "50%", background: color }} />
               <span className="specimen" style={{ color }}>{notif.status === "sent" ? `Delivered · ${notif.sent_at}` : notif.status}</span>
-              {notif.error_message && <span className="specimen specimen-r">{notif.error_message}</span>}
+              {/* A delivered email is a success — drop any error_message that lingers
+                  from a transient send failure that was retried successfully (Gmail
+                  429 / BrokenPipe / SSL EOF). Only surface errors on a non-sent row. */}
+              {notif.status !== "sent" && notif.error_message && (
+                <span className="specimen specimen-r">{notif.error_message}</span>
+              )}
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@ import {
   StateView,
   RunMeta,
 } from "@/lib/playground";
+import { useRunGuard } from "@/lib/useRunGuard";
 
 // The three demo states, fixed order. Mirrors apps/playground/server.py STATES.
 const INITIAL_STATES: StateView[] = [
@@ -37,6 +38,13 @@ export default function PlaygroundPage() {
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [abort, setAbort] = useState<(() => void) | null>(null);
+
+  // Warn before navigating away mid-run — unmounting kills the live SSE stream
+  // and resets the three-state board. See useRunGuard.
+  useRunGuard(
+    running,
+    "The A/B comparison is still running. Leaving this page will stop it and reset the board. Leave anyway?",
+  );
 
   function patch(key: string, next: Partial<StateView>) {
     setStates((cur) => cur.map((s) => (s.key === key ? { ...s, ...next } : s)));
@@ -140,7 +148,7 @@ export default function PlaygroundPage() {
             maxWidth: 720,
           }}
         >
-          The same real, deliberately-ambiguous outcome-switch case is run through
+          The same real, ambiguous outcome switch case is run through
           the production <span style={{ color: "var(--y)" }}>drift_analyzer</span>{" "}
           three times — with no memory, then with a staged base rate of 5 and 20
           prior cases. The agent reads <code style={{ color: "var(--y)" }}>support_count</code>{" "}
@@ -277,10 +285,32 @@ export default function PlaygroundPage() {
         >
           {log.length === 0 ? (
             <span style={{ opacity: 0.5 }}>
-              No events yet — press “Run A/B comparison”.
+              {running ? (
+                <span className="cd-running-row">
+                  <span className="cd-spinner" />
+                  connecting to live drift_analyzer…
+                </span>
+              ) : (
+                "No events yet — press “Run A/B comparison”."
+              )}
             </span>
           ) : (
-            log.map((line, i) => <div key={i}>{line}</div>)
+            <>
+              {log.map((line, i) => (
+                <div key={i} className="cd-log-line">
+                  {line}
+                </div>
+              ))}
+              {/* While the run is live, keep a spinning "working" row pinned to
+                  the bottom so the ~15s gaps between frames read as in-progress
+                  rather than frozen. */}
+              {running && (
+                <div className="cd-running-row" style={{ marginTop: 4 }}>
+                  <span className="cd-spinner" />
+                  running…
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -348,7 +378,18 @@ function StateCard({ s }: { s: StateView }) {
           marginBottom: 6,
         }}
       >
-        {score != null ? score.toFixed(2) : active ? "···" : "—"}
+        {score != null ? (
+          score.toFixed(2)
+        ) : active ? (
+          // ~15s live drift_analyzer call — show a spinner so the judge sees the
+          // run is in flight, not stalled, while the score is computed.
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, fontSize: 20 }}>
+            <span className="cd-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+            <span style={{ color: "var(--y)", letterSpacing: "0.04em" }}>analyzing…</span>
+          </span>
+        ) : (
+          "—"
+        )}
       </div>
       <div className="specimen" style={{ marginBottom: 14 }}>
         calibrated materiality

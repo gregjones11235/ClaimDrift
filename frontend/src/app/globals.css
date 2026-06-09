@@ -223,6 +223,29 @@ body {
   50%       { box-shadow: 0 0 0 5px rgba(62,207,142,0); }
 }
 
+/* ── PLAYGROUND "running" affordances
+   Used by the two playground experiments so a judge sees motion during the
+   long (~15s) live drift_analyzer / supervisor-inference silences instead of a
+   frozen card + a log that dumps every line at once when the result lands. */
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+.cd-spinner {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border: 1.5px solid var(--gr3);
+  border-top-color: var(--y);
+  border-radius: 50%;
+  animation: cd-spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+@keyframes cd-ellipsis { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75%,100% { content: "..."; } }
+.cd-running-row {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--y);
+  animation: slide-in 0.3s ease both;
+}
+/* a single log line fading in as it streams (matches slide-in timeline feel) */
+.cd-log-line { animation: slide-in 0.25s ease both; }
+
 /* ── DIFF VIEWER */
 .cd-diff-cols {
   display: grid;

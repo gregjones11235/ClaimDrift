@@ -127,9 +127,7 @@ export default async function DriftDetailPage({ params }: { params: Promise<{ id
 
       {/* Action bar */}
       <div style={{ display: "flex", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--gr3)" }}>
-        <button className="cd-btn">↓ Export PDF</button>
-        <button className="cd-btn">✓ Mark reviewed</button>
-        <Link href={`/event/${id}/citations`} className="cd-btn cd-btn-blue" style={{ marginLeft: "auto" }}>
+        <Link href={`/event/${id}/citations`} className="cd-btn cd-btn-blue">
           Citations ({citationsResp.count}) →
         </Link>
         <Link href={`/event/${id}/notifications`} className="cd-btn cd-btn-green">

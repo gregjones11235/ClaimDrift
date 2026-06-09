@@ -10,6 +10,7 @@ import {
   EmailEvent,
   OrchestrationMeta,
 } from "@/lib/playground";
+import { useRunGuard } from "@/lib/useRunGuard";
 
 // Initial pipeline, fixed order. Mirrors apps/playground/orchestration.py PIPELINE.
 const INITIAL_NODES: NodeView[] = [
@@ -50,6 +51,25 @@ export default function OrchestrationPage() {
   const [abort, setAbort] = useState<(() => void) | null>(null);
 
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
+
+  // The notifier fans out one lane per affected citation, but lanes appear one
+  // at a time AS each notification is drafted — so a lane-only count makes the
+  // denominator climb with the numerator (1/1, 2/2, …). The true total is what
+  // citation_finder reported ("found N affected citation(s)"); parse N from its
+  // summary and use it as the fixed denominator for the notifier progress.
+  const expectedAlerts = useMemo(() => {
+    const cf = nodes.find((n) => n.id === "citation_finder");
+    const summary = cf?.lanes[0]?.summary ?? "";
+    const m = summary.match(/found\s+(\d+)\s+affected/i);
+    return m ? Number(m[1]) : 0;
+  }, [nodes]);
+
+  // The supervisor pipeline runs ~200s; warn before any navigation that would
+  // unmount this page and kill the live SSE run. See useRunGuard.
+  useRunGuard(
+    running,
+    "The 5-agent pipeline is still running (~200s). Leaving this page will stop it and you won't get the drift-alert email. Leave anyway?",
+  );
 
   function patchLane(id: NodeId, lane: number, next: Partial<NodeLane>) {
     setNodes((cur) =>
@@ -213,6 +233,58 @@ export default function OrchestrationPage() {
           citation discovery, the per-citation notifier fan-out, and the memory-loop write. Enter
           your email and you&rsquo;ll receive the actual drift-alert this pipeline sends.
         </p>
+
+        {/* What the case is — mirrors the A/B playground's "THE CASE" box so the
+            preprint/published DOIs aren't opaque and the judge sees this is a
+            real paper with a real, verified drift. */}
+        <div
+          style={{
+            marginTop: 14,
+            padding: "12px 14px",
+            border: "1px solid var(--gr3)",
+            background: "var(--bk2)",
+            maxWidth: 760,
+            fontSize: 12,
+            lineHeight: 1.7,
+            color: "var(--gr)",
+          }}
+        >
+          <div className="specimen specimen-y" style={{ marginBottom: 6 }}>
+            the case
+          </div>
+          <strong style={{ color: "var(--wh)", fontWeight: 600 }}>
+            &ldquo;The NO Answer for Autism Spectrum Disorder&rdquo;
+          </strong>{" "}
+          (bioRxiv 2023 → <em>Advanced Science</em>). Between the preprint and the
+          published version, a strong causal claim — that treating mice with a
+          nitric-oxide donor <em>led to an autism-like phenotype</em> — was removed,
+          and &ldquo;NO plays a <em>pathological</em> role in ASD&rdquo; was softened to a
+          &ldquo;<em>significant</em> role.&rdquo; The pipeline detects this drift and notifies the{" "}
+          <span style={{ color: "var(--y)" }}>real papers that cite the preprint</span>.
+          <div style={{ marginTop: 8, fontSize: 11 }}>
+            <a
+              href="https://doi.org/10.1101/2023.01.07.523095"
+              target="_blank"
+              rel="noopener"
+              style={{ color: "var(--bl)", textDecorationLine: "none" }}
+            >
+              10.1101/2023.01.07.523095
+            </a>{" "}
+            <span style={{ opacity: 0.7 }}>— the bioRxiv preprint (what was claimed)</span>
+            <br />
+            <a
+              href="https://doi.org/10.1002/advs.202205783"
+              target="_blank"
+              rel="noopener"
+              style={{ color: "var(--bl)", textDecorationLine: "none" }}
+            >
+              10.1002/advs.202205783
+            </a>{" "}
+            <span style={{ opacity: 0.7 }}>
+              — the published Advanced Science paper (what was delivered)
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Run control: email + button */}
@@ -340,7 +412,7 @@ export default function OrchestrationPage() {
       >
         {nodes.map((n, i) => (
           <div key={n.id} style={{ display: "flex", alignItems: "center" }}>
-            <NodeColumn node={n} />
+            <NodeColumn node={n} expectedTotal={expectedAlerts} />
             {i < nodes.length - 1 && <Connector />}
           </div>
         ))}
@@ -417,9 +489,33 @@ export default function OrchestrationPage() {
           }}
         >
           {log.length === 0 ? (
-            <span style={{ opacity: 0.5 }}>No events yet — enter your email and press “Run pipeline”.</span>
+            <span style={{ opacity: 0.5 }}>
+              {running ? (
+                <span className="cd-running-row">
+                  <span className="cd-spinner" />
+                  connecting to supervisor pipeline…
+                </span>
+              ) : (
+                "No events yet — enter your email and press “Run pipeline”."
+              )}
+            </span>
           ) : (
-            log.map((line, i) => <div key={i}>{line}</div>)
+            <>
+              {log.map((line, i) => (
+                <div key={i} className="cd-log-line">
+                  {line}
+                </div>
+              ))}
+              {/* Keep a spinning "working" row at the bottom during the long
+                  warm-up / first-inference / between-node silences so the live
+                  log reads as in-progress instead of dumping a burst at the end. */}
+              {running && (
+                <div className="cd-running-row" style={{ marginTop: 4 }}>
+                  <span className="cd-spinner" />
+                  {status ?? "running…"}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -435,7 +531,7 @@ function upsertEmail(list: EmailEvent[], subject: string, next: EmailEvent): Ema
   return copy;
 }
 
-function NodeColumn({ node }: { node: NodeView }) {
+function NodeColumn({ node, expectedTotal }: { node: NodeView; expectedTotal?: number }) {
   const laneKeys = Object.keys(node.lanes)
     .map(Number)
     .sort((a, b) => a - b);
@@ -444,9 +540,110 @@ function NodeColumn({ node }: { node: NodeView }) {
       <div className="specimen specimen-y" style={{ fontSize: 9.5, letterSpacing: "0.1em", marginBottom: 2 }}>
         {node.label}
       </div>
-      {laneKeys.map((k) => (
-        <LaneCard key={k} lane={node.lanes[k]} />
-      ))}
+      {/* notifier fans out one lane per affected citation (up to ~13). Rendering
+          13 stacked cards is noisy; collapse them into ONE card that shows a
+          live N/total drafting progress instead. Other fan-out (claim_extractor
+          ×2) is small enough to keep as separate lanes. */}
+      {node.id === "notifier" ? (
+        <NotifierCard lanes={node.lanes} expectedTotal={expectedTotal} />
+      ) : (
+        laneKeys.map((k) => <LaneCard key={k} lane={node.lanes[k]} />)
+      )}
+    </div>
+  );
+}
+
+// Collapsed notifier card: one box, live "drafting N/total" → "✓ sent total".
+// `expectedTotal` is the affected-citation count citation_finder reported; it's
+// the FIXED denominator so progress reads 1/13 → 13/13 instead of 1/1 → 13/13
+// (lanes appear one-per-draft, so a lane-only count moves the denominator too).
+function NotifierCard({
+  lanes,
+  expectedTotal,
+}: {
+  lanes: Record<number, NodeLane>;
+  expectedTotal?: number;
+}) {
+  const all = Object.values(lanes);
+  // Only count real notifier lanes — the seed lane 0 starts as {phase:"idle"}
+  // before any citation arrives; treat it as "not yet started" so we show idle
+  // (not 0/1) until the first notifier event lights a lane.
+  const started = all.filter((l) => l.phase !== "idle");
+  const done = started.filter((l) => l.phase === "done").length;
+  const errored = started.filter((l) => l.phase === "error").length;
+  const settled = done + errored;
+  // Denominator: prefer citation_finder's reported count; fall back to the
+  // number of lanes we've seen (covers a run where that summary is missing).
+  // Never let it drop below settled — a late/low count shouldn't show 13/12.
+  const total = Math.max(expectedTotal ?? 0, started.length, settled);
+  // The notifier itself has begun only once a real lane lights up — citation_finder
+  // reporting N must NOT flip this card to "running 0/N" before the fan-out starts.
+  const hasStarted = started.length > 0;
+  const allDone = hasStarted && settled >= total;
+
+  let phase: NodePhase = "idle";
+  if (errored > 0 && done === 0) phase = "error";
+  else if (allDone) phase = "done";
+  else if (hasStarted) phase = "active";
+
+  const color = phaseColor(phase);
+  const active = phase === "active";
+
+  let statusLabel: string;
+  let body: React.ReactNode;
+  if (!hasStarted) {
+    statusLabel = "idle";
+    body = "—";
+  } else if (allDone) {
+    statusLabel = "✓ done";
+    body = (
+      <>
+        drafted {done}/{total} alert{total === 1 ? "" : "s"}
+        {errored > 0 ? ` · ${errored} failed` : ""}
+      </>
+    );
+  } else {
+    statusLabel = "● running";
+    body = (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span className="cd-spinner" />
+        drafting {done}/{total} alerts…
+      </span>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        border: `1px solid ${color}`,
+        background: "var(--bk2)",
+        padding: "12px 12px 14px",
+        minHeight: 92,
+        transition: "border-color 0.3s",
+        boxShadow: active ? "0 0 0 1px var(--y)" : "none",
+      }}
+    >
+      <div className="corner-tl" />
+      <div className="corner-tr" />
+      <div className="corner-bl" />
+      <div className="corner-br" />
+      <div
+        style={{
+          fontFamily: "var(--mono)",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color,
+          marginBottom: 6,
+        }}
+      >
+        {statusLabel}
+      </div>
+      <div style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--gr)", wordBreak: "break-word" }}>
+        {body}
+      </div>
     </div>
   );
 }
