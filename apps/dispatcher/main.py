@@ -421,6 +421,26 @@ async def run_pipeline(req: DispatchRequest) -> None:
         drift_event["analyzed_at"] = now
         drift_event["detected_at"] = now
 
+        # Auto-tag suspected false positives AT WRITE TIME. If the published row
+        # had no real abstract (missing / blank / == title), drift_analyzer
+        # compared the preprint against a title-only side and almost certainly
+        # over-scored every claim as disappeared. Tagging here (rather than only
+        # via a one-off backfill) means new poisoned events are born hidden: the
+        # BFF's visible_query already filters suspected_false_positive=true, so
+        # they never surface on the dashboard / stats. The event is still
+        # persisted (not dropped) so a later published-abstract backfill can
+        # untag + recompute. See records.py and the published-abstract bug.
+        if published_abstract_is_placeholder(published):
+            drift_event["suspected_false_positive"] = True
+            drift_event["false_positive_reason"] = _FALSE_POSITIVE_REASON
+            drift_event["false_positive_tagged_at"] = now[:10]
+            log.warning(
+                "drift_event %s auto-tagged suspected_false_positive: published %s "
+                "has no real abstract (missing/blank/==title); materiality=%s is "
+                "unreliable and the event is hidden from the dashboard",
+                drift_event_id, req.published_doi, drift_event.get("materiality_score"),
+            )
+
         await index_doc("drift_events", drift_event_id, drift_event)
         log.info("wrote drift_events/_doc/%s", drift_event_id)
 
@@ -603,6 +623,39 @@ def get_supervisor() -> Any:
         vertexai.init(project=GCP_PROJECT, location=GCP_REGION)
         _supervisor = agent_engines.get(SUPERVISOR_REASONING_ENGINE_ID)
     return _supervisor
+
+
+# Reason string written onto an auto-tagged drift_event. Mirrors the one used
+# by the one-off 2026-06-09 backfill that tagged the original 105 events, so the
+# field reads consistently whether a row was tagged retroactively or at write
+# time.
+_FALSE_POSITIVE_REASON = (
+    "published_abstract_is_title_placeholder: the published side had no real "
+    "abstract (Crossref returned none, so ingestion left it missing or equal to "
+    "the title). drift_analyzer then compared the real preprint abstract against "
+    "a title-only/empty published side and flags every claim as disappeared, "
+    "inflating materiality. Auto-tagged at dispatch time as a suspected false "
+    "positive pending published-abstract backfill."
+)
+
+
+def published_abstract_is_placeholder(published: dict[str, Any]) -> bool:
+    """True when the published row has no usable abstract — the exact condition
+    that makes drift analysis a systematic false positive.
+
+    Three signatures, any one of which means "no real published abstract":
+      1. ingestion flagged abstract_missing=True (records.py, post-fix),
+      2. abstract is null/blank,
+      3. abstract == title (the legacy title-placeholder fallback that
+         records.py used to write; pre-fix rows still carry it).
+    """
+    if published.get("abstract_missing") is True:
+        return True
+    abstract = (published.get("abstract") or "").strip()
+    if not abstract:
+        return True
+    title = (published.get("title") or "").strip()
+    return bool(title) and abstract == title
 
 
 def build_envelope(preprint: dict[str, Any], published: dict[str, Any]) -> dict[str, Any]:

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  html,body{ width:1920px; height:1080px; overflow:hidden; }
+  .stage{ width:1920px; height:1080px; }
+
+  /* header */
+  .hdr{ position:absolute; top:42px; left:64px; z-index:5; }
+  .hdr .kicker{ font-family:var(--mono); font-size:13px; letter-spacing:0.3em; color:var(--y); text-transform:uppercase; }
+  .hdr h1{ font-family:var(--display); font-weight:800; font-size:54px; line-height:0.95; color:var(--wh); margin-top:8px; letter-spacing:-0.01em; }
+  .hdr h1 .d{ color:var(--rd); }
+  .hdr .sub{ font-family:var(--sans); font-weight:300; font-size:15px; color:var(--gr); margin-top:10px; max-width:760px; line-height:1.45; }
+
+  .logo{ position:absolute; top:46px; right:64px; z-index:5; text-align:right; }
+  .logo .lt{ font-family:var(--display); font-weight:800; font-size:26px; line-height:0.9; color:var(--y); }
+  .logo .ls{ font-family:var(--mono); font-size:10px; letter-spacing:0.25em; color:var(--grn); margin-top:8px; }
+  .logo .ls::before{ content:"\25CF "; color:var(--grn); }
+
+  /* swimlane labels */
+  .lane{ position:absolute; font-family:var(--mono); font-size:11px; letter-spacing:0.22em; text-transform:uppercase; color:var(--gr2); z-index:4; }
+
+  svg.wires{ position:absolute; inset:0; z-index:2; width:1920px; height:1080px; }
+
+  .node{ position:absolute; z-index:3; }
+
+  /* phase ribbon for the 5 agents */
+  .agentband{ position:absolute; z-index:2; border:1px dashed rgba(245,197,24,0.35); background:rgba(245,197,24,0.03); }
+  .agentband .blab{ position:absolute; top:-11px; left:18px; background:var(--bk); padding:0 8px; font-family:var(--mono); font-size:10px; letter-spacing:0.2em; color:var(--y); text-transform:uppercase; }
+
+  .badge{ position:absolute; font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; color:var(--bk); background:var(--y); padding:2px 6px; z-index:4; text-transform:uppercase; }
+  .edgelab{ font-family:var(--mono); font-size:10px; letter-spacing:0.1em; fill:var(--gr); text-transform:uppercase; }
+  .edgelab-y{ fill:var(--y); }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="scanlines"></div>
+<div class="stage">
+
+  <div class="hdr">
+    <div class="kicker">System Architecture / 01 — End-to-End Pipeline</div>
+    <h1>WHEN A CLAIM <span class="d">DRIFTS</span>, EVERYONE FINDS OUT.</h1>
+    <div class="sub">A Vertex AI multi-agent pipeline detects semantic drift between preprint and peer-reviewed manuscript, maps the blast radius across the citation graph, and notifies every affected researcher &mdash; with an Elastic-backed memory loop that gets sharper every run.</div>
+  </div>
+  <div class="logo">
+    <div class="lt">CLAIM<br>DRIFT</div>
+    <div class="ls">Monitoring Active</div>
+  </div>
+
+  <!-- swimlane labels -->
+  <div class="lane" style="top:236px; left:64px;">// Ingestion &amp; Trigger</div>
+  <div class="lane" style="top:236px; left:520px;">// Orchestration (Vertex AI Agent Engine)</div>
+  <div class="lane" style="top:236px; left:1430px;">// Persistence (Elastic)</div>
+  <div class="lane" style="top:858px; left:64px;">// Delivery &amp; Surface</div>
+
+  <!-- ===== WIRES (drawn first, under nodes) ===== -->
+  <svg class="wires" viewBox="0 0 1920 1080">
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#888882"/>
+      </marker>
+      <marker id="arrY" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#F5C518"/>
+      </marker>
+      <marker id="arrB" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#4A9EFF"/>
+      </marker>
+      <marker id="arrG" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#3ECF8E"/>
+      </marker>
+    </defs>
+
+    <!-- ingestion chain (left lane, vertical) -->
+    <path d="M204,330 L204,392" stroke="#888882" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+    <path d="M204,470 L204,532" stroke="#888882" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+    <path d="M204,610 L204,672" stroke="#888882" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+
+    <!-- dispatcher -> agent engine supervisor (left lane to center) -->
+    <path d="M348,710 L470,710 L470,300 L548,300" stroke="#F5C518" stroke-width="1.8" fill="none" marker-end="url(#arrY)"/>
+
+    <!-- supervisor -> phase1 extractors -->
+    <path d="M690,330 L690,392" stroke="#F5C518" stroke-width="1.6" fill="none" marker-end="url(#arrY)"/>
+    <path d="M880,330 L880,392" stroke="#F5C518" stroke-width="1.6" fill="none" marker-end="url(#arrY)"/>
+    <!-- extractors -> drift analyzer -->
+    <path d="M690,470 L690,506 L760,506 L760,540" stroke="#F5C518" stroke-width="1.6" fill="none" marker-end="url(#arrY)"/>
+    <path d="M880,470 L880,506 L800,506 L800,540" stroke="#F5C518" stroke-width="1.6" fill="none" marker-end="url(#arrY)"/>
+    <!-- drift analyzer -> citation finder -->
+    <path d="M780,618 L780,672" stroke="#F5C518" stroke-width="1.6" fill="none" marker-end="url(#arrY)"/>
+    <!-- citation finder -> notifier -->
+    <path d="M780,750 L780,892" stroke="#F5C518" stroke-width="1.6" fill="none" marker-end="url(#arrY)"/>
+
+    <!-- ES reads/writes (center <-> right) -->
+    <!-- extractor reads preprints -->
+    <path d="M1010,300 L1430,300" stroke="#4A9EFF" stroke-width="1.4" fill="none" marker-end="url(#arrB)" stroke-dasharray="5 4"/>
+    <!-- drift analyzer <-> drift_patterns (memory READ) -->
+    <path d="M1080,580 L1430,470" stroke="#4A9EFF" stroke-width="1.8" fill="none" marker-end="url(#arrB)"/>
+    <!-- writes from dispatcher to ES (claims/events/citations) -->
+    <path d="M1010,710 L1240,710 L1240,580 L1430,580" stroke="#4A9EFF" stroke-width="1.4" fill="none" marker-end="url(#arrB)" stroke-dasharray="5 4"/>
+
+    <!-- memory synthesizer write -> drift_patterns -->
+    <path d="M1300,470 L1430,440" stroke="#3ECF8E" stroke-width="1.8" fill="none" marker-end="url(#arrG)"/>
+    <!-- supervisor -> memory synthesizer (async) -->
+    <path d="M1010,250 L1120,250 L1120,392" stroke="#3ECF8E" stroke-width="1.6" fill="none" marker-end="url(#arrG)" stroke-dasharray="6 4"/>
+
+    <!-- notifier -> gmail -->
+    <path d="M900,930 L1014,930" stroke="#888882" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+    <!-- dispatcher -> BFF/SSE server -->
+    <path d="M204,750 L204,892" stroke="#E5383B" stroke-width="1.6" fill="none" marker-end="url(#arr)" stroke-dasharray="2 3"/>
+    <!-- SSE server -> frontend (long sweep across bottom) -->
+    <path d="M344,930 L430,930 L430,1000 L1354,1000 L1354,952" stroke="#E5383B" stroke-width="1.6" fill="none" marker-end="url(#arr)" stroke-dasharray="2 3"/>
+    <!-- email delivery -> frontend status -->
+    <path d="M1320,920 L1354,920" stroke="#888882" stroke-width="1.4" fill="none" marker-end="url(#arr)"/>
+
+    <!-- edge labels -->
+    <text class="edgelab" x="214" y="365">every 5 min</text>
+    <text class="edgelab edgelab-y" x="372" y="498">async_stream_query</text>
+    <text class="edgelab" x="380" y="412">parallel &times;2</text>
+    <text class="edgelab" x="700" y="830">fan-out &times;N</text>
+    <text class="edgelab" x="1150" y="540">ELSER + RRF read</text>
+    <text class="edgelab" x="1115" y="420">pattern write</text>
+    <text class="edgelab" x="120" y="880">SSE stream</text>
+    <text class="edgelab" x="930" y="922">send</text>
+  </svg>
+
+  <!-- ===== INGESTION LANE ===== -->
+  <div class="node n-ext" style="top:262px; left:64px; width:280px;">
+    <div class="tag">External Sources</div>
+    <div class="name">bioRxiv · medRxiv · Crossref</div>
+    <div class="desc">Hourly pullers feed normalized preprint + published metadata.</div>
+  </div>
+  <div class="node n-gcp" style="top:392px; left:64px; width:280px;">
+    <div class="tag">Cloud Run Jobs · Scheduler</div>
+    <div class="name">Ingestion Pullers</div>
+    <div class="desc">~10k preprints &middot; ~2.2k (preprint, published) pairs written to Elastic.</div>
+  </div>
+  <div class="node n-es" style="top:532px; left:64px; width:280px;">
+    <div class="tag">Elastic · Scheduled Workflow</div>
+    <div class="name">dispatch_new_pairs</div>
+    <div class="desc">Watermark cursor finds newly-published pairs, POSTs each to the dispatcher.</div>
+  </div>
+  <div class="node n-gcp" style="top:672px; left:64px; width:280px;">
+    <div class="tag">Cloud Run + Pub/Sub</div>
+    <div class="name">Dispatcher</div>
+    <div class="desc">Idempotent enqueue &rarr; async <span class="hl-w">/run</span> drives the pipeline &amp; persists every output.</div>
+  </div>
+
+  <!-- ===== AGENT BAND ===== -->
+  <div class="agentband" style="top:268px; left:512px; width:516px; height:520px;">
+    <div class="blab">5-Agent Reasoning Pipeline &mdash; Gemini 2.5</div>
+  </div>
+
+  <div class="node n-agent" style="top:262px; left:548px; width:460px;">
+    <div class="tag">Supervisor · ADK BaseAgent (non-LLM)</div>
+    <div class="name">Orchestrator</div>
+    <div class="desc">Drives sub-agent fan-out, validates schemas, mints event IDs, streams every step.</div>
+  </div>
+
+  <div class="node n-agent" style="top:392px; left:548px; width:218px;">
+    <div class="tag">gemini-2.5-flash</div>
+    <div class="name">Claim Extractor</div>
+    <div class="desc">Preprint version</div>
+  </div>
+  <div class="node n-agent" style="top:392px; left:790px; width:218px;">
+    <div class="tag">gemini-2.5-flash</div>
+    <div class="name">Claim Extractor</div>
+    <div class="desc">Published version</div>
+  </div>
+
+  <div class="node n-agent" style="top:540px; left:600px; width:360px;">
+    <div class="tag">gemini-2.5-pro · reads search_drift_patterns</div>
+    <div class="name">Drift Analyzer <span class="hl-y">&#9733;</span></div>
+    <div class="desc">Diffs claim sets, scores materiality, <span class="hl-b">calibrates severity against memory</span> base rates.</div>
+  </div>
+
+  <div class="node n-agent" style="top:672px; left:600px; width:360px;">
+    <div class="tag">gemini-2.5-flash · openalex_citing_works</div>
+    <div class="name">Citation Finder</div>
+    <div class="desc">Maps blast radius across citing papers; tiers them central / comparative / peripheral.</div>
+  </div>
+
+  <div class="node n-agent" style="top:892px; left:548px; width:352px;">
+    <div class="tag">gemini-2.5-flash · fan-out &times;N</div>
+    <div class="name">Notifier</div>
+    <div class="desc">Drafts one neutral, evidence-quoting email per affected author.</div>
+  </div>
+
+  <div class="node n-agent" style="top:392px; left:1052px; width:300px;">
+    <div class="tag">gemini-2.5-pro · async, non-blocking</div>
+    <div class="name">Memory Synthesizer <span class="hl-g">&#9733;</span></div>
+    <div class="desc">Distills each drift event into a reusable pattern &mdash; the <span class="hl-g">write side of the loop</span>.</div>
+  </div>
+
+  <!-- ===== ELASTIC PERSISTENCE LANE ===== -->
+  <div class="node n-es" style="top:262px; left:1430px; width:426px;">
+    <div class="tag">Index · semantic_text</div>
+    <div class="name">preprints · claims</div>
+    <div class="desc">Source corpus + sentence-level extracted claims (ELSER v2 embedded).</div>
+  </div>
+  <div class="node n-es" style="top:402px; left:1430px; width:426px; border-left-color:var(--grn);">
+    <div class="tag">Index · memory store</div>
+    <div class="name">drift_patterns <span class="hl-g">&#9733;</span></div>
+    <div class="desc">Reusable patterns w/ support_count. Read by Analyzer, written by Synthesizer &amp; Curator.</div>
+  </div>
+  <div class="node n-es" style="top:542px; left:1430px; width:426px;">
+    <div class="tag">Index</div>
+    <div class="name">drift_events · affected_citations</div>
+    <div class="desc">Drift reports + downstream blast-radius records.</div>
+  </div>
+  <div class="node n-es" style="top:660px; left:1430px; width:426px;">
+    <div class="tag">Index · SSE replay</div>
+    <div class="name">notification_log · agent_events</div>
+    <div class="desc">Email drafts &amp; delivery status + full agent event stream for the live timeline.</div>
+  </div>
+
+  <!-- ===== DELIVERY / SURFACE LANE ===== -->
+  <div class="node n-ext" style="top:892px; left:1020px; width:300px;">
+    <div class="tag">Gmail API · OAuth</div>
+    <div class="name">Email Delivery</div>
+    <div class="desc">Dispatcher sends drafted notifications; status written back to Elastic.</div>
+  </div>
+
+  <div class="node n-gcp" style="top:892px; left:64px; width:280px;">
+    <div class="tag">Cloud Run · BFF</div>
+    <div class="name">SSE Server</div>
+    <div class="desc">Tails agent_events &rarr; live timeline stream.</div>
+  </div>
+  <div class="node n-front" style="top:892px; left:1360px; width:496px;">
+    <div class="tag">Next.js · Vercel</div>
+    <div class="name">Frontend</div>
+    <div class="desc">Drift detail, blast-radius map, notifications, patterns library &amp; the real-time agent timeline (SSE).</div>
+  </div>
+
+  <!-- legend -->
+  <div style="position:absolute; bottom:30px; right:64px; z-index:5; display:flex; gap:22px; align-items:center;">
+    <span class="spec">Legend:</span>
+    <span class="spec spec-y">&#9632; Agent (Gemini)</span>
+    <span class="spec spec-b">&#9632; Elastic</span>
+    <span class="spec spec-g">&#9632; Memory Loop</span>
+    <span class="spec spec-r">&#9632; Surface</span>
+    <span class="spec">&#9632; External / GCP</span>
+  </div>
+
+</div>
+</body>
+</html>

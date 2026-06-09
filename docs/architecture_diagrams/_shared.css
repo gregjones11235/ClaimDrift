@@ -1,0 +1,85 @@
+/* ClaimDrift architecture diagrams — shared design tokens (mirrors landing page constants.ts) */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --y:  #F5C518;            /* yellow */
+  --yd: #C49D0A;            /* yellow dark */
+  --yb: rgba(245,197,24,0.08);
+  --bk: #0A0A0A;            /* black base */
+  --bk2:#111111;            /* panel */
+  --bk3:#1A1A1A;            /* panel 2 */
+  --wh: #F7F5EE;            /* white */
+  --wh2:#EDEBE3;
+  --gr: #888882;            /* gray body */
+  --gr2:#555550;
+  --gr3:#333330;            /* border */
+  --rd: #E5383B;            /* red */
+  --grn:#3ECF8E;            /* green */
+  --bl: #4A9EFF;            /* blue */
+  --mono:'Space Mono', monospace;
+  --display:'Syne', sans-serif;
+  --sans:'Space Grotesk', system-ui, sans-serif;
+  --grid-color: rgba(245,197,24,0.07);
+  --cross-color: rgba(245,197,24,0.15);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background:var(--bk);
+  color:var(--wh);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+  position:relative;
+}
+
+/* dotted + cross grid overlay, same recipe as landing page */
+.grid-bg {
+  position:absolute; inset:0; pointer-events:none; z-index:0;
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
+    linear-gradient(var(--cross-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--cross-color) 1px, transparent 1px),
+    radial-gradient(circle, rgba(245,197,24,0.22) 1px, transparent 1.5px);
+  background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px, 100px 100px;
+}
+/* faint CRT scanlines */
+.scanlines {
+  position:absolute; inset:0; pointer-events:none; z-index:1;
+  background:repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.04) 2px 4px);
+}
+
+.stage { position:relative; z-index:2; }
+
+/* monospace specimen label */
+.spec { font-family:var(--mono); font-size:11px; letter-spacing:0.22em; text-transform:uppercase; color:var(--gr); }
+.spec-y{ color:var(--y); } .spec-r{ color:var(--rd); } .spec-g{ color:var(--grn); } .spec-b{ color:var(--bl); }
+
+/* bracket-corner card frame */
+.card { position:relative; background:var(--bk2); border:1px solid var(--gr3); }
+.card .corner { position:absolute; width:14px; height:14px; border:1.5px solid var(--y); z-index:3; }
+.corner.tl{ top:-1px; left:-1px; border-right:0; border-bottom:0; }
+.corner.tr{ top:-1px; right:-1px; border-left:0; border-bottom:0; }
+.corner.bl{ bottom:-1px; left:-1px; border-right:0; border-top:0; }
+.corner.br{ bottom:-1px; right:-1px; border-left:0; border-top:0; }
+
+/* node box for agents/services */
+.node {
+  position:relative; background:var(--bk2); border:1px solid var(--gr3);
+  padding:14px 16px; display:flex; flex-direction:column; gap:5px;
+}
+.node .tag { font-family:var(--mono); font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:var(--gr); }
+.node .name { font-family:var(--display); font-weight:700; font-size:17px; color:var(--wh); letter-spacing:0.01em; }
+.node .desc { font-family:var(--sans); font-size:11.5px; line-height:1.4; color:var(--gr); font-weight:300; }
+
+/* accent left-borders by role */
+.n-agent  { border-left:3px solid var(--y); }
+.n-es     { border-left:3px solid var(--bl); }
+.n-gcp    { border-left:3px solid var(--grn); }
+.n-ext    { border-left:3px solid var(--gr2); }
+.n-front  { border-left:3px solid var(--rd); }
+
+.hl-y{ color:var(--y);} .hl-r{ color:var(--rd);} .hl-g{ color:var(--grn);} .hl-b{ color:var(--bl);} .hl-w{ color:var(--wh);}

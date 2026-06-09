@@ -98,6 +98,30 @@ SUPERVISOR_SUB_AGENT_429_ENGINES = {
 # resolves for callers (the Experiment-1 A/B path in server.py imports it).
 SUPERVISOR_SUB_AGENT_DRIFT_ID = SUPERVISOR_SUB_AGENT_429_ENGINES["drift_analyzer"]
 
+# ALL gemini-2.5-pro sub-agents, keyed by node name → reasoning engine id. This
+# is a SUPERSET of SUPERVISOR_SUB_AGENT_429_ENGINES: it additionally includes
+# memory_synthesizer (engine 8580327609152307200), which the empty-run quota
+# check above deliberately omits.
+#
+# Why two lists, not one:
+#   - SUPERVISOR_SUB_AGENT_429_ENGINES drives the EMPTY-RUN detection
+#     (orchestration.py ~868): a run where drift_analyzer produced nothing.
+#     memory_synthesizer runs at the TAIL, AFTER drift_analyzer; an empty run
+#     never reached it, so adding it there would only risk mis-attributing a
+#     stale prior-run 429 to the current empty run.
+#   - PRO_SUB_AGENT_ENGINES drives PER-NODE error confirmation in
+#     _friendly_node_error: when a tail/non-blocking node fails with a 429's
+#     SECONDARY symptom (the deployed engine 429s INSIDE its second LLM call, so
+#     the supervisor only sees "schema validation failed … 'action' is a
+#     required property", never the 429 itself), we look up THAT node's engine
+#     and confirm the real cause in its logs. memory_synthesizer is the case
+#     that bit us 2026-06-09 (15× 429 / 0 successful outputs in 6h), so it MUST
+#     be reachable here.
+PRO_SUB_AGENT_ENGINES = {
+    **SUPERVISOR_SUB_AGENT_429_ENGINES,
+    "memory_synthesizer": "8580327609152307200",
+}
+
 log = logging.getLogger("claimdrift.playground.orchestration")
 
 
@@ -338,18 +362,51 @@ def _first_json_part(chunk: dict) -> dict | None:
 
 # --- stream translation: chunk -> node lighting -----------------------------
 
-def _friendly_node_error(node: str, raw: str) -> str:
+def _looks_like_pro_quota_symptom(raw: str) -> bool:
+    """True when a node's raw error is the SECONDARY symptom of a gemini-2.5-pro
+    429, not a real logic bug.
+
+    A deployed pro sub-agent that 429s INSIDE one of its LLM calls never surfaces
+    "429" to the supervisor: the LLM step just produces no final §3.x.2 text, so
+    the supervisor's schema gate (hardening.py) reports whatever it COULD parse —
+    typically the preceding MCP tool result, which is missing the required key.
+    For memory_synthesizer that is verbatim:
+        "schema validation failed at <root>: 'action' is a required property"
+    Empty-output exhaustion ("no parseable §3.x.2 output in events") is the other
+    shape. Either is a candidate to confirm against engine logs. We match loosely
+    on purpose — confirmation against the real 429 logs is the actual gate; this
+    only decides whether confirmation is WORTH attempting."""
+    low = raw.lower()
+    return (
+        "schema validation failed" in low
+        or "is a required property" in low
+        or "no parseable" in low
+        or "resource_exhausted" in low
+        or "429" in low
+    )
+
+
+async def _friendly_node_error(node: str, raw: str) -> str:
     """Turn a raw sub-agent error into a short, judge-friendly line.
 
-    The most jarring one on stage is a Gemini MALFORMED_FUNCTION_CALL: the model
-    occasionally emits its tool call as a block of Python (`import uuid ...
-    print(default_api.create_drift_pattern(...))`) instead of a structured
-    function call, and the whole script then surfaces as the error text — a wall
-    of code in a red box. We keep the run honest (still an error, node still goes
-    red) but replace the code dump with a one-line explanation. The memory write
-    is non-blocking (the drift_event + emails already succeeded), so this is a
-    degraded-but-not-fatal state. Any unrecognized error is passed through
-    verbatim so we never hide a real failure.
+    Two known degraded-but-not-fatal causes get a human explanation instead of a
+    raw red dump; everything else is passed through verbatim so we never hide a
+    real failure.
+
+    1. MALFORMED_FUNCTION_CALL: the model occasionally emits its tool call as a
+       block of Python (`import uuid ... print(default_api.create_drift_pattern
+       (...))`) instead of a structured function call, and the whole script then
+       surfaces as the error text — a wall of code in a red box.
+
+    2. gemini-2.5-pro 429 (the 2026-06-09 memory_synthesizer case): a deployed
+       pro sub-agent that hits Vertex Dynamic-Shared-Quota INSIDE its second LLM
+       call emits no final output, so the supervisor's schema gate reports the
+       SECONDARY symptom ("'action' is a required property") and never sees the
+       429. When a pro node fails with that symptom shape, we CONFIRM against the
+       node's own engine logs and, if a 429 is found, say so explicitly — this is
+       a common shared-quota event, not a system bug. The memory write is
+       non-blocking (the drift_event + emails already succeeded), so the run
+       stays honest: node still goes red, but the message names the real cause.
     """
     low = raw.lower()
     looks_malformed = (
@@ -365,6 +422,21 @@ def _friendly_node_error(node: str, raw: str) -> str:
             "tool call this run. The drift event and alerts already succeeded; "
             "the pattern store can be updated by a later event."
         )
+
+    # gemini-2.5-pro shared-quota 429, surfaced only as a downstream symptom.
+    engine_id = PRO_SUB_AGENT_ENGINES.get(node)
+    if engine_id and _looks_like_pro_quota_symptom(raw):
+        n429 = await asyncio.to_thread(_count_recent_429, engine_id, 180)
+        if n429 > 0:
+            label = "memory write" if node == "memory_synthesizer" else node
+            return (
+                f"{label} hit Vertex Dynamic Shared Quota (429 RESOURCE_EXHAUSTED) "
+                f"— CONFIRMED in {node} engine logs. This is a common shared-quota "
+                "event under regional peak load, not a system bug. The drift event "
+                "and alerts already succeeded; the pattern store can be updated by "
+                "a later event."
+            )
+
     # Trim absurdly long raw errors so the card stays readable.
     return raw if len(raw) <= 280 else raw[:277] + "…"
 
@@ -825,7 +897,7 @@ async def orchestrate(email: str) -> AsyncIterator[str]:
                         raw_msg = str(chunk.get("error_message") or chunk.get("error_code"))
                         yield _sse("node.error", {
                             "node": node, "lane": _lane(author, chunk),
-                            "message": _friendly_node_error(node, raw_msg),
+                            "message": await _friendly_node_error(node, raw_msg),
                         })
                         continue
 

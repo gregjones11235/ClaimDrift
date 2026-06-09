@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  html,body{ width:1920px; height:1080px; overflow:hidden; }
+  .stage{ width:1920px; height:1080px; padding:0; }
+
+  .hdr{ position:absolute; top:42px; left:64px; z-index:5; }
+  .hdr .kicker{ font-family:var(--mono); font-size:13px; letter-spacing:0.3em; color:var(--y); text-transform:uppercase; }
+  .hdr h1{ font-family:var(--display); font-weight:800; font-size:54px; line-height:0.95; color:var(--wh); margin-top:8px; }
+  .hdr .sub{ font-family:var(--sans); font-weight:300; font-size:15px; color:var(--gr); margin-top:10px; max-width:880px; line-height:1.45; }
+  .logo{ position:absolute; top:46px; right:64px; z-index:5; text-align:right; }
+  .logo .lt{ font-family:var(--display); font-weight:800; font-size:26px; line-height:0.9; color:var(--y); }
+  .logo .ls{ font-family:var(--mono); font-size:10px; letter-spacing:0.25em; color:var(--grn); margin-top:8px; }
+  .logo .ls::before{ content:"\25CF "; color:var(--grn); }
+
+  /* top stat strip */
+  .stats{ position:absolute; top:228px; left:64px; right:64px; z-index:3; display:flex; gap:20px; }
+  .stat{ position:relative; flex:1; background:var(--bk2); border:1px solid var(--gr3); padding:22px 24px; }
+  .stat .v{ font-family:var(--display); font-weight:800; font-size:46px; line-height:1; }
+  .stat .l{ font-family:var(--mono); font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--gr); margin-top:10px; }
+  .v-y{color:var(--y);} .v-r{color:var(--rd);} .v-g{color:var(--grn);} .v-b{color:var(--bl);} .v-w{color:var(--wh);}
+
+  /* module columns */
+  .cols{ position:absolute; top:380px; left:64px; right:64px; z-index:3; display:flex; gap:20px; }
+  .col{ position:relative; flex:1; background:var(--bk2); border:1px solid var(--gr3); padding:0 0 18px; }
+  .col .ch{ padding:16px 20px 14px; border-bottom:1px solid var(--gr3); display:flex; align-items:center; gap:10px; }
+  .col .ch .dot{ width:9px; height:9px; }
+  .col .ch .ct{ font-family:var(--display); font-weight:700; font-size:18px; color:var(--wh); }
+  .col .ch .cn{ font-family:var(--mono); font-size:11px; color:var(--gr); margin-left:auto; }
+  .col ul{ list-style:none; padding:8px 20px 0; }
+  .col li{ font-family:var(--sans); font-size:13px; color:var(--wh2); font-weight:400; padding:7px 0; border-bottom:1px solid rgba(51,51,48,0.5); display:flex; flex-direction:column; gap:2px; }
+  .col li:last-child{ border-bottom:0; }
+  .col li .sub{ font-family:var(--mono); font-size:10px; color:var(--gr); letter-spacing:0.05em; }
+
+  .d-y{ background:var(--y);} .d-b{ background:var(--bl);} .d-g{ background:var(--grn);} .d-r{ background:var(--rd);} .d-gr{ background:var(--gr2);}
+
+  /* bottom integration strip */
+  .footer{ position:absolute; bottom:48px; left:64px; right:64px; z-index:3; background:rgba(245,197,24,0.04); border:1px solid var(--gr3); padding:20px 26px; }
+  .footer .ftitle{ font-family:var(--mono); font-size:11px; letter-spacing:0.2em; color:var(--y); text-transform:uppercase; margin-bottom:14px; }
+  .chips{ display:flex; flex-wrap:wrap; gap:10px; }
+  .chip{ font-family:var(--mono); font-size:12px; color:var(--wh2); border:1px solid var(--gr3); background:var(--bk); padding:7px 13px; letter-spacing:0.05em; }
+  .chip b{ color:var(--y); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="scanlines"></div>
+<div class="stage">
+
+  <div class="hdr">
+    <div class="kicker">System Architecture / 03 — Technology Stack</div>
+    <h1>BUILT ON VERTEX AI &amp; ELASTIC.</h1>
+    <div class="sub">Five Gemini reasoning agents on Agent Engine, an Elastic-native memory &amp; retrieval layer with ELSER + RRF hybrid search, wired together by serverless GCP orchestration.</div>
+  </div>
+  <div class="logo">
+    <div class="lt">CLAIM<br>DRIFT</div>
+    <div class="ls">Monitoring Active</div>
+  </div>
+
+  <!-- ===== STAT STRIP ===== -->
+  <div class="stats">
+    <div class="stat"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="v v-y">5</div><div class="l">Gemini Reasoning Agents</div></div>
+    <div class="stat"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="v v-b">8</div><div class="l">Elastic Indices</div></div>
+    <div class="stat"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="v v-g">4</div><div class="l">Agent Builder MCP Tools</div></div>
+    <div class="stat"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="v v-r">1</div><div class="l">Self-Improving Memory Loop</div></div>
+    <div class="stat"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="v v-w">&lt;2.1s</div><div class="l">Detection Latency</div></div>
+  </div>
+
+  <!-- ===== MODULE COLUMNS ===== -->
+  <div class="cols">
+
+    <div class="col">
+      <div class="ch"><span class="dot d-y"></span><span class="ct">Reasoning Agents</span><span class="cn">Gemini 2.5</span></div>
+      <ul>
+        <li>Supervisor<span class="sub">ADK BaseAgent · non-LLM orchestrator</span></li>
+        <li>Claim Extractor<span class="sub">flash · sentence-level claims</span></li>
+        <li>Drift Analyzer<span class="sub">pro · severity calibration &#9733;</span></li>
+        <li>Citation Finder<span class="sub">flash · blast-radius tiers</span></li>
+        <li>Notifier<span class="sub">flash · fan-out email drafts</span></li>
+        <li>Memory Synthesizer<span class="sub">pro · pattern write &#9733;</span></li>
+      </ul>
+    </div>
+
+    <div class="col">
+      <div class="ch"><span class="dot d-b"></span><span class="ct">Elastic Layer</span><span class="cn">Serverless</span></div>
+      <ul>
+        <li>ELSER v2 + RRF hybrid search<span class="sub">semantic_text on abstract / claims / patterns</span></li>
+        <li>Agent Builder MCP server<span class="sub">search / create / update_drift_pattern</span></li>
+        <li>openalex_citing_works<span class="sub">Workflow HTTP chain</span></li>
+        <li>Scheduled Workflow<span class="sub">dispatch_new_pairs · watermark</span></li>
+        <li>Dual ELSER endpoints<span class="sub">live read vs. batch governance</span></li>
+        <li>Read-alias blue/green<span class="sub">drift_patterns_read swap</span></li>
+      </ul>
+    </div>
+
+    <div class="col">
+      <div class="ch"><span class="dot d-g"></span><span class="ct">GCP Orchestration</span><span class="cn">Serverless</span></div>
+      <ul>
+        <li>Vertex AI Agent Engine<span class="sub">reasoning-engine runtime</span></li>
+        <li>Cloud Run · Dispatcher + BFF<span class="sub">pipeline driver + SSE server</span></li>
+        <li>Cloud Run Jobs<span class="sub">ingestion pullers · pattern curator</span></li>
+        <li>Pub/Sub<span class="sub">async /dispatch &rarr; /run, OIDC push</span></li>
+        <li>Cloud Scheduler<span class="sub">hourly ingest · daily curation</span></li>
+        <li>Secret Manager · Cloud Build<span class="sub">creds + continuous deploy</span></li>
+      </ul>
+    </div>
+
+    <div class="col">
+      <div class="ch"><span class="dot d-r"></span><span class="ct">Surface &amp; External</span><span class="cn">Edge</span></div>
+      <ul>
+        <li>Next.js frontend<span class="sub">Vercel · 6 views</span></li>
+        <li>SSE live timeline<span class="sub">agent_events replay, 15s heartbeat</span></li>
+        <li>OpenAlex API<span class="sub">citation graph lookup</span></li>
+        <li>bioRxiv · medRxiv · Crossref<span class="sub">preprint + publication feeds</span></li>
+        <li>Gmail API<span class="sub">OAuth notification delivery</span></li>
+        <li>Workload Identity<span class="sub">keyless agent &rarr; Elastic auth</span></li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- ===== FOOTER CHIPS ===== -->
+  <div class="footer">
+    <div class="ftitle">Powered By</div>
+    <div class="chips">
+      <span class="chip"><b>Vertex AI</b> Agent Engine</span>
+      <span class="chip"><b>Gemini 2.5</b> Pro / Flash</span>
+      <span class="chip"><b>Google ADK</b></span>
+      <span class="chip"><b>Elastic</b> Serverless</span>
+      <span class="chip"><b>ELSER v2</b> + RRF</span>
+      <span class="chip"><b>Agent Builder</b> MCP</span>
+      <span class="chip"><b>Cloud Run</b> + Jobs</span>
+      <span class="chip"><b>Pub/Sub</b></span>
+      <span class="chip"><b>Cloud Scheduler</b></span>
+      <span class="chip"><b>OpenAlex</b></span>
+      <span class="chip"><b>Next.js</b> / Vercel</span>
+      <span class="chip"><b>Gmail API</b></span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
