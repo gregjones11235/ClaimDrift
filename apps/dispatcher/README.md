@@ -9,6 +9,10 @@ Owns the outer-loop side of the §9.6.1 inverted topology in
 
 ```
 Elastic Scheduled Workflow → POST /dispatch (this service)
+  ↓  bearer auth + idempotency check
+publish to Pub/Sub topic `claimdrift-dispatch` → return 202 in ~100ms
+  ↓  push subscription (Google-signed OIDC)
+POST /run (this service)
   ↓
 ES preprints reverse-lookup
   ↓
@@ -19,6 +23,12 @@ parse stream → write drift_events / affected_citations / notification_log
 Gmail send per notification → flip notification_log.status
 ```
 
+The pipeline runs through Pub/Sub because Elastic Workflows' `http` connector
+has a platform-fixed ~60s timeout on Serverless; `/dispatch` must return well
+inside that, while `/run` needs the full ~200s pipeline budget (the
+subscription's `ack-deadline=600s`). See contracts §9.6.1 changelog 2026-05-28
+for the full rationale and the fire-and-forget approaches it replaced.
+
 The supervisor itself orchestrates the 5 sub-agents on Agent Engine; this
 service is the §4.1 trigger + persistence layer. See
 [main.py](main.py) for the §9.6.1 dispatcher contract.
@@ -26,8 +36,17 @@ service is the §4.1 trigger + persistence layer. See
 ## Endpoints
 
 - `POST /dispatch` — `Authorization: Bearer <WF_BEARER_TOKEN>`, body
-  `{"preprint_doi": "...", "published_doi": "..."}`. Returns 202 immediately;
-  the pipeline runs as a background task.
+  `{"preprint_doi": "...", "published_doi": "..."}`. Bearer-auths,
+  idempotency-checks against `drift_events`, then publishes the pair to the
+  `claimdrift-dispatch` Pub/Sub topic and returns `{"status": "enqueued",
+  "message_id": ...}` in ~100ms. Returns `{"status": "already_processed",
+  "drift_event_id": ...}` if the pair already has a drift_event (add
+  `?force=true` to re-run anyway).
+- `POST /run` — the Pub/Sub **push-subscription** target, not called directly.
+  Verifies the Google-signed OIDC token (`email` == push SA, `aud` == this
+  endpoint URL), then `await`s the full ~200s pipeline before returning 200.
+  Awaiting (rather than fire-and-forget) is what keeps the Cloud Run instance
+  visibly busy so the autoscaler scales out — see "Runtime sizing" below.
 - `GET /health` — unauthenticated health probe. (Do NOT rename to `/healthz` or
   any `/_ah/*` path — those are GFE-reserved and Cloud Run intercepts them
   before the request reaches the container.)
@@ -38,18 +57,36 @@ service is the §4.1 trigger + persistence layer. See
 cp .env.example .env  # then fill in real values; see § Configuration below
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8080
+```
 
-# Smoke test (in another terminal). Use USE_STUB_STREAM=1 in .env to replay
-# _stub_stream.json instead of hitting the live reasoning engine.
+`/dispatch` always publishes to the real `claimdrift-dispatch` Pub/Sub topic
+(there is no local Pub/Sub bypass), so a local smoke test needs `GCP_PROJECT`
+set + ADC (`gcloud auth application-default login`) and the topic created:
+
+```bash
 curl -X POST http://localhost:8080/dispatch \
   -H "Authorization: Bearer $(grep WF_BEARER_TOKEN .env | cut -d= -f2)" \
   -H "Content-Type: application/json" \
   -d '{"preprint_doi": "10.1101/2024.05.03.24306688", "published_doi": "10.1007/978-3-031-66535-6_19"}'
-# Expect: {"status": "accepted"} in <100ms
+# Expect: {"status": "enqueued", "message_id": "..."} in <200ms (or
+# {"status": "already_processed", ...} if this pair was processed before).
 ```
 
-The reference golden envelope above is the T1 real-N>0 baseline; see
-[tests/golden/](tests/golden/) for the captured outputs.
+`/run` cannot be exercised locally with a raw curl — it verifies a real
+Google-signed Pub/Sub OIDC token and has no bypass. To exercise the **pipeline**
+itself offline (no Pub/Sub, no OIDC, no live reasoning engine), replay the golden
+stream straight into the writer with `USE_STUB_STREAM=1`:
+
+```bash
+USE_STUB_STREAM=1 python scripts/replay_supervisor_stream.py \
+  --preprint-doi 10.1101/2024.05.03.24306688 \
+  --published-doi 10.1007/978-3-031-66535-6_19
+```
+
+The reference golden pair above is the T1 real-N>0 baseline; see
+[tests/golden/](tests/golden/) for the captured outputs and
+[scripts/replay_supervisor_stream.py](scripts/replay_supervisor_stream.py) for
+flags.
 
 ## Configuration
 
@@ -64,12 +101,30 @@ Cloud Run):
 | `ELASTIC_ENDPOINT` | env | `https://*.es.<region>.gcp.cloud.es.io` — NOT the Kibana URL |
 | `ELASTIC_API_KEY` | secret | base64 API key; on Cloud Run mount via Secret Manager `elastic-api-key:latest` (verify name with `gcloud secrets list`) |
 | `WF_BEARER_TOKEN` | secret | random 32+ char token; the Workflow YAML carries the matching value |
-| `USE_STUB_STREAM` | env | unset in prod; `1` locally to replay `_stub_stream.json` |
+| `PUBSUB_TOPIC` | env | topic `/dispatch` publishes to; default `claimdrift-dispatch` |
+| `PUBSUB_PUSH_SA_EMAIL` | env | SA email `/run` requires in the OIDC `email` claim; must match the subscription's `--push-auth-service-account`. Default is the project Compute SA (`<PROJECT_NUMBER>-compute@developer.gserviceaccount.com`). |
+| `PUBSUB_PUSH_AUDIENCE` | env | expected OIDC `aud` claim; set to `<DISPATCHER_URL>/run` so it matches the subscription's `--push-auth-token-audience` (request-URL reconstruction is unreliable behind the Cloud Run proxy). |
+| `USE_STUB_STREAM` | env | unset in prod; `1` locally to replay `_stub_stream.json` instead of the live reasoning engine |
 | `DEMO_FALLBACK_EMAIL` | env | recipient when notifier's `recipient_email` is null (§3.3 v0 limitation — citing_paper_authors[].email is always null). Leave unset in production. |
 
 Gmail OAuth credentials (`gmail-refresh-token`, `gmail-oauth-client-id`,
 `gmail-oauth-client-secret`) are read at first send from Secret Manager —
 not env vars. See `GMAIL_SECRETS` in [main.py](main.py).
+
+**One-time Gmail OAuth setup.** Before the first real send, create those three
+secrets with [scripts/gmail_oauth_setup.py](scripts/gmail_oauth_setup.py).
+Prereqs: Gmail API enabled on the project, a **Desktop-app** OAuth client
+downloaded to `apps/dispatcher/scripts/client_secret.json`, and
+`gcloud auth application-default login`. Then:
+
+```bash
+cd apps/dispatcher/scripts
+uv run python gmail_oauth_setup.py   # opens a browser; sign in as the notifier inbox
+```
+
+It runs the consent flow and writes the refresh token + client id/secret to
+Secret Manager. Re-run before each demo/judging window: an External + Testing
+OAuth app's refresh token expires after 7 days.
 
 ## Deploy
 
@@ -88,41 +143,47 @@ From the **repo root**:
 gcloud builds submit . --config=apps/dispatcher/cloudbuild.yaml
 
 # 2. Deploy the freshly built image to Cloud Run.
-#    The four runtime flags below are mandatory; see "Runtime sizing" below.
+#    The runtime flags below are mandatory; see "Runtime sizing" below.
+#    --timeout=600 because /run awaits the full ~200s pipeline (default 300s
+#    would be tight under retries; the Pub/Sub ack-deadline is also 600s).
 gcloud run deploy claimdrift-dispatcher \
   --image=us-central1-docker.pkg.dev/tensile-topic-496519-i1/cloud-run-source-deploy/claimdrift-dispatcher:latest \
   --region=us-central1 \
   --project=tensile-topic-496519-i1 \
   --allow-unauthenticated \
+  --timeout=600 \
   --min-instances=1 --max-instances=20 --concurrency=1 --cpu-boost \
-  --update-env-vars="GCP_PROJECT=tensile-topic-496519-i1,GCP_REGION=us-central1,SUPERVISOR_REASONING_ENGINE_ID=<id>,ELASTIC_ENDPOINT=<url>,DEMO_FALLBACK_EMAIL=<addr>" \
+  --update-env-vars="GCP_PROJECT=tensile-topic-496519-i1,GCP_REGION=us-central1,SUPERVISOR_REASONING_ENGINE_ID=<id>,ELASTIC_ENDPOINT=<url>,DEMO_FALLBACK_EMAIL=<addr>,PUBSUB_PUSH_AUDIENCE=<dispatcher-url>/run" \
   --set-secrets="WF_BEARER_TOKEN=wf-bearer-token:latest,ELASTIC_API_KEY=elastic-api-key:latest"
 ```
 
+The Pub/Sub topic + push subscription that feed `/run` are a one-time setup
+separate from the service deploy — see the root README's "Reproduce" step 5b
+for the `gcloud pubsub topics/subscriptions create` + IAM commands.
+
 ### Runtime sizing: `--concurrency=1` + `--max-instances=20` + `--cpu-boost` + `--min-instances=1`
 
-Each `POST /dispatch` returns 202 in <100ms but spawns a ~200s background
-task (`asyncio.create_task(run_pipeline)`) that streams from Vertex AI Agent
-Engine and writes back to ES. Cloud Run's defaults (concurrency=80, one
-instance) collapse under this pattern: a single instance ends up trying to
-serve a fresh handler **while** a previous handler's background task still
-holds the event loop, so subsequent POSTs queue behind the in-flight pipeline
-and the Elastic Workflow `http.request` connector's hard 60s timeout fires.
-The Workflow execution then errors out and **`write_new_watermark` is
-skipped**, which silently freezes the backlog cursor (dispatcher idempotency
-masks the symptom — envelopes still flow for the small subset of
-unprocessed pairs, but the visible drift_events count barely moves).
+The pipeline runs in `/run`, which **`await`s the full ~200s pipeline** before
+returning 200 (it does NOT fire-and-forget). This is deliberate: an earlier
+design returned 202 immediately and ran the pipeline in `asyncio.create_task`,
+but Cloud Run's autoscaler only counts in-flight HTTP requests, so a handler
+that returned in 100ms made every instance look idle — the service never scaled
+past one instance and a single event loop saturated under the background tasks.
+Awaiting keeps each instance visibly busy, so concurrent Pub/Sub pushes scale
+the service out to `--max-instances`. (`/dispatch` still returns in ~100ms, but
+all it does is publish to Pub/Sub — there is no background pipeline behind it.)
 
-The four flags together produce the desired isolation:
+The flags together produce the desired isolation for `/run`:
 
 | Flag | Why |
 |---|---|
-| `--concurrency=1` | One instance handles one POST + its background pipeline. No event-loop contention between concurrent dispatches. |
-| `--max-instances=20` | A single 5-min workflow tick fans out up to 20 POSTs (`search_new_pairs.size = 20`); each lands on its own Cloud Run instance. 20 is also a hard ceiling so the backlog can't spiral. |
-| `--cpu-boost` | Doubles CPU for 5s on container start. Brings cold-start of the vertexai SDK + Agent Engine reasoning engine resolve from ~40s down to ~10-20s, comfortably inside the workflow's 60s timeout. |
-| `--min-instances=1` | Keeps one instance always warm so the first POST after an idle period is also fast (defense in depth on top of `--cpu-boost`). |
+| `--concurrency=1` | One instance handles one `/run` pipeline at a time. No event-loop contention between concurrent pipelines. |
+| `--max-instances=20` | A single 5-min workflow tick enqueues up to 20 pairs (`search_new_pairs.size = 20`); Pub/Sub pushes fan out, each landing on its own instance. 20 is also a hard ceiling so the backlog can't spiral. |
+| `--cpu-boost` | Doubles CPU for 5s on container start. Brings cold-start of the vertexai SDK + Agent Engine reasoning engine resolve from ~40s down to ~10-20s. |
+| `--min-instances=1` | Keeps one instance always warm so the first `/dispatch` after an idle period stays well inside the workflow's 60s connector timeout. |
+| `--timeout=600` | `/run` awaits ~200s; the 300s default would kill long pipelines under retries. Pairs with the subscription's `ack-deadline=600s`. |
 
-All four are live as of 2026-05-28. Costs are modest: one always-on
+All live as of 2026-05-28. Costs are modest: one always-on
 Cloud Run instance + up to 20 short-lived instances during workflow
 fan-out (each lives ~3-5 minutes). No GPU.
 
@@ -132,9 +193,11 @@ is the default location `gcloud run deploy --source` writes to on first use; the
 already have an existing repo by another name, update both lines accordingly.
 
 `--allow-unauthenticated` is intentional: the Elastic Workflow `http.request`
-step calls this endpoint with only a bearer header, no GCP IAM identity. The
-bearer check inside the handler is the only auth layer — defense-in-depth via
-Cloud Run IAM (OIDC tokens from the Workflow side) is post-v0 polish.
+step calls `/dispatch` with only a bearer header, no GCP IAM identity, so the
+service can't gate on Cloud Run IAM at the platform level. Auth is enforced
+in-handler instead: `/dispatch` checks the bearer token; `/run` verifies the
+Pub/Sub-signed OIDC token (`email` == push SA, `aud` == the `/run` URL) so only
+our own subscription can trigger a pipeline despite `allUsers` invoke access.
 
 The default Compute Engine service account on Cloud Run needs four IAM roles
 that are NOT granted by Editor in newer GCP projects:

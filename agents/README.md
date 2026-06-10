@@ -14,7 +14,7 @@ This subdirectory contains the 5 sub-agents + supervisor that power ClaimDrift, 
 | `notifier` | `gemini-2.5-flash` | Drafts and dispatches notification emails per affected citation | `notification_log` |
 | `memory_synthesizer` | `gemini-2.5-pro` | Distills drift events into reusable patterns (async loop) | `drift_patterns` |
 
-> **Model note**: `gemini-3.5-flash` was released two days before v0 scaffolding but is not yet reachable via ADK in `us-central1` for our project. We will revisit the model assignments before submission. See `../docs/contracts.md` Changelog (2026-05-21).
+> **Model note**: the agents run on `gemini-2.5-flash` / `gemini-2.5-pro` (centralized in `_shared/config.py`). `gemini-3.5-flash`, released shortly before v0 scaffolding, was evaluated but not adopted — it was not reachable via ADK in `us-central1` for our project at scaffolding time. See `../docs/contracts.md` Changelog (2026-05-21).
 
 ## Prerequisites
 
@@ -96,8 +96,9 @@ GOOGLE_CLOUD_LOCATION=us-central1
 GOOGLE_GENAI_USE_VERTEXAI=TRUE
 
 # Elastic connection (provided by B)
-ELASTIC_ENDPOINT=https://...
+ELASTIC_ENDPOINT=https://...   # the .es. (data-plane) host
 ELASTIC_API_KEY=...
+KIBANA_URL=https://...         # the .kb. host — needed by the Agent Builder upsert scripts
 ```
 
 `.env` is gitignored. Never commit it.
@@ -177,7 +178,7 @@ agents/
 
 Each agent directory is independently discoverable by `adk web` / `adk run` via the `name=` argument on its `LlmAgent`. The `_shared/` package will also appear in the `adk web` dropdown but is not an agent — do not select it.
 
-> **Tools directory**: Per-agent `tools/` subdirectories are not yet created. They will be added in the next step when wiring the Elastic MCP server (for `drift_analyzer`, `citation_finder`, `memory_synthesizer`). `claim_extractor` and `notifier` may never need tools.
+> **Tools**: there are no per-agent `tools/` subdirectories. The Elastic tools (`search_drift_patterns`, `create_drift_pattern`, `update_drift_pattern`, `openalex_citing_works`) are exposed through the Agent Builder MCP server and wired in-agent via ADK's `McpToolset` with a `tool_filter` (see `drift_analyzer` / `citation_finder` / `memory_synthesizer` `agent.py`). `claim_extractor` and `notifier` use no tools (pure LLM draft).
 
 ## Deployed status
 

@@ -18,7 +18,7 @@ The authoritative cross-component specification lives in [docs/contracts.md](doc
               (3 Cloud Run Jobs + Cloud Scheduler)         │
                           │                                │
                           ▼                                │
-              ┌──── Elasticsearch (6 indices) ◄────────────┤
+              ┌──── Elasticsearch (8 indices) ◄────────────┤
               │           ▲       ▲                        │
               │           │       │                        │
               │   Elastic Agent Builder MCP server          │
@@ -38,16 +38,24 @@ The authoritative cross-component specification lives in [docs/contracts.md](doc
               │           ▲
               │           │ async_stream_query
               │           │
-              │   Cloud Run dispatcher  ◄───┐
-              │   (Gmail OAuth send)        │
-              │                             │ HTTP POST
-              └─────────────────────────────┤
-                                            │
-                              Elastic Scheduled Workflow
-                              (cron 5min, watermark cursor)
+              │   Cloud Run dispatcher /run
+              │   (runs pipeline + Gmail OAuth send)
+              │           ▲
+              │           │ push (Google-signed OIDC)
+              │   Pub/Sub topic `claimdrift-dispatch`
+              │           ▲
+              │           │ publish, then 202 in ~100ms
+              │   Cloud Run dispatcher /dispatch
+              │   (bearer auth + idempotency check)
+              │           ▲
+              │           │ HTTP POST
+              └───────────┤
+                          │
+            Elastic Scheduled Workflow
+            (cron 5min, watermark cursor)
 ```
 
-Every 5 minutes, the scheduled Elastic Workflow finds newly-ingested `(preprint, published)` pairs in `preprints`, POSTs each to the Cloud Run dispatcher, which runs the §4.1 fan-out across the 5 ADK agents on Agent Engine and persists results back to Elasticsearch.
+Every 5 minutes, the scheduled Elastic Workflow finds newly-ingested `(preprint, published)` pairs in `preprints` and POSTs each to the dispatcher's `/dispatch` endpoint. `/dispatch` does bearer-auth + idempotency check, then publishes to the `claimdrift-dispatch` Pub/Sub topic and returns 202 in ~100ms (Elastic Workflows' `http` connector has a platform-fixed 60s timeout). A Pub/Sub push subscription delivers the message to the dispatcher's `/run` endpoint, which runs the §4.1 fan-out across the 5 ADK agents on Agent Engine (~200s) and persists results back to Elasticsearch. See [contracts.md §9.6.1 changelog 2026-05-28](docs/contracts.md) for why the pipeline is decoupled through Pub/Sub.
 
 For the design rationale of this inverted topology (why supervisor lives on Agent Engine and Elastic Workflows is "only" the trigger), see [contracts.md §9.6.1](docs/contracts.md).
 
@@ -105,24 +113,64 @@ Setup, in dependency order — each step is verifiable independently:
    ```bash
    uv run python elastic/scripts/audit_schema_drift.py    # should print "all 8 indices clean"
    ```
+   Then create the `drift_patterns_read` alias — the `search_drift_patterns` tool and the drift_analyzer memory read both query `FROM drift_patterns_read` (not the concrete index), so this must exist before step 2 or retrieval fails with `index_not_found`:
+   ```bash
+   uv run python elastic/scripts/manage_pattern_alias.py init --apply   # drift_patterns_read -> drift_patterns
+   ```
 
-2. **Elastic Agent Builder MCP tools** — 1 ES|QL tool + 3 Workflow YAML tools. Each `elastic/agent_builder/tools/*.json` + `elastic/agent_builder/workflows/*.yaml` upserts via `upsert_tool.sh` / `upsert_workflow.sh`. See [contracts.md §9.3](docs/contracts.md) for the tool-by-tool migration table.
+2. **Elastic Agent Builder MCP tools** — 4 tools in `elastic/agent_builder/tools/*.json`: `search_drift_patterns` is a self-contained ES|QL tool; the other three (`create_drift_pattern`, `update_drift_pattern`, `openalex_citing_works`) each delegate to a same-named Workflow YAML in `elastic/agent_builder/workflows/*.yaml` that must be upserted too. Both upsert scripts read `KIBANA_URL` + `ELASTIC_API_KEY` from `agents/.env` (the `.kb.` host, not `.es.`), and need `jq` + `python3` on PATH:
+   ```bash
+   for w in create_drift_pattern update_drift_pattern openalex_citing_works; do
+     elastic/agent_builder/scripts/upsert_workflow.sh elastic/agent_builder/workflows/$w.yaml
+   done
+   for t in elastic/agent_builder/tools/*.json; do
+     elastic/agent_builder/scripts/upsert_tool.sh "$t"
+   done
+   ```
+   See [contracts.md §9.3](docs/contracts.md) for the tool-by-tool migration table.
 
 3. **5 sub-agents** to Vertex AI Agent Engine. Each agent in `agents/<name>/` has its own `requirements.txt` + `.env.deploy`; deploy follows [agents/_DEPLOY_CHECKLIST.md](agents/_DEPLOY_CHECKLIST.md). Save the resulting `reasoningEngine` numeric ids — they're hardcoded into `supervisor_agent/agent.py:SUB_AGENT_IDS`.
 
 4. **Supervisor agent** to Agent Engine (same checklist; the supervisor is custom `BaseAgent` orchestration code, no LLM of its own).
 
-5. **Cloud Run dispatcher**: two-step build + deploy from the **repo root** (build context must include `apps/bff/sse_adapter.py` — the §6.1 translator shared with the BFF; `gcloud run deploy --source` has no `--dockerfile` flag for subdir paths). The four runtime flags below are **mandatory** — see [apps/dispatcher/README.md](apps/dispatcher/README.md) "Runtime sizing" for why each one matters:
+5. **Cloud Run dispatcher** — two endpoints (`/dispatch` enqueues to Pub/Sub; `/run` is the push-subscription target that runs the ~200s pipeline). The pipeline is decoupled through Pub/Sub because Elastic Workflows' `http` connector has a platform-fixed 60s timeout on Serverless (see [contracts.md changelog 2026-05-28](docs/contracts.md)). Three sub-steps:
+
+   **5a. Build + deploy the service** from the **repo root** (build context must include `apps/bff/sse_adapter.py` — the §6.1 translator shared with the BFF; `gcloud run deploy --source` has no `--dockerfile` flag for subdir paths). The runtime flags below are **mandatory** — see [apps/dispatcher/README.md](apps/dispatcher/README.md) "Runtime sizing" for why each one matters:
    ```bash
    gcloud builds submit . --config=apps/dispatcher/cloudbuild.yaml
    gcloud run deploy claimdrift-dispatcher \
      --image=us-central1-docker.pkg.dev/<your-project>/cloud-run-source-deploy/claimdrift-dispatcher:latest \
-     --region=us-central1 --allow-unauthenticated \
+     --region=us-central1 --allow-unauthenticated --timeout=600 \
      --min-instances=1 --max-instances=20 --concurrency=1 --cpu-boost \
-     --update-env-vars="GCP_PROJECT=<your-project>,SUPERVISOR_REASONING_ENGINE_ID=<from step 4>,ELASTIC_ENDPOINT=...,DEMO_FALLBACK_EMAIL=..." \
+     --update-env-vars="GCP_PROJECT=<your-project>,GCP_REGION=us-central1,SUPERVISOR_REASONING_ENGINE_ID=<from step 4>,ELASTIC_ENDPOINT=...,DEMO_FALLBACK_EMAIL=...,PUBSUB_PUSH_AUDIENCE=<dispatcher-url>/run" \
      --set-secrets="WF_BEARER_TOKEN=wf-bearer-token:latest,ELASTIC_API_KEY=elastic-api-key:latest"
    ```
-   See [apps/dispatcher/README.md](apps/dispatcher/README.md) for env-var details + Gmail OAuth one-time setup.
+   Note the printed service URL — call it `<DISPATCHER_URL>` below. (`PUBSUB_PUSH_AUDIENCE` needs the final URL, so on first deploy leave it unset, then re-run `gcloud run services update --update-env-vars=PUBSUB_PUSH_AUDIENCE=<DISPATCHER_URL>/run` once you have it.)
+
+   **5b. Pub/Sub topic + push subscription.** `/dispatch` publishes here; the subscription pushes to `/run` with a Google-signed OIDC token (`ack-deadline=600s` covers the pipeline runtime). The push SA below is the project Compute SA — the default `/run` checks for (`PUBSUB_PUSH_SA_EMAIL`); override both sides if you use a dedicated SA. `PROJECT_NUMBER` comes from `gcloud projects describe <your-project> --format='value(projectNumber)'`:
+   ```bash
+   gcloud pubsub topics create claimdrift-dispatch
+
+   PUSH_SA="<PROJECT_NUMBER>-compute@developer.gserviceaccount.com"
+   # The push SA needs run.invoker to POST /run.
+   gcloud run services add-iam-policy-binding claimdrift-dispatcher \
+     --region=us-central1 --member="serviceAccount:$PUSH_SA" --role="roles/run.invoker"
+   # The Pub/Sub-managed SA needs serviceAccountTokenCreator to mint the OIDC token
+   # (not implicit post-2021).
+   gcloud projects add-iam-policy-binding <your-project> \
+     --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-pubsub.iam.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountTokenCreator"
+
+   gcloud pubsub subscriptions create claimdrift-dispatch-push \
+     --topic=claimdrift-dispatch \
+     --push-endpoint="<DISPATCHER_URL>/run" \
+     --push-auth-service-account="$PUSH_SA" \
+     --push-auth-token-audience="<DISPATCHER_URL>/run" \
+     --ack-deadline=600
+   ```
+   `--push-auth-token-audience` MUST be set explicitly and match `PUBSUB_PUSH_AUDIENCE` from 5a, or Pub/Sub normalizes the scheme to `http://` and `/run`'s OIDC `aud` check fails.
+
+   See [apps/dispatcher/README.md](apps/dispatcher/README.md) for the full env-var table + Gmail OAuth one-time setup.
 
 6. **Ingestion pullers** to Cloud Run Jobs + Cloud Scheduler. See [docs/ingestion_cloud_run_ops.md](docs/ingestion_cloud_run_ops.md) for image, args, and scheduler config.
 
@@ -149,12 +197,15 @@ Verify the end-to-end path against the T1 reference run:
 
 ```bash
 # Manual dispatch of the canonical T1 pair (amblyopia LLM detection preprint)
-curl -X POST "https://<your-dispatcher>/dispatch" \
+curl -X POST "<DISPATCHER_URL>/dispatch" \
   -H "Authorization: Bearer $WF_BEARER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"preprint_doi":"10.1101/2024.05.03.24306688","published_doi":"10.1007/978-3-031-66535-6_19"}'
-# First run: 202 + ~200s background pipeline writes 1 drift_event + 4 affected_citations + 4 notification_log rows
-# Second run: 200 {"status":"already_processed","drift_event_id":...} — dispatcher idempotency
+# First run:  {"status":"enqueued","message_id":...} in ~100ms — Pub/Sub then pushes to
+#             /run, whose ~200s pipeline writes 1 drift_event + 4 affected_citations + 4
+#             notification_log rows (watch progress in the Cloud Run logs for /run).
+# Second run: {"status":"already_processed","drift_event_id":...} — dispatcher idempotency
+#             (add ?force=true to re-run a pair anyway).
 ```
 
 Reference outputs are checked in at [`apps/dispatcher/tests/golden/`](apps/dispatcher/tests/golden/).
