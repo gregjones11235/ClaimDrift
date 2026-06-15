@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   runOrchestration,
   NodeId,
@@ -22,6 +22,53 @@ const INITIAL_NODES: NodeView[] = [
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The preprint DOI this playground's fixed case runs on — must match
+// apps/playground/orchestration.py ENVELOPE["preprint"]["doi"].
+const PREWARM_PREPRINT_DOI = "10.1101/2024.05.01.24306384";
+
+// Silently pre-warm the OpenAlex `cites:` lookup so the FIRST real run's
+// citation_finder isn't paying for a cold OpenAlex query cache. citation_finder
+// reaches OpenAlex through the Elastic `openalex_citing_works` MCP workflow,
+// which does a TWO-step chain: (1) GET /works/{doi} to map the DOI → short
+// OpenAlex work id, (2) GET /works?filter=cites:{id}. We replicate BOTH calls
+// here with the EXACT same URLs (including the `select=` query strings, which
+// are part of OpenAlex's cache key) so this prewarm hits the same cache entries
+// the workflow will. We can only warm OpenAlex's own server-side query cache —
+// NOT the Elastic node's outbound connection pool (that's server-side) — but
+// that cache is the dominant cold cost for a fixed, repeatedly-queried DOI.
+//
+// Best-effort: every error is swallowed. OpenAlex is a public, CORS-enabled,
+// unauthenticated API and this fires zero LLM calls / sends zero email, so it
+// costs nothing. If it fails (offline, OpenAlex down, CORS change), the real
+// run just pays the cold cost as before — no user-visible effect either way.
+async function prewarmOpenAlex(signal: AbortSignal): Promise<void> {
+  try {
+    const src = await fetch(
+      `https://api.openalex.org/works/https://doi.org/${PREWARM_PREPRINT_DOI}?select=id,doi,display_name`,
+      { signal, headers: { Accept: "application/json" } },
+    );
+    if (!src.ok) return;
+    const srcJson = (await src.json()) as { id?: string };
+    const workId = srcJson.id?.split("/").pop();
+    if (!workId) return;
+    await fetch(
+      `https://api.openalex.org/works?filter=cites:${workId}` +
+        `&per-page=25&select=id,doi,title,display_name,authorships,publication_year,cited_by_count`,
+      { signal, headers: { Accept: "application/json" } },
+    );
+  } catch {
+    // best-effort prewarm — ignore all failures (incl. AbortError on unmount)
+  }
+}
+
+// A node has "started" once any of its lanes left idle — i.e. at least one
+// real SSE event arrived for it. Used to drive the in-order "working" inference
+// for the node immediately downstream (which is otherwise stuck at idle during
+// its buffered work window).
+function nodeStarted(node: NodeView): boolean {
+  return Object.values(node.lanes).some((l) => l.phase !== "idle");
+}
 
 function phaseColor(phase: NodePhase): string {
   switch (phase) {
@@ -52,23 +99,36 @@ export default function OrchestrationPage() {
 
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
-  // The notifier fans out one lane per affected citation, but lanes appear one
-  // at a time AS each notification is drafted — so a lane-only count makes the
-  // denominator climb with the numerator (1/1, 2/2, …). The true total is what
-  // citation_finder reported ("found N affected citation(s)"); parse N from its
-  // summary and use it as the fixed denominator for the notifier progress.
-  const expectedAlerts = useMemo(() => {
-    const cf = nodes.find((n) => n.id === "citation_finder");
-    const summary = cf?.lanes[0]?.summary ?? "";
-    const m = summary.match(/found\s+(\d+)\s+affected/i);
-    return m ? Number(m[1]) : 0;
+  // The notifier denominator is the number of notifications we can ACTUALLY
+  // generate (one lane per affected citation that had enough metadata to draft
+  // an alert) — NOT citation_finder's `total_found`. OpenAlex can report N
+  // citing works while only M (<N) carry the DOI/author a notifier needs, so a
+  // total_found denominator strands the card at "M/N" forever (the missing
+  // N−M lanes never light up). We instead count real lanes and treat the
+  // fan-out as COMPLETE once the downstream memory_synthesizer node begins —
+  // supervisor runs every notifier before memory_synthesizer, so its first
+  // event means no more notifier lanes are coming. Until then the denominator
+  // can still climb as lanes arrive (so we never under-count mid-fan-out).
+  const notifierSealed = useMemo(() => {
+    const ms = nodes.find((n) => n.id === "memory_synthesizer");
+    return Object.values(ms?.lanes ?? {}).some((l) => l.phase !== "idle");
   }, [nodes]);
 
-  // The supervisor pipeline runs ~200s; warn before any navigation that would
-  // unmount this page and kill the live SSE run. See useRunGuard.
+  // Pre-warm the OpenAlex citing-works cache as soon as the page mounts, while
+  // the judge is still reading "THE CASE" and entering their email. By the time
+  // they press Run, citation_finder's OpenAlex lookup is likely a cache hit
+  // rather than a cold query. Fire once on mount; abort if we unmount first.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void prewarmOpenAlex(ctrl.signal);
+    return () => ctrl.abort();
+  }, []);
+
+  // The supervisor pipeline can run up to ~6 min; warn before any navigation
+  // that would unmount this page and kill the live SSE run. See useRunGuard.
   useRunGuard(
     running,
-    "The 5-agent pipeline is still running (~200s). Leaving this page will stop it and you won't get the drift-alert email. Leave anyway?",
+    "The 5-agent pipeline is still running (~6 min). Leaving this page will stop it and you won't get the drift-alert email. Leave anyway?",
   );
 
   function patchLane(id: NodeId, lane: number, next: Partial<NodeLane>) {
@@ -253,35 +313,38 @@ export default function OrchestrationPage() {
             the case
           </div>
           <strong style={{ color: "var(--wh)", fontWeight: 600 }}>
-            &ldquo;The NO Answer for Autism Spectrum Disorder&rdquo;
+            &ldquo;Evidence that minocycline treatment confounds the interpretation
+            of neurofilament as a biomarker&rdquo;
           </strong>{" "}
-          (bioRxiv 2023 → <em>Advanced Science</em>). Between the preprint and the
-          published version, a strong causal claim — that treating mice with a
-          nitric-oxide donor <em>led to an autism-like phenotype</em> — was removed,
-          and &ldquo;NO plays a <em>pathological</em> role in ASD&rdquo; was softened to a
-          &ldquo;<em>significant</em> role.&rdquo; The pipeline detects this drift and notifies the{" "}
+          (medRxiv 2024 → <em>Brain Communications</em>). Between the preprint and the
+          published version, a battery of precise quantitative findings — a{" "}
+          <em>3.5-fold plasma / 5.7-fold CSF NfL spike</em>, a <em>&gt;500&nbsp;pg/mL</em>{" "}
+          threshold, <em>1.3–4.0-fold</em> increases in mice — were de-quantified into
+          vague qualitative statements (&ldquo;NfL spiked&rdquo;, &ldquo;high NfL&rdquo;),
+          and a negative-control claim (&ldquo;dermatology patients not elevated&rdquo;)
+          was dropped entirely. The pipeline detects this drift and notifies the{" "}
           <span style={{ color: "var(--y)" }}>real papers that cite the preprint</span>.
           <div style={{ marginTop: 8, fontSize: 11 }}>
             <a
-              href="https://doi.org/10.1101/2023.01.07.523095"
+              href="https://doi.org/10.1101/2024.05.01.24306384"
               target="_blank"
               rel="noopener"
               style={{ color: "var(--bl)", textDecorationLine: "none" }}
             >
-              10.1101/2023.01.07.523095
+              10.1101/2024.05.01.24306384
             </a>{" "}
-            <span style={{ opacity: 0.7 }}>— the bioRxiv preprint (what was claimed)</span>
+            <span style={{ opacity: 0.7 }}>— the medRxiv preprint (what was claimed)</span>
             <br />
             <a
-              href="https://doi.org/10.1002/advs.202205783"
+              href="https://doi.org/10.1093/braincomms/fcaf175"
               target="_blank"
               rel="noopener"
               style={{ color: "var(--bl)", textDecorationLine: "none" }}
             >
-              10.1002/advs.202205783
+              10.1093/braincomms/fcaf175
             </a>{" "}
             <span style={{ opacity: 0.7 }}>
-              — the published Advanced Science paper (what was delivered)
+              — the published Brain Communications paper (what was delivered)
             </span>
           </div>
         </div>
@@ -412,7 +475,21 @@ export default function OrchestrationPage() {
       >
         {nodes.map((n, i) => (
           <div key={n.id} style={{ display: "flex", alignItems: "center" }}>
-            <NodeColumn node={n} expectedTotal={expectedAlerts} />
+            <NodeColumn
+              node={n}
+              notifierSealed={notifierSealed}
+              // A node sits at "idle" during the gap between the upstream node
+              // finishing and its own first SSE event — for a single sub-agent
+              // (e.g. citation_finder) the whole guarded stream is buffered and
+              // arrives at once, so the node shows idle for its entire real work
+              // window, then snaps to done. The pipeline runs strictly in order,
+              // so once the previous node has begun and this one hasn't reached a
+              // terminal state, this node IS the one working — render it active.
+              // Gated on `running`: after run.complete we must NOT keep a node
+              // "working", or memory_synthesizer (fire-and-forget — it may emit
+              // no event this path) would hang at working forever.
+              upstreamStarted={running && (i > 0 ? nodeStarted(nodes[i - 1]) : true)}
+            />
             {i < nodes.length - 1 && <Connector />}
           </div>
         ))}
@@ -531,74 +608,104 @@ function upsertEmail(list: EmailEvent[], subject: string, next: EmailEvent): Ema
   return copy;
 }
 
-function NodeColumn({ node, expectedTotal }: { node: NodeView; expectedTotal?: number }) {
+function NodeColumn({
+  node,
+  notifierSealed,
+  upstreamStarted,
+}: {
+  node: NodeView;
+  notifierSealed?: boolean;
+  upstreamStarted?: boolean;
+}) {
   const laneKeys = Object.keys(node.lanes)
     .map(Number)
     .sort((a, b) => a - b);
+  // The single-node "working" inference: this node hasn't emitted any event yet
+  // (all lanes idle) but the upstream node has begun, so by the pipeline's
+  // strict order this node is the one currently working. Fan-out nodes light
+  // their own lanes as events stream in, so this only matters for single nodes.
+  const inferWorking = upstreamStarted === true && !nodeStarted(node);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 178 }}>
       <div className="specimen specimen-y" style={{ fontSize: 9.5, letterSpacing: "0.1em", marginBottom: 2 }}>
         {node.label}
       </div>
-      {/* notifier fans out one lane per affected citation (up to ~13). Rendering
-          13 stacked cards is noisy; collapse them into ONE card that shows a
-          live N/total drafting progress instead. Other fan-out (claim_extractor
-          ×2) is small enough to keep as separate lanes. */}
+      {/* notifier fans out one lane per affected citation. Rendering a stacked
+          card per lane is noisy; collapse them into ONE card that shows a live
+          count of alerts drafted. Other fan-out (claim_extractor ×2) is small
+          enough to keep as separate lanes. */}
       {node.id === "notifier" ? (
-        <NotifierCard lanes={node.lanes} expectedTotal={expectedTotal} />
+        <NotifierCard lanes={node.lanes} sealed={notifierSealed} inferWorking={inferWorking} />
       ) : (
-        laneKeys.map((k) => <LaneCard key={k} lane={node.lanes[k]} />)
+        laneKeys.map((k) => (
+          <LaneCard key={k} lane={node.lanes[k]} inferWorking={inferWorking} />
+        ))
       )}
     </div>
   );
 }
 
-// Collapsed notifier card: one box, live "drafting N/total" → "✓ sent total".
-// `expectedTotal` is the affected-citation count citation_finder reported; it's
-// the FIXED denominator so progress reads 1/13 → 13/13 instead of 1/1 → 13/13
-// (lanes appear one-per-draft, so a lane-only count moves the denominator too).
+// Collapsed notifier card: one box, live "drafting N…" → "✓ sent N alerts".
+// We show ONLY the count of alerts actually drafted — no denominator. A
+// denominator based on citation_finder's `total_found` stranded the card at
+// "M/N" forever whenever OpenAlex reported N citing works but only M carried
+// the DOI/author a notifier needs (the missing N−M lanes never light up). And
+// once the denominator equals the lanes we see, it carries no information — so
+// we drop it: a citation we couldn't notify simply isn't counted.
+// `sealed` (memory_synthesizer has begun → no more notifier lanes are coming)
+// is what lets us call the card DONE; until then it stays "drafting".
 function NotifierCard({
   lanes,
-  expectedTotal,
+  sealed,
+  inferWorking,
 }: {
   lanes: Record<number, NodeLane>;
-  expectedTotal?: number;
+  sealed?: boolean;
+  inferWorking?: boolean;
 }) {
   const all = Object.values(lanes);
   // Only count real notifier lanes — the seed lane 0 starts as {phase:"idle"}
   // before any citation arrives; treat it as "not yet started" so we show idle
-  // (not 0/1) until the first notifier event lights a lane.
+  // until the first notifier event lights a lane.
   const started = all.filter((l) => l.phase !== "idle");
   const done = started.filter((l) => l.phase === "done").length;
   const errored = started.filter((l) => l.phase === "error").length;
-  const settled = done + errored;
-  // Denominator: prefer citation_finder's reported count; fall back to the
-  // number of lanes we've seen (covers a run where that summary is missing).
-  // Never let it drop below settled — a late/low count shouldn't show 13/12.
-  const total = Math.max(expectedTotal ?? 0, started.length, settled);
-  // The notifier itself has begun only once a real lane lights up — citation_finder
-  // reporting N must NOT flip this card to "running 0/N" before the fan-out starts.
+  // The notifier has begun only once a real lane lights up.
   const hasStarted = started.length > 0;
-  const allDone = hasStarted && settled >= total;
+  // Done = the fan-out is sealed (the downstream node began, so no further
+  // lanes will appear) and no lane is still drafting. Without `sealed` the card
+  // would flash "done" in the gap between two drafts.
+  const allDone = hasStarted && sealed === true && done + errored >= started.length;
 
+  // "working" covers the gap after citation_finder finishes but before the
+  // first notifier lane streams in: the node is genuinely running (building
+  // envelopes / awaiting the first draft), so show it active rather than idle.
   let phase: NodePhase = "idle";
   if (errored > 0 && done === 0) phase = "error";
   else if (allDone) phase = "done";
-  else if (hasStarted) phase = "active";
+  else if (hasStarted || inferWorking === true) phase = "active";
 
   const color = phaseColor(phase);
   const active = phase === "active";
 
   let statusLabel: string;
   let body: React.ReactNode;
-  if (!hasStarted) {
+  if (!hasStarted && inferWorking === true) {
+    statusLabel = "● running";
+    body = (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span className="cd-spinner" />
+        <em>working…</em>
+      </span>
+    );
+  } else if (!hasStarted) {
     statusLabel = "idle";
     body = "—";
   } else if (allDone) {
     statusLabel = "✓ done";
     body = (
       <>
-        drafted {done}/{total} alert{total === 1 ? "" : "s"}
+        sent {done} alert{done === 1 ? "" : "s"}
         {errored > 0 ? ` · ${errored} failed` : ""}
       </>
     );
@@ -607,7 +714,7 @@ function NotifierCard({
     body = (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span className="cd-spinner" />
-        drafting {done}/{total} alerts…
+        drafting {done} alert{done === 1 ? "" : "s"}…
       </span>
     );
   }
@@ -648,9 +755,14 @@ function NotifierCard({
   );
 }
 
-function LaneCard({ lane }: { lane: NodeLane }) {
-  const color = phaseColor(lane.phase);
-  const active = lane.phase === "active";
+function LaneCard({ lane, inferWorking }: { lane: NodeLane; inferWorking?: boolean }) {
+  // Show "working" when this lane is genuinely active, OR when it's still idle
+  // but the pipeline says it's the node currently running (its events haven't
+  // streamed in yet — see NodeColumn.inferWorking). A real terminal state
+  // (done/error) always wins over the inference.
+  const working = lane.phase === "active" || (lane.phase === "idle" && inferWorking === true);
+  const color = working ? phaseColor("active") : phaseColor(lane.phase);
+  const active = working;
   return (
     <div
       style={{
@@ -678,16 +790,18 @@ function LaneCard({ lane }: { lane: NodeLane }) {
           marginBottom: 6,
         }}
       >
-        {lane.phase === "active"
-          ? "● running"
-          : lane.phase === "done"
-            ? "✓ done"
-            : lane.phase === "error"
-              ? "✗ error"
+        {lane.phase === "done"
+          ? "✓ done"
+          : lane.phase === "error"
+            ? "✗ error"
+            : working
+              ? "● running"
               : "idle"}
       </div>
       <div style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--gr)", wordBreak: "break-word" }}>
-        {lane.error ?? lane.summary ?? (lane.action ? <em>{lane.action}…</em> : "—")}
+        {lane.error ??
+          lane.summary ??
+          (lane.action ? <em>{lane.action}…</em> : working ? <em>working…</em> : "—")}
       </div>
     </div>
   );

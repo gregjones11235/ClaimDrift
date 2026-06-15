@@ -166,114 +166,96 @@ def _which_recent_429(within_s: int = 180) -> list[str]:
     return hit
 
 # Canonical demo envelope — a REAL preprint→published pair with a REAL,
-# verified drift. Replaces the prior synthetic HCQ stub (fabricated DOIs
-# 10.1101/2024.01.15.123456 → 10.1016/j.cell.2024.05.001), which OpenAlex 404'd,
-# so citation_finder always found N=0 citing works and the notifier node never
-# lit up. This pair is real end-to-end:
+# verified drift. Replaces the prior ASD pair (10.1101/2023.01.07.523095 →
+# 10.1002/advs.202205783), which was real and correct but had 13 OpenAlex
+# citing works — so the notifier fanned out 13 lanes and each one is a separate
+# gemini-2.5-pro draft call, making the email-generation stage drag for minutes.
+# This pair has the same end-to-end realness with a SMALLER fan-out:
 #
-#   preprint  10.1101/2023.01.07.523095  (bioRxiv, "The NO Answer for ASD")
-#   published 10.1002/advs.202205783     (Advanced Science)
+#   preprint  10.1101/2024.05.01.24306384  (medRxiv, "Evidence that minocycline
+#                                            treatment confounds the interpretation
+#                                            of neurofilament as a biomarker")
+#   published 10.1093/braincomms/fcaf175    (Brain Communications)
 #
-# WHY THIS PAIR (all verified 2026-06-08):
-#   - Both DOIs resolve in OpenAlex; the PREPRINT has 13 citing works, ALL with
-#     DOIs — so citation_finder returns 13 affected_citations and the notifier
-#     fans out 13 lanes and sends 13 real alert emails (the whole point of
-#     swapping the case). Verified via api.openalex.org cites: filter.
-#   - The drift is REAL, not a published-abstract-missing false positive: the
-#     production `preprints` index holds a genuine 1380-char published abstract
-#     for this pair (NOT a title placeholder), and the production drift_event
-#     scored materiality 0.75 with substantive claim_diffs — a strong causal
-#     claim ("treated WT mice with an NO donor, which led to an autism-like
-#     phenotype") was REMOVED in publication, and "NO plays a *pathological*
-#     role" was softened to "*significant* role". See the drift_events record
-#     and the verbatim abstracts below (both pulled from production ES /
-#     bioRxiv, unedited).
+# WHY THIS PAIR (all verified 2026-06-15 against production ES + OpenAlex):
+#   - The PREPRINT has 5 OpenAlex citing works (vs the ASD pair's 13), so
+#     citation_finder returns ~5 affected_citations and the notifier fans out ~5
+#     lanes instead of 13 — roughly a third of the per-citation LLM drafts, which
+#     is what made the old case slow. Still a real multi-lane fan-out (not N=1),
+#     so the orchestration is still worth watching. Verified via the
+#     api.openalex.org cites: filter.
+#   - The drift is REAL and NOT a published-abstract-missing false positive: the
+#     production `preprints` index holds a genuine 962-char published abstract for
+#     this pair (NOT a title placeholder), and the production drift_event scored
+#     materiality 0.8 with SEVEN substantive claim_diffs. The preprint reports a
+#     battery of precise fold-changes (a 3.5×/5.7× NfL spike in plasma/CSF, a
+#     >500 pg/mL threshold, 1.3–4.0× in mice, 3.0× in co-cultures) and these were
+#     all DE-QUANTIFIED into vague qualitative statements ("NfL spiked", "high
+#     NfL") on publication, plus a negative-control claim ("dermatology patients
+#     not elevated") was dropped entirely — a textbook claim_disappeared /
+#     numerical_shift drift, not a hedging nit. See the drift_events record and
+#     the verbatim abstracts below.
 #
 # The abstracts below are the REAL, full published/preprint abstracts (verbatim
-# from the production `preprints` index, themselves sourced from bioRxiv and the
-# Advanced Science article), so drift_analyzer sees exactly what production saw
-# and reproduces the ~0.75 outcome honestly.
+# from the production `preprints` index, themselves sourced from medRxiv and the
+# Brain Communications article), so drift_analyzer sees exactly what production
+# saw and reproduces the ~0.8 outcome honestly. Neither record carries a separate
+# `conclusion` field in production, so the envelope omits it (the supervisor
+# treats a missing conclusion the same as an empty one).
 ENVELOPE: dict[str, Any] = {
     "preprint": {
-        "doi": "10.1101/2023.01.07.523095",
+        "doi": "10.1101/2024.05.01.24306384",
         "version": "v1",
-        "title": "The NO Answer for Autism Spectrum Disorder",
-        "abstract": (
-            "Autism spectrum disorders (ASDs) include a range of developmental "
-            "disorders that share a core of neurobehavioral deficits manifested by "
-            "abnormalities in social interactions, deficits in communication, "
-            "restricted interests, and repetitive behaviors. Several reports showed "
-            "that mutations in different high-risk ASD genes, including SHANK3 and "
-            "CNTNAP2, lead to ASD. However, to date, the underlying molecular "
-            "mechanisms have not been deciphered, and no effective pharmacological "
-            "treatment has been established for ASD. Recently, we reported a dramatic "
-            "increase of nitric oxide (NO) in ASD mouse models. NO is a "
-            "multifunctional neurotransmitter that plays a key role in different "
-            "neurological disorders. However, its role in ASD has not yet been "
-            "investigated. To reveal the novel molecular, cellular, and behavioral "
-            "role of NO in ASD, we conducted multidisciplinary experiments using "
-            "cellular and mouse models as well as clinical samples. First, we treated "
-            "WT mice with an NO donor, which led to an autism-like phenotype. Next, we "
-            "measured and found high levels of nitrosative stress biomarkers in both "
-            "the Shank3 and Cntnap2 ASD mouse models. Treating both mouse models with "
-            "a selective neuronal NO synthase (nNOS) inhibitor led to a reversal in "
-            "the molecular, synaptic, and behavioral ASD phenotypes. Using a primary "
-            "neuronal cell culture, we confirmed that NO is specifically involved in "
-            "neurons in ASD pathology. Next, using genetic manipulations in the human "
-            "SH-SY5Y cell line, we found that nNOS plays a key role in the pathology. "
-            "Finally, we examined human plasma samples from 19 low-functioning ASD "
-            "patients, compared to 20 typically developed volunteers, and found a "
-            "significant elevation in the NO levels in the ASD patients. Furthermore, "
-            "using the SNOTRAP technology, which is an innovative mass spectrometric "
-            "method to identify the SNO-proteome, we revealed that the complement "
-            "systems in the synaptic and neuronal development processes are enriched "
-            "in the ASD group. This work indicates, for the first time, that NO plays "
-            "a pathological role in ASD development. Our findings will open future and "
-            "novel directions to examine NO in diverse mutations on the autism "
-            "spectrum as well as other neurodevelopmental disorders and psychiatric "
-            "diseases. Most importantly, it suggests a novel treatment strategy for "
-            "ASD. Nitric oxide plays a key role in ASD pathology development and "
-            "progression, and targeting its production leads to a reversal in the "
-            "autistic phenotype."
+        "title": (
+            "Evidence that minocycline treatment confounds the interpretation of "
+            "neurofilament as a biomarker"
         ),
-        "conclusion": (
-            "This work indicates, for the first time, that NO plays a pathological "
-            "role in ASD development. Treating WT mice with an NO donor led to an "
-            "autism-like phenotype, and targeting NO production reversed the autistic "
-            "phenotype — suggesting a novel treatment strategy for ASD."
+        "abstract": (
+            "Neurofilament light (NfL) concentration in cerebrospinal fluid (CSF) "
+            "and blood serves as an important biomarker in neurology drug "
+            "development. Changes in NfL are generally assumed to reflect changes in "
+            "neuronal damage, while little is known about the clearance of NfL from "
+            "biofluids. We observed an NfL increase of 3.5-fold in plasma and 5.7-fold "
+            "in CSF in an asymptomatic individual at risk for genetic prion disease "
+            "following 6 weeks treatment with oral minocycline for a dermatologic "
+            "indication. Other biomarkers remained normal, and proteomic analysis of "
+            "CSF revealed that the spike was exquisitely specific to neurofilaments. "
+            "NfL dropped nearly to normal levels 5 weeks after minocycline cessation, "
+            "and the individual remained free of disease 2 years later. Plasma NfL in "
+            "dermatology patients was not elevated above normal controls. Dramatically "
+            "high plasma NfL (>500 pg/mL) was variably observed in some hospitalized "
+            "individuals receiving minocycline. In mice, treatment with minocycline "
+            "resulted in variable increases of 1.3- to 4.0-fold in plasma NfL, with "
+            "complete washout 2 weeks after cessation. In neuron-microglia "
+            "co-cultures, minocycline increased NfL concentration in conditioned media "
+            "by 3.0-fold without any visually obvious impact on neuronal health. We "
+            "hypothesize that minocycline does not cause or exacerbate neuronal "
+            "damage, but instead impacts the clearance of NfL from biofluids, a "
+            "potential confounder for interpretation of this biomarker."
         ),
     },
     "published": {
-        "doi": "10.1002/advs.202205783",
+        "doi": "10.1093/braincomms/fcaf175",
         "version": "published",
-        "title": "The NO Answer for Autism Spectrum Disorder",
-        "abstract": (
-            "Autism spectrum disorders (ASDs) include a wide range of "
-            "neurodevelopmental disorders. Several reports showed that mutations in "
-            "different high-risk ASD genes lead to ASD. However, the underlying "
-            "molecular mechanisms have not been deciphered. Recently, they reported a "
-            "dramatic increase in nitric oxide (NO) levels in ASD mouse models. Here, "
-            "they conducted a multidisciplinary study to investigate the role of NO in "
-            "ASD. High levels of nitrosative stress biomarkers are found in both the "
-            "Shank3 and Cntnap2 ASD mouse models. Pharmacological intervention with a "
-            "neuronal NO synthase (nNOS) inhibitor in both models led to a reversal of "
-            "the molecular, synaptic, and behavioral ASD-associated phenotypes. "
-            "Importantly, treating iPSC-derived cortical neurons from patients with "
-            "SHANK3 mutation with the nNOS inhibitor showed similar therapeutic "
-            "effects. Clinically, they found a significant increase in nitrosative "
-            "stress biomarkers in the plasma of low-functioning ASD patients. "
-            "Bioinformatics of the SNO-proteome revealed that the complement system is "
-            "enriched in ASD. This novel work reveals, for the first time, that NO "
-            "plays a significant role in ASD. Their important findings will open novel "
-            "directions to examine NO in diverse mutations on the spectrum as well as "
-            "in other neurodevelopmental disorders. Finally, it suggests a novel "
-            "strategy for effectively treating ASD."
+        "title": (
+            "Evidence that minocycline treatment confounds the interpretation of "
+            "neurofilament as a biomarker"
         ),
-        "conclusion": (
-            "This novel work reveals, for the first time, that NO plays a significant "
-            "role in ASD. Pharmacological nNOS inhibition reversed ASD-associated "
-            "phenotypes in mouse models and in iPSC-derived patient neurons, "
-            "suggesting a novel strategy for effectively treating ASD."
+        "abstract": (
+            "Abstract Neurofilament light (NfL) concentration in CSF and blood serves "
+            "as an important biomarker in neurology drug development. Changes in NfL "
+            "are generally assumed to reflect changes in neuronal damage, while little "
+            "is known about the clearance of NfL from biofluids. In a study of "
+            "asymptomatic individuals at risk for prion disease, both blood and CSF "
+            "NfL spiked in one participant following a 6-week course of minocycline, "
+            "absent any other biomarker changes and without subsequent onset of "
+            "symptoms. We subsequently observed high NfL after minocycline treatment "
+            "in discarded clinical plasma samples from inpatients, in mouse plasma and "
+            "in conditioned media from neuron–microglia co-cultures. The specificity "
+            "and kinetics of NfL response lead us to hypothesize that minocycline does "
+            "not cause or exacerbate neuronal damage, but instead affects NfL by "
+            "inhibiting its clearance, posing a potential confounder for the "
+            "interpretation of this important biomarker."
         ),
     },
 }
