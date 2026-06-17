@@ -17,6 +17,17 @@ It currently supports:
 - Contract-shaped dry-run output
 - Optional Elasticsearch bulk upsert for `preprints`
 
+## Running the commands
+
+This package depends only on the Python standard library (`urllib`), so the
+commands below run under a bare `python3` (3.12+). Run them **from the repo
+root** so the `ingestion` package is importable. Equivalently — and matching the
+root README's convention — prefix with `uv run` to reuse the pinned interpreter
+in `agents/.venv` (`uv run python -m ingestion.run_pull …`), which sidesteps any
+"system `python3` is the wrong version / not installed" issue. Either form works;
+pick one and stay consistent. ES writes additionally need `ELASTIC_ENDPOINT` +
+`ELASTIC_API_KEY` in the environment (e.g. `set -a; source ../agents/.env; set +a`).
+
 ## Dry Run
 
 ```bash
@@ -78,7 +89,8 @@ OpenAlex remains a dry-run lookup because Citation Finder now calls the
 
 ## Real Pair For Dispatcher
 
-Dispatcher Step 8 needs one real pair in `preprints`: the preprint row and the
+The root README's reproduce flow (step 1b "Populate `preprints`", and the
+step-9 smoke test) needs one real pair in `preprints`: the preprint row and the
 published row. Run the source pull first, then the Crossref pairing update:
 
 ```bash

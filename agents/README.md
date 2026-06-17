@@ -121,11 +121,13 @@ uv run adk run claim_extractor
 
 ### Run an arbitrary Python script
 
+The `uv run` prefix runs any command inside the project's `.venv` — no manual activation needed. The only prerequisite at this point is `uv sync` (above); this example has no other dependencies:
+
 ```bash
-uv run python scripts/test_es_connection.py
+uv run python -c "import google.adk; print('adk', google.adk.__version__)"
 ```
 
-The `uv run` prefix tells uv to execute the command inside the project's `.venv` automatically — no manual activation required.
+The diagnostic scripts under `scripts/` (e.g. `diagnose_retrieval_stack.py`, `probe_rrf_scores.py`) run the same way but are **not** zero-setup: they query the live `drift_patterns_read` alias, so they only work after the Elasticsearch indices + alias + data are in place (root README steps 1 and 1b), with `agents/.env` filled in.
 
 ### (Optional) Activate the venv the conda-style way
 

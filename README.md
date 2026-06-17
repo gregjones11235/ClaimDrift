@@ -100,13 +100,24 @@ Prerequisites:
 - **GCP**: a project with Vertex AI, Cloud Run, Cloud Build, Secret Manager, Cloud Scheduler APIs enabled
 - **Elastic**: a serverless project with ELSER + Agent Builder enabled. Kibana URL (`*.kb.*`) and ES URL (`*.es.*`) are distinct — both are needed.
 - **Gmail OAuth**: a project-scoped OAuth client (Desktop type) for the notifier service account
-- **Tooling**: `uv` (Python), `gcloud` CLI logged in to the GCP project, `bash` / WSL on Windows
+- **Tooling**: `uv` (Python), `gcloud` CLI logged in to the GCP project, `bash` / WSL on Windows, plus `jq` + `python3` on PATH (the Agent Builder upsert scripts in step 3 need them)
 
-Setup, in dependency order — each step is verifiable independently:
+Setup, in dependency order — each step is verifiable independently.
+
+0. **Environment + Python deps (do this first).** All `uv run …` commands below resolve against the single Python project at `agents/` (there is no repo-root `pyproject.toml`); they are run **from the repo root** so the top-level `ingestion` package is importable (the `elastic/scripts/*.py` tools `from ingestion.common.elastic import …`). The scripts themselves use only the standard library (`urllib`), so the sync is fast:
+   ```bash
+   cp agents/.env.example agents/.env   # then fill in every value — see the comments in the file
+   uv sync --project agents             # creates agents/.venv with the ADK + deploy deps
+   ```
+   `agents/.env` is the single source the Python tools and the two Agent Builder shell scripts both read. Fill in **all** of: `GOOGLE_CLOUD_PROJECT`, `ELASTIC_ENDPOINT` (the `.es.` data-plane host), `ELASTIC_API_KEY`, and `KIBANA_URL` (the `.kb.` host — distinct from `.es.`, required by step 3's upsert scripts). It is gitignored, so a clean clone has only `.env.example`.
+
+   Every subsequent step assumes the endpoint/key are exported into the shell:
+   ```bash
+   set -a; source agents/.env; set +a   # exports ELASTIC_ENDPOINT + ELASTIC_API_KEY + KIBANA_URL
+   ```
 
 1. **Elasticsearch indices**
    ```bash
-   set -a; source agents/.env; set +a   # exports ELASTIC_ENDPOINT + ELASTIC_API_KEY
    uv run python elastic/scripts/create_indices.py --apply --skip-existing
    ```
    Verify with the schema-drift audit:
@@ -117,6 +128,26 @@ Setup, in dependency order — each step is verifiable independently:
    ```bash
    uv run python elastic/scripts/manage_pattern_alias.py init --apply   # drift_patterns_read -> drift_patterns
    ```
+
+   **1b. Populate `preprints` with data.** The indices are now empty. The scheduled workflow (step 7) fires on *newly-ingested* `(preprint, published)` pairs, and the step-9 smoke test reverse-looks-up its preprint DOI in `preprints` — both fail against an empty index. Pick whichever path fits your goal:
+
+   **Option A — real backfill (faithful to the live system, takes minutes).** This is how the live data was produced (contracts §5.2 + [docs/ingestion_cloud_run_ops.md](docs/ingestion_cloud_run_ops.md)): a one-shot historical pull of bioRxiv + medRxiv with `--include-published`, then a Crossref-batch pass that backfills `published_doi` on rows with a real published match. It's the wide `--since/--limit` "historical backfill" window the ops runbook describes (the deployed Cloud Run Jobs in step 6 run a *narrow incremental* window instead). Use this if you want the real ~10k-preprint scale, or to exercise the workflow on genuinely new pairs.
+   ```bash
+   # Wide window, large limit. Drop --limit / widen --since to approach live scale.
+   uv run python -m ingestion.run_pull --source biorxiv \
+     --since 2023-01-01 --limit 4000 --include-published --bulk-batch-size 250 --apply
+   uv run python -m ingestion.run_pull --source medrxiv \
+     --since 2023-01-01 --limit 4000 --include-published --bulk-batch-size 250 --apply
+   uv run python -m ingestion.run_pull --source crossref-batch \
+     --batch-source all --limit 2500 --apply
+   ```
+   Verify the scale (demo rows excluded via `must_not record_source=demo_seed`) with the count queries in [docs/ingestion_cloud_run_ops.md](docs/ingestion_cloud_run_ops.md#L99) — targets are `>= 10,000` real preprints and `>= 500` real pairs.
+
+   **Option B — demo seed (lightweight, takes seconds).** If you just want the end-to-end path running without waiting on external APIs, seed the curated demo cases instead. They write a handful of hand-built `(preprint, published)` pairs (each with a deliberate, inspectable drift) tagged `record_source="demo_seed"`:
+   ```bash
+   uv run python elastic/scripts/seed_demo_to_es.py --apply
+   ```
+   This is enough to drive the supervisor pipeline and the dashboard. Two caveats: the seed pairs already exist (they won't look "newly-ingested" to the step-7 workflow watermark — dispatch them manually as in step 9), and real-data views filter `demo_seed` out, so the BFF's real-data screens will look empty until you also run Option A. If you take Option B, use a **seed** pair for the step-9 smoke test, e.g. `{"preprint_doi":"10.1101/2024.01.15.123456","published_doi":"10.1016/j.cell.2024.05.001"}` (the hydroxychloroquine effect-size-reduction case), not the real-data T1 pair.
 
 2. **Elastic Agent Builder MCP tools** — 4 tools in `elastic/agent_builder/tools/*.json`: `search_drift_patterns` is a self-contained ES|QL tool; the other three (`create_drift_pattern`, `update_drift_pattern`, `openalex_citing_works`) each delegate to a same-named Workflow YAML in `elastic/agent_builder/workflows/*.yaml` that must be upserted too. Both upsert scripts read `KIBANA_URL` + `ELASTIC_API_KEY` from `agents/.env` (the `.kb.` host, not `.es.`), and need `jq` + `python3` on PATH:
    ```bash
@@ -193,9 +224,17 @@ Setup, in dependency order — each step is verifiable independently:
 
 9. **Frontend + BFF (the hosted demo)** — see "Deploy the hosted demo" below and [`frontend/README.md`](frontend/README.md).
 
-Verify the end-to-end path against the T1 reference run:
+Verify the end-to-end path against the T1 reference run. The dispatcher reverse-looks-up the preprint DOI in `preprints`, so this canonical pair must be in the index — the wide backfill in step 1b usually covers it, but if not, pull it directly first (the targeted "Real Pair For Dispatcher" recipe in [ingestion/README.md](ingestion/README.md)):
 
 ```bash
+# (only if the T1 preprint isn't already in `preprints`)
+uv run python -m ingestion.run_pull --source biorxiv \
+  --since 2024-05-01 --limit 50 --include-published --apply
+# --preprint-source biorxiv: this DOI is a bioRxiv preprint; the flag defaults to
+# medrxiv, so it must be set explicitly or the published row gets a wrong source label.
+uv run python -m ingestion.run_pull --source crossref \
+  --doi 10.1101/2024.05.03.24306688 --preprint-source biorxiv --apply
+
 # Manual dispatch of the canonical T1 pair (amblyopia LLM detection preprint)
 curl -X POST "<DISPATCHER_URL>/dispatch" \
   -H "Authorization: Bearer $WF_BEARER_TOKEN" \
