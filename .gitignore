@@ -25,6 +25,17 @@ env/
 !.env.example
 .gmail_token.json
 
+# Chinese working documents (design notes, deployment record, experiment write-ups, interview prep): local only
+/新系统改造设计.md
+/新系统云端部署.md
+/agent项目升级改造.md
+/作者自查ELSER预筛实验.md
+/作者自查prompts.md
+/(可选)初筛引入ELSER实验.md
+/docs/Amazon面试BQ回答资源.md
+/docs/Amazon项目深挖问题及回答.md
+/docs/demo_video/part2讲稿.md
+
 # Case bank, docstore, Europe PMC cache, experiments and their results: local + the Cloud Storage bucket mounted at
 # /data on Cloud Run; not versioned (761 MB).
 /data/

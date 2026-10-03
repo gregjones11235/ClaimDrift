@@ -83,16 +83,16 @@ Built for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.c
 - **Author self-check** (BFF): ELSER + BM25 hybrid retrieval proposes the top 10 candidate changes for a sentence; one
   flash call decides which ones the sentence cites and whether it uses the old or the current value.
 
-## Results (held-out or gold-labelled; details in the linked write-ups)
+## Results (held-out or gold-labelled)
 
-| What | Result | Source |
-|---|---|---|
-| Citation analysis, orchestrator-workers vs. non-agent batch judgement on the same candidates (2 targets, 48 relying papers) | 28 vs. 14 relying papers found; precision 90% | `(可选)初筛引入ELSER实验.md` §2.1 |
-| Author self-check, end to end, held-out test split (489 sentences, self-check gold) | sentences citing a revised claim found 92%, old-value sentences 19/19, old/new value verdict 97% | `作者自查ELSER预筛实验.md` §4.4 |
-| Self-check candidate retrieval, library padded with ~3,000 cross-field abstracts | Recall@10: hybrid 92%, ELSER 91%, BM25 85% | `作者自查ELSER预筛实验.md` §2.2 |
-| Drift analysis needs full text | root cause right: abstract only 27/37, full text 35/37 | `新系统改造设计.md` §8 |
+| What | Result |
+|---|---|
+| Citation analysis, orchestrator-workers vs. non-agent batch judgement on the same candidates (2 targets, 48 relying papers) | 28 vs. 14 relying papers found; precision 90% |
+| Author self-check, end to end, held-out test split (489 sentences, self-check gold) | sentences citing a revised claim found 92%, old-value sentences 19/19, old/new value verdict 97% |
+| Self-check candidate retrieval, library padded with ~3,000 cross-field abstracts | Recall@10: hybrid 92%, ELSER 91%, BM25 85% |
+| Drift analysis needs full text | root cause right: abstract only 27/37, full text 35/37 |
 
-Limitations are stated in each write-up (small number of targets, single-annotator gold sets, open-full-text scope).
+Limitations: few targets, single-annotator gold sets, and recall counted only over citing papers with open full text.
 
 ## Repository layout
 
@@ -107,8 +107,6 @@ Limitations are stated in each write-up (small number of targets, single-annotat
 | `deploy/` | `cloudrun.sh` (MCP, BFF, Playground, job, frontend), `pipeline.sh` (automatic pipeline) |
 | `docs/` | `contracts.md` (interface specification and changelog; §10 holds the frontend ↔ BFF types) and ops notes |
 | `data/` | Not in git: case bank, docstore, Europe PMC cache, experiments and gold sets. On Cloud Run the same tree is the Cloud Storage bucket mounted at `/data` |
-| `新系统改造设计.md`, `新系统云端部署.md` | System design and the cloud deployment record |
-| `作者自查ELSER预筛实验.md`, `(可选)初筛引入ELSER实验.md`, `agent项目升级改造.md`, `作者自查prompts.md` | Experiment write-ups and the self-check test cases |
 
 ## Setup (WSL / Linux)
 
@@ -151,8 +149,7 @@ bash deploy/cloudrun.sh mcp|build|bff|playground|job|frontend|all
 ```
 
 Rebuild the BFF / Playground images after redeploying the agents (the images copy `agents/engines.json`). In a
-non-interactive WSL shell put `~/google-cloud-sdk/bin` on `PATH` first. Step-by-step record, IAM and smoke tests:
-`新系统云端部署.md`.
+non-interactive WSL shell put `~/google-cloud-sdk/bin` on `PATH` first.
 
 ## License
 
