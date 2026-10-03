@@ -13,13 +13,12 @@ const AGENT_LEGEND = [
   { label: "drift_analyzer",     color: "var(--rd)" },
   { label: "citation_finder",    color: "var(--bl)" },
   { label: "notifier",           color: "var(--grn)"},
-  { label: "memory_synthesizer", color: "var(--pu)" },
-  { label: "pattern_retrieved ⭐", color: "var(--pu)", glow: true },
 ];
 
 // Map materiality_score (0–1) to a severity tier + colour, matching the
 // dashboard's thresholds: ≥0.7 high (red), ≥0.4 medium (orange), else low.
-function severityOf(score: number): { tier: string; color: string; dot: string } {
+function severityOf(score: number | null): { tier: string; color: string; dot: string } {
+  if (score == null) return { tier: "N/A", color: "var(--gr2)", dot: "⚪" };
   if (score >= 0.7) return { tier: "HIGH",   color: "var(--rd)",  dot: "🔴" };
   if (score >= 0.4) return { tier: "MEDIUM", color: "var(--or)",  dot: "🟠" };
   return { tier: "LOW", color: "var(--grn)", dot: "🟢" };
@@ -43,7 +42,7 @@ function shortDate(iso: string): string {
 // mistaken for the trailing date. Full detail is in <SelectedEventCard>.
 function driftEventOptionLabel(ev: DriftEventSummary): string {
   const { dot } = severityOf(ev.materiality_score);
-  return `${dot} ${ev.materiality_score.toFixed(2)}  ${primaryDiffType(ev)}  doi:${ev.preprint_doi}  ${shortDate(ev.detected_at)}`;
+  return `${dot} ${ev.materiality_score != null ? ev.materiality_score.toFixed(2) : "—"}  ${primaryDiffType(ev)}  doi:${ev.preprint_doi}  ${shortDate(ev.detected_at)}`;
 }
 
 // Rich, human-readable card describing the currently selected event. This is
@@ -51,7 +50,7 @@ function driftEventOptionLabel(ev: DriftEventSummary): string {
 // detail a native <option> cannot render.
 function SelectedEventCard({ ev }: { ev: DriftEventSummary }) {
   const sev = severityOf(ev.materiality_score);
-  const pct = Math.round(ev.materiality_score * 100);
+  const pct = Math.round((ev.materiality_score ?? 0) * 100);
   return (
     <div style={{ marginBottom: 16, padding: "12px 14px", border: "1px solid var(--gr3)", borderLeft: `2px solid ${sev.color}`, background: "var(--bk2)" }}>
       {/* Header row: severity tier + materiality bar + diff type + date */}
@@ -64,7 +63,7 @@ function SelectedEventCard({ ev }: { ev: DriftEventSummary }) {
           <div style={{ width: 90, height: 4, background: "var(--gr3)", position: "relative" }}>
             <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${pct}%`, background: sev.color }} />
           </div>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, color: sev.color }}>{ev.materiality_score.toFixed(2)}</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, color: sev.color }}>{ev.materiality_score != null ? ev.materiality_score.toFixed(2) : "—"}</span>
         </div>
         <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--wh2)", border: "1px solid var(--gr3)", padding: "2px 7px" }}>
           {primaryDiffType(ev)}
@@ -177,9 +176,9 @@ function LiveStreamContent() {
 
         {/* Agent legend */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", padding: "9px 14px", borderBottom: "1px solid var(--gr3)", background: "var(--bk3)" }}>
-          {AGENT_LEGEND.map(({ label, color, glow }) => (
+          {AGENT_LEGEND.map(({ label, color }) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "var(--mono)", fontSize: 8, color: "var(--gr)" }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: glow ? `0 0 6px ${color}` : "none" }} />
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: "none" }} />
               {label}
             </div>
           ))}

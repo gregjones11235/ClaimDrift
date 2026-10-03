@@ -1,0 +1,22 @@
+# `gcloud builds submit .` (MCP / BFF / Playground / dispatcher / puller images) uploads only the code the images need.
+# data/ (case bank, docstore, Europe PMC cache) lives in the Cloud Storage bucket mounted at /data; secrets come from
+# Secret Manager.
+/*
+!/claimdrift/
+!/apps/
+!/agents/
+!/ingestion/
+!/elastic/
+!/.gcloudignore
+**/__pycache__/
+**/.venv/
+**/node_modules/
+**/.env
+**/.env.*
+**/*.pyc
+/claimdrift/tests/
+/apps/bff/tests/
+# dispatcher image: the service itself; its legacy scripts, tests and OAuth files stay local
+/apps/dispatcher/scripts/
+/apps/dispatcher/tests/
+/apps/dispatcher/*.json

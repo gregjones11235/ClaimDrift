@@ -79,15 +79,19 @@ def upsert_preprints(rows: list[Dict[str, Any]], batch_size: int = 500) -> int:
 
 
 def update_preprint_published_doi(preprint_doi: str, published_doi: str) -> int:
+    """Pair a preprint row with its published DOI found later via Crossref. ingested_at is bumped to now: the dispatch
+    workflow only picks rows newer than its watermark, so a pairing that kept the original ingested_at would never be
+    dispatched."""
     client = ElasticsearchHttpClient()
     response = client.request(
         "POST",
         "/preprints/_update_by_query?refresh=true&conflicts=proceed",
         {
             "script": {
-                "source": "ctx._source.published_doi = params.published_doi; ctx._source.is_final_preprint = true",
+                "source": "ctx._source.published_doi = params.published_doi; ctx._source.is_final_preprint = true; "
+                          "ctx._source.ingested_at = params.now",
                 "lang": "painless",
-                "params": {"published_doi": published_doi},
+                "params": {"published_doi": published_doi, "now": utc_now()},
             },
             "query": {"term": {"doi": preprint_doi}},
         },

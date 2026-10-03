@@ -1,0 +1,9 @@
+# Cloud Build config for the claimdrift-mcp service (and the image tag the deploy steps in 新系统云端部署.md use).
+#   gcloud builds submit . --config=apps/mcp/cloudbuild.yaml          (from the repo root)
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "--file=apps/mcp/Dockerfile", "--tag=us-central1-docker.pkg.dev/${PROJECT_ID}/claimdrift/claimdrift-mcp:latest", "."]
+images:
+  - us-central1-docker.pkg.dev/${PROJECT_ID}/claimdrift/claimdrift-mcp:latest
+options:
+  logging: CLOUD_LOGGING_ONLY

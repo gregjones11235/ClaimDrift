@@ -4,7 +4,7 @@ description: |
   Phase T2 — the §9.6.1 scheduled trigger. Every 5 min, find newly-ingested
   (preprint, published) pairs in `preprints` and POST each to the Cloud Run
   dispatcher to run the §4.1 fan-out (claim_extractor ×2 → drift_analyzer →
-  citation_finder → notifier ×N → memory_synthesizer).
+  citation_finder → notifier ×N).
 
   Watermark cursor lives in `dispatch_state/_doc/main_flow.last_seen_ingested_at`
   (§2.2.7). After every successful run the workflow PUTs the max ingested_at
@@ -48,7 +48,7 @@ triggers:
       every: 5m
 
 consts:
-  dispatcher_url: "https://claimdrift-dispatcher-3gz4czm2hq-uc.a.run.app/dispatch"
+  dispatcher_url: "<DISPATCHER_URL>/dispatch"
   bearer_token: "<WF_BEARER_TOKEN>"
 
 steps:
@@ -67,8 +67,8 @@ steps:
   #   - record_source != demo_seed (only real data per §2.3)
   #   - version != "published" (the mirror row is not a preprint to process)
   #   - ingested_at > last_seen_ingested_at (strictly newer than watermark)
-  # Sort DESC so hits[0] holds the newest ingested_at — easier to reference
-  # in Step 4 than `.last` (Kibana's schema validator rejects the chain).
+  # Sort ASC (oldest first) and advance the watermark to the LAST hit: with DESC + a size cap, a tick that saw more
+  # new pairs than the cap jumped the watermark past the tail, which was never dispatched (2026-05-28 incident).
   #
   # The Kibana schema validator does NOT understand ES DSL semantics — it
   # tries to typecheck `term:` values against a generic "Short query syntax
@@ -86,7 +86,7 @@ steps:
       # ingestion; if we ever miss some, the next tick picks them up.
       size: 20
       sort:
-        - ingested_at: desc
+        - ingested_at: asc
       _source:
         - doi
         - published_doi
@@ -141,10 +141,9 @@ steps:
             preprint_doi: "{{ foreach.item._source.doi }}"
             published_doi: "{{ foreach.item._source.published_doi }}"
 
-  # Step 4 — advance the watermark. Sort was DESC, so hits[0] holds the
-  # max ingested_at. Numeric-indexed access (`[0]`) is the bracket form the
-  # cheat sheet documents (`event.alerts[0].host.name`), avoiding the
-  # `.last` chain that the Kibana schema validator rejects.
+  # Step 4 — advance the watermark to the newest pair of THIS batch (sort ASC -> the last hit), so pairs beyond the
+  # size cap stay above the watermark for the next tick. Not reached when a dispatch failed (e.g. the dispatcher's
+  # budget is used up and it answers 503): the watermark then stays and the batch is retried after a resume.
   #
   # Skip the write if no hits — leaves last_seen at its prior value
   # (correct behavior). `if:` here is the STEP-LEVEL conditional attribute,
@@ -157,5 +156,5 @@ steps:
       path: /dispatch_state/_doc/main_flow
       body:
         flow_name: main_flow
-        last_seen_ingested_at: "{{ steps.search_new_pairs.output.hits.hits[0]._source.ingested_at }}"
+        last_seen_ingested_at: "{{ steps.search_new_pairs.output.hits.hits | map: '_source' | map: 'ingested_at' | last }}"
         last_updated_at: "{{ now | date: '%Y-%m-%dT%H:%M:%SZ' }}"

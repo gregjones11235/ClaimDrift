@@ -7,7 +7,7 @@
 # Reads tool id from the JSON's `id` field. If a tool with that id already
 # exists, PUTs (update). Otherwise POSTs (create).
 #
-# Configuration: reads agents/.env at the repo root (same file the Python
+# Configuration: reads .env at the repo root (same file the Python
 # code uses). Required keys:
 #   ELASTIC_API_KEY   API key with feature_agentBuilder.{read,write} +
 #                     cluster monitor_inference. The ingestion key already
@@ -36,16 +36,16 @@ if [[ ! -f "$tool_file" ]]; then
   exit 66
 fi
 
-# Load agents/.env relative to this script.
+# Load .env relative to this script.
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-env_file="${script_dir}/../../../agents/.env"
+env_file="${script_dir}/../../../.env"
 if [[ -f "$env_file" ]]; then
   # shellcheck disable=SC1090
   set -a; source "$env_file"; set +a
 fi
 
-: "${ELASTIC_API_KEY:?ELASTIC_API_KEY must be set in agents/.env}"
-: "${KIBANA_URL:?KIBANA_URL must be set in agents/.env (the .kb. host, not .es.)}"
+: "${ELASTIC_API_KEY:?ELASTIC_API_KEY must be set in .env}"
+: "${KIBANA_URL:?KIBANA_URL must be set in .env (the .kb. host, not .es.)}"
 
 tool_id="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['id'])" "$tool_file")"
 if [[ -z "$tool_id" ]]; then

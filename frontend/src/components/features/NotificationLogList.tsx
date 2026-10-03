@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { NotificationLog, NotificationStatus } from "@/types/claimdrift";
+import { TEST_INBOX } from "@/lib/labels";
 
 const STATUS_COLOR: Record<NotificationStatus, string> = {
   sent:    "var(--grn)",
@@ -28,8 +29,17 @@ function NotifCard({ notif }: { notif: NotificationLog }) {
           </span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 500, color: "var(--wh2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {notif.recipient_email}
+              {notif.intended_for?.citing_paper_title
+                ? <>for: {notif.intended_for.citing_paper_title}</>
+                : notif.recipient_email}
             </div>
+            {(notif.cites || notif.delivery || notif.citing_work_id) && (
+              <div style={{ display: "flex", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
+                {notif.cites && <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--y)" }}>{notif.cites}</span>}
+                {notif.citing_work_id && <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gr)" }}>{notif.citing_work_id}</span>}
+                {notif.delivery && <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gr2)" }}>{notif.delivery === "gmail" ? "sent via Gmail" : "draft only"}</span>}
+              </div>
+            )}
             {notif.sent_at && (
               <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--bl)", marginTop: 1 }}>
                 sent_at: {notif.sent_at}
@@ -48,7 +58,21 @@ function NotifCard({ notif }: { notif: NotificationLog }) {
         <div style={{ padding: "0 16px 14px" }}>
           <div style={{ border: "1px solid var(--gr3)", background: "var(--bk3)" }}>
             <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--gr3)" }}>
-              {[["To", notif.recipient_email], ["Subject", notif.subject]].map(([k, v]) => (
+              {([
+                ["To", `${notif.recipient_email} (project test inbox)`],
+                ...(notif.intended_for
+                  ? [["For", [
+                      notif.intended_for.citing_paper_title,
+                      notif.intended_for.citing_paper_doi,
+                      notif.intended_for.authors?.length ? notif.intended_for.authors.join(", ") : null,
+                      notif.intended_for.relayed_by ? `relayed by ${notif.intended_for.relayed_by}` : null,
+                    ].filter(Boolean).join(" · ")]]
+                  : []),
+                ...(notif.reviewer
+                  ? [["Approved", `${notif.reviewer}${notif.approved_at ? ` · ${notif.approved_at.slice(0, 16).replace("T", " ")}` : ""}`]]
+                  : []),
+                ["Subject", notif.subject],
+              ] as [string, string][]).map(([k, v]) => (
                 <div key={k} style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 3 }}>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 7.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--gr2)", width: 44, flexShrink: 0 }}>{k}</span>
                   <span style={{ fontSize: 11, color: k === "Subject" ? "var(--wh)" : "var(--wh2)", fontWeight: k === "Subject" ? 500 : 400 }}>{v}</span>
@@ -98,17 +122,24 @@ export function NotificationLogList({ notifications }: { notifications: Notifica
         ))}
       </div>
 
+      <div style={{ marginBottom: 16, padding: "10px 14px", border: "1px solid var(--gr3)", background: "var(--bk2)", fontSize: 13, lineHeight: 1.6, color: "var(--gr)" }}>
+        <span className="specimen specimen-y">note</span>{" "}
+        Every notice goes to the project test inbox <span style={{ fontFamily: "var(--mono)", color: "var(--wh2)" }}>{TEST_INBOX}</span>,
+        never to real authors. &ldquo;For&rdquo; shows the citing paper a notice is written about. Only citations judged
+        superseded or indirect are notified, and none whose citation or drift event a reviewer rejected.
+      </div>
+
       <div className="cd-panel">
         <div className="cd-panel-header">
           <span className="cd-panel-label">notification_log — dispatch status</span>
-          <span className="specimen">Gmail OAuth · notifier agent · Gemini 2.5 Flash</span>
+          <span className="specimen">Gmail API · notifier agent</span>
         </div>
         <div>
           {notifications.map((n) => <NotifCard key={n.affected_citation_id} notif={n} />)}
         </div>
         <div style={{ padding: "10px 16px", borderTop: "1px solid var(--gr3)", display: "flex", justifyContent: "space-between" }}>
           <span className="specimen">{notifications.length} total · {sent} sent · {drafted} drafted · {skipped} skipped</span>
-          <span className="specimen specimen-g">claimdriftnotifier@gmail.com</span>
+          <span className="specimen specimen-g">{TEST_INBOX} · test inbox</span>
         </div>
       </div>
     </>

@@ -1,7 +1,5 @@
 {
-  "settings": {
-    "refresh_interval": "5s"
-  },
+  "settings": { "refresh_interval": "5s" },
   "mappings": {
     "dynamic": "strict",
     "properties": {
@@ -23,7 +21,13 @@
         }
       },
       "hedging_level": { "type": "keyword" },
-      "extracted_at": { "type": "date" }
+      "extracted_at": { "type": "date" },
+      "drift_event_id": { "type": "keyword" },
+      "doc_id": { "type": "keyword" },
+      "kind": { "type": "keyword" },
+      "support_sections": { "type": "keyword" },
+      "numbers": { "type": "object", "enabled": false },
+      "model": { "type": "keyword" }
     }
   }
 }

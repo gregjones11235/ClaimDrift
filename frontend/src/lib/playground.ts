@@ -1,48 +1,12 @@
-// Client for the A/B-test Playground backend (apps/playground/server.py).
+// Client for the Playground backend (apps/playground/server.py).
 //
 // This is a SEPARATE service from the BFF (apps/bff): the BFF tails persisted
 // agent_events for the production dashboard, whereas the Playground backend
-// runs the drift_analyzer A/B three-state experiment live and streams its own
-// progress events. Hence its own base URL — do NOT route it through the BFF.
+// runs the supervisor orchestration live and streams its own progress events.
+// Hence its own base URL — do NOT route it through the BFF. (The memory-loop
+// A/B endpoint /api/playground/run was removed with the pattern library, P1.9.)
 export const PLAYGROUND_URL =
   process.env.NEXT_PUBLIC_PLAYGROUND_URL ?? "http://127.0.0.1:8799";
-
-// One state's result, mirrors apps/playground/server.py `state.done` payload.
-export interface StateReading {
-  calibrated_materiality: number | null;
-  baseline_materiality_without_memory?: number | null;
-  materiality_score?: number | null;
-  retrieved_patterns_used: string[];
-  memory_pattern_ids: string[];
-  rationale?: string | null;
-  parse_error?: boolean;
-  // Set when drift_analyzer (gemini-2.5-pro) returned empty after retries due to
-  // a Vertex Dynamic-Shared-Quota 429. "quota_confirmed" = seen in engine logs;
-  // "quota_suspected" = empty stream but logs unavailable. quota_detail is the
-  // human-readable explanation shown on the card. See server._run_drift_analyzer.
-  quota_error?: "quota_confirmed" | "quota_suspected";
-  quota_detail?: string;
-}
-
-export type StatePhase =
-  | "idle"
-  | "injected"
-  | "analyzing"
-  | "done";
-
-export interface StateView extends Partial<StateReading> {
-  key: string;
-  label: string;
-  support: number | null;
-  phase: StatePhase;
-  injectDetail?: string;
-  events?: number;
-}
-
-export interface RunMeta {
-  case?: { registry_id: string; title: string; published_doi: string };
-  states: { key: string; label: string; support: number | null }[];
-}
 
 // Shared manual SSE reader. We use fetch + a manual reader (not EventSource)
 // because EventSource cannot stream a long single GET cleanly across all the
@@ -108,23 +72,13 @@ function _streamSSE(
   return () => ctrl.abort();
 }
 
-// Run the three-state A/B (experiment 1) via the Playground SSE endpoint.
-export function runPlayground(
-  onEvent: (type: string, data: Record<string, unknown>) => void,
-  onError: (msg: string) => void,
-  onDone: () => void,
-): () => void {
-  return _streamSSE(`${PLAYGROUND_URL}/api/playground/run`, onEvent, onError, onDone);
-}
-
-// --- Experiment 2: 5-agent orchestration ------------------------------------
+// --- 5-agent orchestration ---------------------------------------------------
 
 export type NodeId =
   | "claim_extractor"
   | "drift_analyzer"
   | "citation_finder"
-  | "notifier"
-  | "memory_synthesizer";
+  | "notifier";
 
 export type NodePhase = "idle" | "active" | "done" | "error";
 
@@ -159,7 +113,7 @@ export interface OrchestrationMeta {
 }
 
 // Run the full 5-agent supervisor pipeline live. `email` is the judge's address
-// for the drift-alert mail. Same manual-SSE machinery as runPlayground.
+// for the drift-alert mail.
 export function runOrchestration(
   email: string,
   onEvent: (type: string, data: Record<string, unknown>) => void,

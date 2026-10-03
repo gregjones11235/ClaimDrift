@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Protocol, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,7 +14,7 @@ sys.path.append(str(ROOT))
 
 from dotenv import load_dotenv
 
-load_dotenv(ROOT / "agents" / ".env")
+load_dotenv(ROOT / ".env")
 
 from ingestion.common.elastic import ElasticsearchHttpClient
 from apps.bff.sse_adapter import TranslatorState, heartbeat, translate_adk_event
@@ -32,6 +32,9 @@ REPLAY_GOLDEN = os.getenv("SSE_REPLAY_GOLDEN", "").lower() in {"1", "true", "yes
 SSE_TAIL_POLL_INTERVAL_S = float(os.getenv("SSE_TAIL_POLL_S", "1.0"))
 SSE_TAIL_TIMEOUT_S = float(os.getenv("SSE_TAIL_TIMEOUT_S", "300"))
 SSE_HEARTBEAT_INTERVAL_S = float(os.getenv("SSE_HEARTBEAT_S", "15"))
+# New system: every read goes through claimdrift.es, which targets Elasticsearch Serverless by default and the local
+# docker node with CLAIMDRIFT_LOCAL=1 (claimdrift/config.py). BFF_SEED_DATA=1 serves the bundled demo seed instead.
+SEED_ONLY = os.getenv("BFF_SEED_DATA", "").lower() in {"1", "true", "yes"}
 
 
 def now() -> str:
@@ -67,9 +70,6 @@ class DataSource(Protocol):
     def notifications(self, event_id: str) -> list[dict]:
         ...
 
-    def patterns(self) -> list[dict]:
-        ...
-
     def dashboard_stats(self) -> dict:
         ...
 
@@ -93,31 +93,22 @@ class SeedDataSource:
     def notifications(self, event_id: str) -> list[dict]:
         return [row for row in load_rows("notification_log") if row["drift_event_id"] == event_id]
 
-    def patterns(self) -> list[dict]:
-        return load_rows("drift_patterns")
-
     def dashboard_stats(self) -> dict:
         # Seed mode has small local JSON; computing in Python is fine and keeps
         # the BFF runnable without ES credentials (local dev / CI).
         events = load_rows("drift_events")
         scores = [e["materiality_score"] for e in events if "materiality_score" in e]
         notifications = load_rows("notification_log")
-        patterns = load_rows("drift_patterns")
-        type_counts: dict[str, int] = {}
-        for p in patterns:
-            pt = p.get("pattern_type")
-            if pt:
-                type_counts[pt] = type_counts.get(pt, 0) + 1
-        top_pattern_type = max(type_counts, key=type_counts.get) if type_counts else None
+        citations = load_rows("affected_citations")
         return {
             "drift_events_total": len(events),
             "high_severity_count": sum(1 for s in scores if s >= 0.7),
             "avg_materiality_score": (sum(scores) / len(scores)) if scores else 0.0,
-            "affected_citations_total": len(load_rows("affected_citations")),
+            "affected_citations_total": len(citations),
             "notifications_total": len(notifications),
             "notifications_sent": sum(1 for n in notifications if n.get("status") == "sent"),
-            "patterns_total": len(patterns),
-            "top_pattern_type": top_pattern_type,
+            "review_pending_total": sum(1 for r in events + citations if r.get("review_status") == "pending"),
+            "superseded_citations_total": sum(1 for c in citations if c.get("cites") == "superseded"),
         }
 
 
@@ -186,16 +177,6 @@ class ElasticDataSource:
             {"query": self.visible_query({"term": {"drift_event_id": event_id}}), "size": 100},
         )
 
-    def patterns(self) -> list[dict]:
-        return self.search(
-            "drift_patterns",
-            {
-                "query": self.visible_query({"match_all": {}}),
-                "size": 100,
-                "sort": [{"support_count": {"order": "desc", "unmapped_type": "long"}}],
-            },
-        )
-
     def _agg_search(self, index_name: str, body: dict) -> dict:
         """Run a size:0 aggregation/count search and return the raw ES response.
 
@@ -223,6 +204,7 @@ class ElasticDataSource:
         drift_events_total = 0
         high_severity_count = 0
         avg_materiality_score = 0.0
+        review_pending_total = 0
         try:
             resp = self._agg_search(
                 "drift_events",
@@ -235,6 +217,7 @@ class ElasticDataSource:
                         "high_severity": {
                             "filter": {"range": {"materiality_score": {"gte": 0.7}}}
                         },
+                        "review_pending": {"filter": {"term": {"review_status": "pending"}}},
                     },
                 },
             )
@@ -242,6 +225,7 @@ class ElasticDataSource:
             aggs = resp.get("aggregations") or {}
             avg_materiality_score = float((aggs.get("avg_materiality") or {}).get("value") or 0.0)
             high_severity_count = int((aggs.get("high_severity") or {}).get("doc_count") or 0)
+            review_pending_total += int((aggs.get("review_pending") or {}).get("doc_count") or 0)
         except Exception as exc:  # noqa: BLE001 - never let stats 500 the dashboard
             print(f"dashboard_stats: drift_events agg failed: {exc}")
 
@@ -274,23 +258,25 @@ class ElasticDataSource:
         except Exception as exc:  # noqa: BLE001
             print(f"dashboard_stats: notification_log agg failed: {exc}")
 
-        patterns_total = 0
-        top_pattern_type = None
+        superseded_citations_total = 0
         try:
             resp = self._agg_search(
-                "drift_patterns",
+                "affected_citations",
                 {
                     "size": 0,
                     "track_total_hits": True,
                     "query": match,
-                    "aggs": {"by_type": {"terms": {"field": "pattern_type", "size": 1}}},
+                    "aggs": {
+                        "review_pending": {"filter": {"term": {"review_status": "pending"}}},
+                        "superseded": {"filter": {"term": {"cites": "superseded"}}},
+                    },
                 },
             )
-            patterns_total = self._total_hits(resp)
-            buckets = (((resp.get("aggregations") or {}).get("by_type") or {}).get("buckets")) or []
-            top_pattern_type = buckets[0]["key"] if buckets else None
+            aggs = resp.get("aggregations") or {}
+            review_pending_total += int((aggs.get("review_pending") or {}).get("doc_count") or 0)
+            superseded_citations_total = int((aggs.get("superseded") or {}).get("doc_count") or 0)
         except Exception as exc:  # noqa: BLE001
-            print(f"dashboard_stats: drift_patterns agg failed: {exc}")
+            print(f"dashboard_stats: affected_citations agg failed: {exc}")
 
         return {
             "drift_events_total": drift_events_total,
@@ -299,8 +285,8 @@ class ElasticDataSource:
             "affected_citations_total": affected_citations_total,
             "notifications_total": notifications_total,
             "notifications_sent": notifications_sent,
-            "patterns_total": patterns_total,
-            "top_pattern_type": top_pattern_type,
+            "review_pending_total": review_pending_total,
+            "superseded_citations_total": superseded_citations_total,
         }
 
 
@@ -314,11 +300,25 @@ def claim_ids_for_event(event: dict) -> set[str]:
     return claim_ids
 
 
+class ClaimdriftESClient:
+    """claimdrift.es (cloud by default, local with CLAIMDRIFT_LOCAL=1); same request() contract as ElasticsearchHttpClient."""
+
+    def request(self, method: str, path: str, body: Optional[Any] = None) -> Any:
+        from claimdrift import es as cd_es
+        try:
+            return cd_es.request(method, path, body)
+        except cd_es.ESError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+
 def build_data_source() -> DataSource:
-    has_basic_auth = os.getenv("ELASTIC_USERNAME") and os.getenv("ELASTIC_PASSWORD")
-    if os.getenv("ELASTIC_ENDPOINT") and (os.getenv("ELASTIC_API_KEY") or has_basic_auth):
-        return ElasticDataSource()
-    return SeedDataSource()
+    if SEED_ONLY:
+        return SeedDataSource()
+    from claimdrift import config as cd_config
+    ds = ElasticDataSource.__new__(ElasticDataSource)
+    ds.client = ClaimdriftESClient()
+    ds.mode = "elastic-local" if cd_config.LOCAL else "elastic-cloud"
+    return ds
 
 
 DATA_SOURCE = build_data_source()
@@ -344,7 +344,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
         self.end_headers()
 
@@ -392,12 +392,88 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_drift_event(event_id, suffix)
                 return
 
-            if path == "/api/patterns":
-                rows = DATA_SOURCE.patterns()
-                send_json(self, 200, {"items": rows, "count": len(rows)})
+            if self.handle_new_system_get(path, parse_qs(parsed.query)):
                 return
 
             send_json(self, 404, {"error": "not_found"})
+        except RuntimeError as exc:
+            send_json(self, 502, {"error": "elasticsearch_error", "message": str(exc)})
+
+    # ---- new system: review queue (P1.8) + author self-check (P1.10); routes in review_api.py ----
+    def _new_system_api(self):
+        if SEED_ONLY:
+            send_json(self, 503, {"error": "elasticsearch_required",
+                                  "message": "review and self-check need Elasticsearch (unset BFF_SEED_DATA)"})
+            return None
+        from apps.bff import review_api
+        return review_api
+
+    def _api_call(self, fn, *args) -> None:
+        from apps.bff.review_api import ApiError
+        try:
+            send_json(self, 200, fn(*args))
+        except ApiError as exc:
+            send_json(self, exc.status, {"error": exc.error, "message": exc.message})
+
+    def handle_new_system_get(self, path: str, query: dict[str, list[str]]) -> bool:
+        parts = [unquote(p) for p in path.split("/")]
+        if path == "/api/review-queue":
+            api = self._new_system_api()
+            if api:
+                self._api_call(api.review_queue, query.get("kind", ["all"])[0], query.get("status", ["pending"])[0])
+            return True
+        if len(parts) == 5 and parts[2] == "review" and parts[3] in ("events", "citations"):
+            api = self._new_system_api()
+            if api:
+                fn = api.review_event_detail if parts[3] == "events" else api.review_citation_detail
+                self._api_call(fn, parts[4])
+            return True
+        if len(parts) == 5 and parts[2] == "drift-events" and parts[4] == "citation-runs":
+            api = self._new_system_api()
+            if api:
+                self._api_call(api.citation_runs, parts[3])
+            return True
+        if path == "/api/selfcheck/analyze":
+            api = self._new_system_api()
+            if api:
+                self._api_call(api.selfcheck_analyze_status, query.get("doi", [""])[0])
+            return True
+        return False
+
+    def do_POST(self) -> None:
+        try:
+            path = urlparse(self.path).path.rstrip("/")
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1_000_000:
+                send_json(self, 413, {"error": "payload_too_large"})
+                return
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            except json.JSONDecodeError:
+                send_json(self, 400, {"error": "invalid_json"})
+                return
+            if not isinstance(body, dict):
+                send_json(self, 400, {"error": "body_must_be_object"})
+                return
+            parts = [unquote(p) for p in path.split("/")]
+            if not path.startswith(("/api/review/", "/api/selfcheck/")):
+                send_json(self, 404, {"error": "not_found"})
+                return
+            api = self._new_system_api()
+            if api is None:
+                return
+            if len(parts) == 5 and parts[2] == "review" and parts[3] in ("events", "citations"):
+                self._api_call(api.decide, parts[3], parts[4], body)
+            elif path == "/api/selfcheck/published":
+                self._api_call(api.selfcheck_published, body)
+            elif path == "/api/selfcheck/sentences":
+                self._api_call(api.selfcheck_sentences, body)
+            elif path == "/api/selfcheck/references":
+                self._api_call(api.selfcheck_references, body)
+            elif path == "/api/selfcheck/analyze":
+                self._api_call(api.selfcheck_analyze, body)
+            else:
+                send_json(self, 404, {"error": "not_found"})
         except RuntimeError as exc:
             send_json(self, 502, {"error": "elasticsearch_error", "message": str(exc)})
 
@@ -424,6 +500,12 @@ class Handler(BaseHTTPRequestHandler):
         if suffix == "notifications":
             rows = DATA_SOURCE.notifications(event_id)
             send_json(self, 200, {"items": rows, "count": len(rows)})
+            return
+
+        if suffix == "citation-runs":  # new system (review_api); this branch is reached before handle_new_system_get
+            api = self._new_system_api()
+            if api:
+                self._api_call(api.citation_runs, event_id)
             return
 
         send_json(self, 404, {"error": "unknown_drift_event_view"})
@@ -493,16 +575,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _stream_static_fallback(self, drift_event_id: str) -> None:
-        """Fallback (seed mode, no replay file). Hand-coded 9-event sequence."""
+        """Fallback (seed mode, no replay file). Hand-coded event sequence in the new system's order."""
         events = [
-            ("agent.started", "claim_extractor", {"input_summary": "Extracting claims from final preprint and published version."}),
-            ("agent.completed", "claim_extractor", {"output_summary": "2 claims extracted.", "output_id": "claims"}),
-            ("agent.started", "drift_analyzer", {"input_summary": "Comparing claim sets and retrieving memory patterns."}),
-            ("agent.pattern_retrieved", "drift_analyzer", {"pattern_ids": ["pattern-demo-001"], "scores": [0.84]}),
-            ("agent.completed", "drift_analyzer", {"output_summary": "Numerical shift detected.", "output_id": drift_event_id}),
-            ("agent.started", "citation_finder", {"input_summary": "Finding citing papers through OpenAlex edge data."}),
-            ("agent.completed", "citation_finder", {"output_summary": "1 affected citation scored.", "output_id": "affected_citations"}),
-            ("agent.started", "notifier", {"input_summary": "Drafting notification email."}),
+            ("agent.started", "drift_analyzer", {"input_summary": "Comparing preprint v1 with the published full text (one call)."}),
+            ("agent.completed", "drift_analyzer", {"output_summary": "Numerical shift detected; evidence quotes verified.", "output_id": drift_event_id}),
+            ("agent.started", "citation_finder", {"input_summary": "Screening Europe PMC citing papers for the superseded value."}),
+            ("agent.completed", "citation_finder", {"output_summary": "1 citing paper relies on the old value (awaiting review).", "output_id": "affected_citations"}),
+            ("agent.started", "notifier", {"input_summary": "Drafting notification after human approval."}),
             ("agent.completed", "notifier", {"output_summary": "1 notification drafted.", "output_id": "notification_log"}),
         ]
         for idx, (event_type, agent_id, payload) in enumerate(events, start=1):

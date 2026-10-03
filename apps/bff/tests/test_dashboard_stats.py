@@ -31,8 +31,8 @@ STATS_KEYS = {
     "affected_citations_total",
     "notifications_total",
     "notifications_sent",
-    "patterns_total",
-    "top_pattern_type",
+    "review_pending_total",
+    "superseded_citations_total",
 }
 
 
@@ -50,7 +50,8 @@ class TestSeedDashboardStats(unittest.TestCase):
             "affected_citations_total",
             "notifications_total",
             "notifications_sent",
-            "patterns_total",
+            "review_pending_total",
+            "superseded_citations_total",
         ):
             self.assertIsInstance(self.stats[key], int, key)
             self.assertGreaterEqual(self.stats[key], 0, key)
@@ -99,6 +100,7 @@ class TestElasticDashboardStatsHappyPath(unittest.TestCase):
                 "aggregations": {
                     "avg_materiality": {"value": 0.47},
                     "high_severity": {"doc_count": 35},
+                    "review_pending": {"doc_count": 4},
                 },
             },
             "/affected_citations/_count": {"count": 248},
@@ -113,11 +115,9 @@ class TestElasticDashboardStatsHappyPath(unittest.TestCase):
                     }
                 },
             },
-            "/drift_patterns/_search": {
-                "hits": {"total": {"value": 63}},
-                "aggregations": {
-                    "by_type": {"buckets": [{"key": "claim_disappearance", "doc_count": 40}]}
-                },
+            "/affected_citations/_search": {
+                "hits": {"total": {"value": 248}},
+                "aggregations": {"review_pending": {"doc_count": 7}, "superseded": {"doc_count": 21}},
             },
         }
         self.ds = _make_es(self.responses)
@@ -130,8 +130,8 @@ class TestElasticDashboardStatsHappyPath(unittest.TestCase):
         self.assertEqual(self.stats["affected_citations_total"], 248)
         self.assertEqual(self.stats["notifications_total"], 220)
         self.assertEqual(self.stats["notifications_sent"], 204)
-        self.assertEqual(self.stats["patterns_total"], 63)
-        self.assertEqual(self.stats["top_pattern_type"], "claim_disappearance")
+        self.assertEqual(self.stats["review_pending_total"], 11)  # 4 events + 7 citations
+        self.assertEqual(self.stats["superseded_citations_total"], 21)
 
     def test_query_shape_is_aggregation_not_full_scan(self) -> None:
         # The whole point of the fix: rollups are size:0 aggregations, not a
@@ -163,7 +163,7 @@ class TestElasticDashboardStatsDegradesGracefully(unittest.TestCase):
             "/drift_events/_search": RuntimeError("unmapped field"),
             "/affected_citations/_count": RuntimeError("index missing"),
             "/notification_log/_search": RuntimeError("no fielddata"),
-            "/drift_patterns/_search": RuntimeError("boom"),
+            "/affected_citations/_search": RuntimeError("boom"),
         }
         ds = _make_es(boom)
         stats = ds.dashboard_stats()  # must NOT raise
@@ -172,8 +172,8 @@ class TestElasticDashboardStatsDegradesGracefully(unittest.TestCase):
         self.assertEqual(stats["affected_citations_total"], 0)
         self.assertEqual(stats["notifications_total"], 0)
         self.assertEqual(stats["notifications_sent"], 0)
-        self.assertEqual(stats["patterns_total"], 0)
-        self.assertIsNone(stats["top_pattern_type"])
+        self.assertEqual(stats["review_pending_total"], 0)
+        self.assertEqual(stats["superseded_citations_total"], 0)
         self.assertEqual(stats["avg_materiality_score"], 0.0)
 
     def test_partial_failure_keeps_other_rollups(self) -> None:
@@ -182,7 +182,7 @@ class TestElasticDashboardStatsDegradesGracefully(unittest.TestCase):
             "/drift_events/_search": RuntimeError("unmapped field"),
             "/affected_citations/_count": {"count": 99},
             "/notification_log/_search": {"hits": {"total": {"value": 0}}, "aggregations": {"by_status": {"buckets": []}}},
-            "/drift_patterns/_search": {"hits": {"total": {"value": 0}}, "aggregations": {"by_type": {"buckets": []}}},
+            "/affected_citations/_search": {"hits": {"total": {"value": 0}}, "aggregations": {}},
         }
         stats = _make_es(responses).dashboard_stats()
         self.assertEqual(stats["drift_events_total"], 0)  # degraded

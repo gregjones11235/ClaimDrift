@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Next.js output written under a Windows path by mistake (Y:\home\...)
+/Y:*

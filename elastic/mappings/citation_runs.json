@@ -1,0 +1,41 @@
+{
+  "settings": { "refresh_interval": "1s" },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "run_id": { "type": "keyword" },
+      "drift_event_id": { "type": "keyword" },
+      "target_id": { "type": "keyword" },
+      "paper_id": { "type": "keyword" },
+      "kind": { "type": "keyword" },
+      "status": { "type": "keyword" },
+      "target": { "type": "object", "enabled": false },
+      "queued_at": { "type": "date" },
+      "started_at": { "type": "date" },
+      "finished_at": { "type": "date" },
+      "worker": { "type": "keyword" },
+      "since": { "type": "date" },
+      "checked_until": { "type": "date" },
+      "terms": { "type": "keyword" },
+      "n_candidates": { "type": "integer" },
+      "n_judged": { "type": "integer" },
+      "n_unjudged": { "type": "integer" },
+      "coverage_complete": { "type": "boolean" },
+      "coverage": { "type": "object", "enabled": false },
+      "coverage_notes": { "type": "text" },
+      "unjudged": { "type": "object", "enabled": false },
+      "judged_by": { "type": "object", "enabled": false },
+      "counts": { "type": "object", "enabled": false },
+      "calls": { "type": "object", "enabled": false },
+      "tokens": { "type": "object", "enabled": false },
+      "events": { "type": "object", "enabled": false },
+      "prefetch": { "type": "object", "enabled": false },
+      "state": { "type": "object", "enabled": false },
+      "progress": { "type": "object", "enabled": false },
+      "steps": { "type": "integer" },
+      "step_at": { "type": "date" },
+      "summary": { "type": "text" },
+      "error": { "type": "text" }
+    }
+  }
+}

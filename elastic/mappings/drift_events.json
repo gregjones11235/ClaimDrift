@@ -1,7 +1,5 @@
 {
-  "settings": {
-    "refresh_interval": "5s"
-  },
+  "settings": { "refresh_interval": "5s" },
   "mappings": {
     "dynamic": "strict",
     "properties": {
@@ -30,11 +28,115 @@
               "absolute_delta": { "type": "float" },
               "relative_delta": { "type": "float" }
             }
-          }
+          },
+          "root_cause": { "type": "keyword" },
+          "materiality": { "type": "float" },
+          "rationale": { "type": "text" },
+          "severity_tier": { "type": "keyword" },
+          "label_problems": { "type": "keyword" },
+          "evidence": { "type": "object", "enabled": false }
         }
       },
       "materiality_score": { "type": "float" },
-      "retrieved_patterns_used": { "type": "keyword" }
+      "retrieved_patterns_used": { "type": "keyword" },
+      "analysis_mode": { "type": "keyword" },
+      "preprint_versions": { "type": "keyword" },
+      "preprint_withdrawn_versions": { "type": "keyword" },
+      "severity_calibration": {
+        "properties": {
+          "baseline_materiality_without_memory": { "type": "float" },
+          "calibrated_materiality": { "type": "float" },
+          "calibration_delta": { "type": "float" },
+          "memory_pattern_ids": { "type": "keyword" },
+          "evidence": {
+            "properties": {
+              "pattern_id": { "type": "keyword" },
+              "support_count": { "type": "integer" },
+              "pattern_type": { "type": "keyword" },
+              "calibration_effect": { "type": "keyword" }
+            }
+          },
+          "rationale": { "type": "text" }
+        }
+      },
+      "provenance": {
+        "type": "nested",
+        "properties": {
+          "claim_diff_idx": { "type": "integer" },
+          "doc_id": { "type": "keyword" },
+          "doi": { "type": "keyword" },
+          "version": { "type": "keyword" },
+          "section": { "type": "keyword" },
+          "quote": { "type": "text" },
+          "offset": { "type": "integer" },
+          "tool": { "type": "keyword" },
+          "tool_call_idx": { "type": "integer" },
+          "verified": { "type": "boolean" },
+          "verified_at": { "type": "date" },
+          "text_source": { "type": "keyword" },
+          "section_claimed": { "type": "keyword" }
+        }
+      },
+      "tool_trace": { "type": "object", "enabled": false },
+      "verification": {
+        "properties": {
+          "quotes_total": { "type": "integer" },
+          "quotes_verified": { "type": "integer" },
+          "status": { "type": "keyword" },
+          "verified_at": { "type": "date" },
+          "method": { "type": "keyword" }
+        }
+      },
+      "paper_id": { "type": "keyword" },
+      "text_source": { "type": "keyword" },
+      "analysis_route": {
+        "properties": {
+          "route": { "type": "keyword" },
+          "est_tokens": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "forced": { "type": "boolean" },
+          "prompt_version": { "type": "keyword" }
+        }
+      },
+      "abstract_severity": {
+        "properties": {
+          "class": { "type": "keyword" },
+          "scale": { "type": "keyword" },
+          "exemplar_set": { "type": "keyword" },
+          "model": { "type": "keyword" },
+          "changes": { "type": "object", "enabled": false }
+        }
+      },
+      "fulltext_severity": {
+        "properties": {
+          "tier": { "type": "keyword" },
+          "materiality_score": { "type": "float" },
+          "prompt_version": { "type": "keyword" },
+          "model": { "type": "keyword" }
+        }
+      },
+      "review_status": { "type": "keyword" },
+      "review_reasons": { "type": "keyword" },
+      "reviewer": { "type": "keyword" },
+      "reviewed_at": { "type": "date" },
+      "review_note": { "type": "text" },
+      "citation_analysis": {
+        "properties": {
+          "status": { "type": "keyword" },
+          "n_targets": { "type": "integer" },
+          "run_ids": { "type": "keyword" },
+          "checked_until": { "type": "date" },
+          "n_superseded": { "type": "integer" },
+          "coverage_complete": { "type": "boolean" },
+          "updated_at": { "type": "date" }
+        }
+      },
+      "usage": { "type": "object", "enabled": false },
+      "preprint_title": { "type": "text" },
+      "published_title": { "type": "text" },
+      "first_author": { "type": "keyword" },
+      "machine_verdict": { "type": "object", "enabled": false },
+      "corrected_fields": { "type": "keyword" }
     }
   }
 }

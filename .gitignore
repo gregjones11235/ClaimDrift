@@ -23,6 +23,11 @@ env/
 .env
 .env.*
 !.env.example
+.gmail_token.json
+
+# Case bank, docstore, Europe PMC cache, experiments and their results: local + the Cloud Storage bucket mounted at
+# /data on Cloud Run; not versioned (761 MB).
+/data/
 
 # Elastic Workflows with inlined bearer tokens — keep only the
 # .template.yaml versions in git (T2; Elastic 9.3 has no secret store).

@@ -1,6 +1,6 @@
 # ClaimDrift — Frontend
 
-> **Status (2026-05-29)**: Live. Next.js 16 + React 19 + Tailwind + shadcn/ui dashboard, wired to real data through the [BFF](../apps/bff/). Six views: drift-event list (`/`), drift-event detail (`/event/[id]`), affected citations, notifications, memory patterns (`/patterns`), and the live agent-activity stream (`/live`).
+> **Status (2026-05-29)**: Live. Next.js 16 + React 19 + Tailwind + shadcn/ui dashboard, wired to real data through the [BFF](../apps/bff/). Views: drift-event list (`/dashboard`), drift-event detail (`/event/[id]`, with abstract-level and full-text severity shown separately), affected citations, notifications, the live agent-activity stream (`/live`), the human review queue (`/review`, P1.8), the author self-check (`/selfcheck`, P1.10) and the orchestration playground. The memory-pattern page was removed with the pattern library (P1.9). Review and self-check need the BFF to run against the local Elasticsearch (`CLAIMDRIFT_ES`); otherwise they show `local_es_required`.
 
 Per the [team allocation in `../docs/contracts.md`](../docs/contracts.md) §0, the dashboard is **D (tty / Ranjan)**-owned.
 
@@ -20,7 +20,7 @@ The frontend needs the BFF running (see [`../apps/bff/README.md`](../apps/bff/RE
 
 ```bash
 # 1. In one terminal, start the BFF (serves real ES data):
-uv run --project agents python apps/bff/server.py
+uv run python apps/bff/server.py
 
 # 2. In another terminal, start the frontend:
 cd frontend

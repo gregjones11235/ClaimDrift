@@ -1,0 +1,149 @@
+{
+ "_doc": "Hand-written citation targets for case-bank pairs (from data/cases/experiments citation_agent.TARGETS, citation_testset.NEW_TARGETS, citation_pipeline.PRIMARY_TERM/OLD_TERMS). Used instead of automatic derivation for case-bank papers so the citation evaluation matches the experiments. `terms` = the primary spelling the experiments searched; claimdrift.citations.terms expands spellings (P1.3).",
+ "targets": {
+  "r0_preliminary_ijid": {
+   "first_author": "Zhao",
+   "title_fragment": "Preliminary estimation of the basic reproduction number",
+   "preprint_doi": "10.1101/2020.01.23.916395",
+   "published_doi": "10.1016/j.ijid.2020.01.050",
+   "drift": {
+    "id": "R1",
+    "preprint_v1_claim": "R0 ranges from 3.30 (95% CI 2.73-3.96) to 5.47 (95% CI 4.16-7.10)",
+    "current_claim": "R0 ranges from 2.24 (95% CI 1.96-2.55) to 3.58 (95% CI 2.89-4.39)",
+    "changed_on": "2020-01-29 (preprint v2; journal version 2020-01-30)"
+   },
+   "terms": [
+    "5.47"
+   ],
+   "diff_match": []
+  },
+  "incubation_travellers_eurosurv": {
+   "first_author": "Backer",
+   "title_fragment": "Incubation period of 2019 novel coronavirus",
+   "preprint_doi": "10.1101/2020.01.27.20018986",
+   "published_doi": "10.2807/1560-7917.ES.2020.25.5.2000062",
+   "drift": {
+    "id": "IT1",
+    "preprint_v1_claim": "mean incubation period 5.8 days (95% CI 4.6-7.9), from 34 cases",
+    "current_claim": "mean incubation period 6.4 days (95% CrI 5.6-7.7), from 88 cases",
+    "changed_on": "2020-01-30 (preprint v2; journal version 2020-02-06)"
+   },
+   "terms": [
+    "5.8 days"
+   ],
+   "diff_match": []
+  },
+  "guan_nejm_clinical": {
+   "first_author": "Guan",
+   "title_fragment": "Clinical characteristics of 2019 novel coronavirus infection",
+   "preprint_doi": "10.1101/2020.02.06.20020974",
+   "published_doi": "10.1056/NEJMoa2002032",
+   "drift": {
+    "id": "G1",
+    "preprint_v1_claim": "median incubation period 3.0 days (range 0 to 24.0 days)",
+    "current_claim": "median incubation period 4 days (interquartile range 2 to 7); the 24-day maximum does not appear in the published paper",
+    "changed_on": "2020-02-28 (NEJM publication; single preprint version)"
+   },
+   "terms": [
+    "0 to 24"
+   ],
+   "diff_match": []
+  },
+  "covid_liver_damage": {
+   "first_author": "Fan",
+   "title_fragment": "Clinical Features of COVID-19-Related Liver",
+   "preprint_doi": "10.1101/2020.02.26.20026971",
+   "published_doi": "10.1016/j.cgh.2020.04.002",
+   "drift": {
+    "id": "LD1",
+    "preprint_v1_claim": "75 patients (50.7%) showed abnormal liver function at admission",
+    "current_claim": "55 patients (37.2%) had abnormal liver function (now explicitly defined)",
+    "changed_on": "2020-04-10 (journal)"
+   },
+   "terms": [
+    "50.7%"
+   ],
+   "diff_match": []
+  },
+  "epi_characteristics_jcm": {
+   "first_author": "Linton",
+   "title_fragment": "Incubation Period and Other Epidemiological Characteristics",
+   "preprint_doi": "10.1101/2020.01.26.20018754",
+   "published_doi": "10.3390/jcm9020538",
+   "drift": {
+    "id": "P1",
+    "preprint_v1_claim": "incubation period 2 to 9 days (95% range); quarantine of at least nine days",
+    "current_claim": "incubation period 2-14 days; quarantine of at least 14 days",
+    "changed_on": "2020-02-18 (preprint v2)"
+   },
+   "terms": [
+    "nine days"
+   ],
+   "diff_match": []
+  },
+  "ethiopia_vaccination": {
+   "first_author": "Debie",
+   "title_fragment": "Childhood vaccination coverage and equity impact in Ethiopia",
+   "preprint_doi": "10.1101/2020.01.03.20016436",
+   "published_doi": "10.1016/j.vaccine.2020.03.040",
+   "drift": {
+    "id": "E1",
+    "preprint_v1_claim": "national coverage for BASIC vaccination 39.7% (2016 EDHS)",
+    "current_claim": "FULL vaccination coverage 33.3%; basic vaccination reported as 38.5%",
+    "changed_on": "2020-04 (journal)"
+   },
+   "terms": [
+    "39.7%"
+   ],
+   "diff_match": []
+  },
+  "forecasting_plosone": {
+   "first_author": "Anastassopoulou",
+   "title_fragment": "Data-based analysis, modelling and forecasting of the COVID-19",
+   "preprint_doi": "10.1101/2020.02.11.20022186",
+   "published_doi": "10.1371/journal.pone.0230405",
+   "drift": {
+    "id": "FO1",
+    "preprint_v1_claim": "under-reporting scenario of five times the infected and eight times the recovered; R0 about 2.5",
+    "current_claim": "scenario of twenty times infected and forty times recovered",
+    "changed_on": "2020-02-25 (preprint v2)"
+   },
+   "terms": [
+    "five times"
+   ],
+   "diff_match": []
+  },
+  "kucharski_early_dynamics": {
+   "first_author": "Kucharski",
+   "title_fragment": "Early dynamics of transmission and control",
+   "preprint_doi": "10.1101/2020.01.31.20019901",
+   "published_doi": "10.1016/S1473-3099(20)30144-4",
+   "drift": {
+    "id": "K1/K2",
+    "preprint_v1_claim": "29,500 prevalent symptomatic cases in Wuhan on 23 January; R fluctuated between 1.6 and 2.9",
+    "current_claim": "prevalence estimate withdrawn; Rt declined from 2.35 to 1.05",
+    "changed_on": "2020-02-18 (preprint v2)"
+   },
+   "terms": [
+    "29,500"
+   ],
+   "diff_match": []
+  },
+  "vicarious_traumatization": {
+   "first_author": "Li",
+   "title_fragment": "Vicarious traumatization in the general public",
+   "preprint_doi": "10.1101/2020.02.29.20029322",
+   "published_doi": "10.1016/j.bbi.2020.03.007",
+   "drift": {
+    "id": "V1",
+    "preprint_v1_claim": "risk factors gender (OR 3.1717) and fertility (OR 2.072) for vicarious traumatization in non-front-line nurses",
+    "current_claim": "risk-factor regression removed from the paper",
+    "changed_on": "2020-03 (journal)"
+   },
+   "terms": [
+    "2.072"
+   ],
+   "diff_match": []
+  }
+ }
+}

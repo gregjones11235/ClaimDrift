@@ -1,7 +1,0 @@
-.env
-test.py
-# Deploy-time env files for each agent (may contain ELASTIC_API_KEY for
-# MCP-using agents). Created per agent under <agent>/.env.deploy — see
-# _DEPLOY_CHECKLIST.md.
-*/.env.deploy
-

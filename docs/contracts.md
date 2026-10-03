@@ -1217,6 +1217,272 @@ Vertex AI Agent Engine — supervisor_agent (ADK)
 - Pullers (B) on Cloud Run is independent — affects narration ("system continuously monitors arXiv" vs. "we seeded these 2 demo events") but not the recordability of the agent chain itself.
 
 
+## 10. Frontend ↔ BFF types (TypeScript)
+
+The contract surface between the frontend and the BFF, moved here from `contracts/claimdrift_types.ts` on 2026-10-02. The frontend's full copy, which also holds the author self-check types, is `frontend/src/types/claimdrift.ts`; keep the two in step.
+
+```ts
+// Shared frontend <-> BFF types. The frontend's full copy lives in
+// frontend/src/types/claimdrift.ts; this file tracks the contract surface.
+// The memory loop (memory_synthesizer, drift_patterns) was removed in P1.9.
+
+export type AgentId =
+  | "claim_extractor" // long-document branch only
+  | "drift_analyzer"
+  | "citation_finder"
+  | "notifier";
+
+export type SseEventType =
+  | "heartbeat"
+  | "agent.started"
+  | "agent.tool_call"
+  | "agent.pattern_retrieved" // historic agent_events only
+  | "agent.step"
+  | "agent.completed"
+  | "agent.failed";
+
+// Legacy affected_citations severity (old demo rows). New rows use `cites`.
+export type SeverityTier = "central" | "comparative" | "peripheral";
+
+export type ClaimType =
+  | "qualitative"
+  | "quantitative"
+  | "causal"
+  | "correlational"
+  | "hedged";
+
+export type DiffType =
+  | "claim_disappeared"
+  | "claim_added"
+  | "numerical_shift"
+  | "hedging_added"
+  | "hedging_removed"
+  | "claim_reversed"
+  | "outcome_switch";
+
+// Two separate severity dimensions — displayed separately, never merged.
+export type AbstractSeverityClass = "no_change" | "minor" | "major"; // Brierley 2022
+export type FulltextTier = "minor" | "medium" | "significant" | "major";
+
+export type ReviewStatus = "not_required" | "pending" | "approved" | "rejected";
+export type ReviewReason =
+  | "quote_unverified"
+  | "severity_mismatch"
+  | "high_severity_notify"
+  | "withdrawn_version"
+  | "long_document_branch"
+  | "reanalyzed_after_review"
+  | "unclear" // citation
+  | "outgoing_notification"; // citation
+
+export type CitesClass =
+  | "superseded"
+  | "current"
+  | "flagged_as_previous"
+  | "indirect"
+  | "not_relying"
+  | "unclear";
+export type CitationRole = "model_input" | "reported_as_fact" | "background" | "unknown";
+export type FoundVia = "prefetch" | "search_more" | "chain" | "semantic";
+
+export interface SseEvent<TPayload = Record<string, unknown>> {
+  event_type: SseEventType;
+  agent_id: AgentId | null;
+  drift_event_id: string | null;
+  timestamp: string;
+  payload: TPayload;
+}
+
+export interface EvidenceQuote {
+  doc_id: string;
+  section: string | null;
+  quote: string;
+}
+
+export interface ClaimDiff {
+  diff_type: DiffType;
+  preprint_text: string;
+  published_text: string;
+  change_description: string;
+  materiality?: number | null;
+  severity_tier?: FulltextTier | null;
+  root_cause?: string | null;
+  rationale?: string | null;
+  evidence?: EvidenceQuote[];
+  label_problems?: string[] | null;
+}
+
+export interface ProvenanceRow {
+  claim_diff_idx: number;
+  doc_id: string;
+  doi: string | null;
+  version: string | null;
+  section: string | null;
+  section_claimed: string | null;
+  quote: string;
+  offset: number | null;
+  tool: string | null;
+  text_source: string | null;
+  verified: boolean;
+  verified_at: string | null;
+}
+
+export interface DriftEventSummary {
+  event_id: string;
+  preprint_doi: string;
+  preprint_version_compared: string; // "v1" for new events
+  published_doi: string;
+  drift_summary: string | null;
+  materiality_score: number | null;
+  detected_at: string;
+  // ---- added by the redesign (all optional: old demo events lack them) ----
+  paper_id?: string | null;
+  preprint_title?: string | null;
+  first_author?: string | null;
+  text_source?: string | null; // "jats"
+  analysis_route?: {
+    route: "stuffed" | "claims";
+    est_tokens: number;
+    limit: number;
+    forced: boolean;
+    prompt_version: string;
+  } | null;
+  abstract_severity?: {
+    class: AbstractSeverityClass | null;
+    scale: string; // "brierley_2022"
+    exemplar_set: string | null;
+    model: string | null;
+    changes: { section: string; what: string; degree: string }[];
+  } | null;
+  fulltext_severity?: {
+    tier: FulltextTier | null;
+    materiality_score: number | null;
+    prompt_version: string | null;
+    model: string | null;
+  } | null;
+  claim_diffs?: ClaimDiff[];
+  provenance?: ProvenanceRow[];
+  verification?: {
+    quotes_total: number;
+    quotes_verified: number;
+    status: "verified" | "partial" | "unsupported";
+    method: string | null;
+  } | null;
+  preprint_versions?: string[] | null;
+  preprint_withdrawn_versions?: string[] | null;
+  review_status?: ReviewStatus | null;
+  review_reasons?: ReviewReason[];
+  reviewer?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  citation_analysis?: {
+    status: "queued" | "running" | "done" | "failed" | "no_target" | "not_queued";
+    n_targets: number;
+    run_ids: string[];
+    checked_until: string | null;
+    n_superseded: number;
+    coverage_complete: boolean;
+  } | null;
+}
+
+export interface AffectedCitation {
+  affected_citation_id: string;
+  drift_event_id: string;
+  // legacy fields (may also be present on new rows)
+  citing_paper_doi?: string | null;
+  citing_paper_title?: string | null;
+  citing_paper_authors?: { name: string; orcid: string | null; email: string | null }[] | null;
+  citation_context?: string | null;
+  severity_tier?: SeverityTier | null;
+  severity_reasoning?: string | null;
+  // ---- added by the redesign ----
+  work_id?: string | null; // PMC id
+  cites?: CitesClass | null;
+  role?: CitationRole | null;
+  sentence?: string | null;
+  sentence_verified?: boolean | null;
+  found_via?: FoundVia | null;
+  relayed_by?: string | null;
+  flags?: ("F1" | "F2" | "F3")[];
+  unclear_rule?: string | null;
+  reason?: string | null;
+  judged_by?: "worker" | "batch_overflow" | null;
+  needs_notification?: boolean | null;
+  notify_priority?: "high" | "normal" | "low" | null;
+  verification?: {
+    verdict: string | null;
+    condition_1?: boolean;
+    condition_2?: boolean;
+    condition_3?: boolean;
+    reason?: string;
+  } | null;
+  review_status?: ReviewStatus | null;
+  review_reasons?: ReviewReason[];
+  reviewer?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  citing_paper_date?: string | null;
+  citing_paper_journal?: string | null;
+}
+
+// GET /api/drift-events/<id>/citation-runs -> {items: CitationRun[], count}
+export interface CitationRun {
+  run_id: string;
+  kind: "initial" | "incremental";
+  status: "queued" | "running" | "done" | "failed";
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  since: string | null;
+  checked_until: string | null;
+  n_candidates: number | null;
+  n_judged: number | null;
+  n_unjudged: number | null;
+  coverage_complete: boolean | null;
+  unjudged: { work_id: string; flags: string[] | null; source: string | null }[];
+  judged_by: { worker: number; batch_overflow: number } | null;
+  counts: Partial<Record<CitesClass, number>> | null;
+  summary: string | null;
+  error: string | null;
+}
+
+export interface NotificationLog {
+  affected_citation_id: string;
+  drift_event_id: string;
+  recipient_email: string; // always the project test inbox
+  subject: string;
+  body: string;
+  status: "drafted" | "sent" | "bounced" | "failed" | "skipped";
+  drafted_at?: string | null;
+  sent_at: string | null;
+  error_message: string | null;
+  // ---- added by the redesign ----
+  citing_work_id?: string | null;
+  cites?: CitesClass | null;
+  intended_for?: {
+    citing_paper_title: string | null;
+    citing_paper_doi: string | null;
+    authors: string[] | null;
+    relayed_by: string | null;
+  } | null;
+  reviewer?: string | null;
+  approved_at?: string | null;
+  delivery?: "gmail" | "draft_only" | null;
+}
+
+// GET /api/stats
+export interface DashboardStats {
+  drift_events_total: number;
+  high_severity_count: number;
+  avg_materiality_score: number;
+  affected_citations_total: number;
+  notifications_total: number;
+  notifications_sent: number;
+  review_pending_total: number;
+  superseded_citations_total: number;
+}
+```
+
 ## Changelog
 
 - 2026-05-20 [Jiayu Zhu] [§1-§8] v0 created.

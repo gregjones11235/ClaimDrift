@@ -2,28 +2,39 @@
 
 import { usePathname } from "next/navigation";
 import { useSseStore } from "@/lib/store/sse";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+
+const noopSubscribe = () => () => {};
 
 export function Topbar() {
   const pathname = usePathname();
   const isListening = useSseStore((s) => s.isListening);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // true on the client, false during SSR — avoids a hydration mismatch for the
+  // SSE indicator without a setState-in-effect.
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
 
   let title = "Dashboard";
   let sub = "";
   if (pathname?.startsWith("/event/") && pathname.includes("/citations")) {
-    title = "Citations"; sub = "blast radius · OpenAlex";
+    title = "Citations"; sub = "citation analysis · open full-text papers";
   } else if (pathname?.startsWith("/event/") && pathname.includes("/notifications")) {
-    title = "Notification Log"; sub = "notifier agent · Gmail";
+    title = "Notification Log"; sub = "notifier · test inbox only";
   } else if (pathname?.startsWith("/event/")) {
-    title = "Drift Detail"; sub = "drift_analyzer · Gemini 2.5 Pro";
+    title = "Drift Detail"; sub = "drift_analyzer · two severity scales";
+  } else if (pathname?.startsWith("/review/events/")) {
+    title = "Review · Drift Event"; sub = "human review gate";
+  } else if (pathname?.startsWith("/review/citations/")) {
+    title = "Review · Citation"; sub = "human review gate";
+  } else if (pathname === "/review") {
+    title = "Review Queue"; sub = "human review gate";
+  } else if (pathname === "/selfcheck") {
+    title = "Author Self-check"; sub = "references · citing sentences";
+  } else if (pathname?.startsWith("/playground")) {
+    title = "Playground"; sub = "5-agent orchestration";
   } else if (pathname === "/live") {
     title = "Event Stream"; sub = "agent_events · SSE";
-  } else if (pathname === "/patterns") {
-    title = "Pattern Memory"; sub = "drift_patterns · ELSER";
   } else if (pathname === "/citations") {
-    title = "Citations"; sub = "blast radius · OpenAlex";
+    title = "Citations"; sub = "Europe PMC open full text";
   } else if (pathname === "/notifications") {
     title = "Notification Log"; sub = "notifier agent";
   } else if (pathname === "/dashboard") {

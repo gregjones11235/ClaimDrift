@@ -1,7 +1,5 @@
 {
-  "settings": {
-    "refresh_interval": "5s"
-  },
+  "settings": { "refresh_interval": "5s" },
   "mappings": {
     "dynamic": "strict",
     "properties": {
@@ -15,7 +13,14 @@
       "status": { "type": "keyword" },
       "drafted_at": { "type": "date" },
       "sent_at": { "type": "date" },
-      "error_message": { "type": "text" }
+      "error_message": { "type": "text" },
+      "citing_work_id": { "type": "keyword" },
+      "target_id": { "type": "keyword" },
+      "intended_for": { "type": "object", "enabled": false },
+      "reviewer": { "type": "keyword" },
+      "approved_at": { "type": "date" },
+      "delivery": { "type": "keyword" },
+      "cites": { "type": "keyword" }
     }
   }
 }

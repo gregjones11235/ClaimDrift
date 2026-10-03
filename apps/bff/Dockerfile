@@ -1,38 +1,27 @@
-# Build context is the REPO ROOT, not apps/bff/. server.py imports two
-# repo-relative modules — ingestion/common/elastic.py (the stdlib-only ES HTTP
-# client) and apps/bff/sse_adapter.py (the §6.1 SSE envelope translator). A
-# build context scoped to apps/bff/ alone would not see ingestion/.
-#
-# `gcloud run deploy --source` cannot point at a Dockerfile outside the build
-# context root, so deploys go through Cloud Build (mirrors the dispatcher):
+# ClaimDrift BFF (review queue, author self-check) -- also the image of the citation-dispatch Cloud Run Job
+# (`python -m claimdrift citation-worker --once`). Build context is the REPO ROOT (see /.gcloudignore):
 #   gcloud builds submit . --config=apps/bff/cloudbuild.yaml
-#   gcloud run deploy claimdrift-bff --image=<the artifact URL> …
+#
+# Layout under /app mirrors the repo: server.py resolves ROOT = parents[2] = /app and imports apps.bff.*,
+# ingestion.common.* and claimdrift. .env is absent in the container (config comes from Cloud Run env vars and
+# Secret Manager). agents/engines.json lists the Agent Engine resource names (CLAIMDRIFT_ENGINES points at it), so
+# rebuild this image after deploying new engines (updates in place keep the names stable).
 FROM python:3.12-slim
 
 WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PORT=8080
 
-# Install BFF deps first (the layer that changes least often).
-COPY apps/bff/requirements.txt .
+COPY apps/requirements-cloud.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application code. server.py resolves ROOT = parents[2], i.e. /app, and does
-# sys.path.append(ROOT), so the "apps.bff.*" and "ingestion.common.*" import
-# paths must exist under /app exactly as in the repo.
-COPY apps/bff/server.py /app/apps/bff/server.py
-COPY apps/bff/sse_adapter.py /app/apps/bff/sse_adapter.py
-COPY ingestion/common /app/ingestion/common
-# The golden replay file is optional but lets the live SSE view animate without
-# GCP creds when SSE_REPLAY_GOLDEN=1 (see apps/bff/README.md).
-COPY apps/dispatcher/tests/golden/stream_amblyopia_v2.jsonl /app/apps/dispatcher/tests/golden/stream_amblyopia_v2.jsonl
-RUN touch /app/apps/__init__.py /app/apps/bff/__init__.py \
+COPY claimdrift/ /app/claimdrift/
+COPY agents/engines.json /app/agents/engines.json
+COPY ingestion/common/ /app/ingestion/common/
+COPY apps/bff/ /app/apps/bff/
+# stdlib bioRxiv/medRxiv version resolver used by the on-demand fetch and the DOI pre-check
+COPY apps/dispatcher/versions.py /app/apps/dispatcher/versions.py
+RUN touch /app/apps/__init__.py /app/apps/bff/__init__.py /app/apps/dispatcher/__init__.py \
           /app/ingestion/__init__.py /app/ingestion/common/__init__.py
 
-# Cloud Run injects $PORT (default 8080); server.py honors it (and binds
-# 0.0.0.0 automatically when $PORT is set). agents/.env is absent in the
-# container, so load_dotenv is a no-op and the real ELASTIC_* values come from
-# Cloud Run env vars / secrets.
-ENV PORT=8080
 EXPOSE 8080
-
-# server.py is a plain http.server; run it as a module from /app.
 CMD exec python apps/bff/server.py

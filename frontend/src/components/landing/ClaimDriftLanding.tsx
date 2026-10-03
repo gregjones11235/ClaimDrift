@@ -71,7 +71,7 @@ function Hero({ stats }: { stats: DashboardStats | null }) {
                   <path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </a>
-              <a href="/playground/memory-ab" data-h style={{
+              <a href="/playground/orchestration" data-h style={{
                 background: 'transparent', border: '1px solid var(--gr3)', color: 'var(--gr)',
                 padding: '13px 28px', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
                 textDecorationLine: 'none', letterSpacing: '0.14em', textTransform: 'uppercase', transition: 'all 0.2s',
@@ -119,7 +119,7 @@ function ProblemSection() {
     { n: '02', title: 'Citations accumulate over months',                body: 'Downstream papers, institutional grants, and doctoral theses are built on the original claim, treating it as peer-reviewed fact.',                                                                                   status: 'warn' },
     { n: '03', title: 'Peer review revises the core conclusion',         body: 'The published version walks back a key finding. The deviation is significant. The change is not announced to prior citers.',                                                                                        status: 'warn' },
     { n: '04', title: 'Downstream research is compromised',              body: 'Every paper that cited the preprint is now resting on a shifted claim. No alert is sent. The cascade continues invisibly.',                                                                                         status: 'err'  },
-    { n: 'CD', title: 'ClaimDrift detects the drift and stops the cascade', body: 'Semantic comparison flags the deviation. The blast radius is mapped. Notifications reach all affected authors within 2 seconds.',                                                                               status: 'fix'  },
+    { n: 'CD', title: 'ClaimDrift detects the drift and stops the cascade', body: 'The first preprint version is compared with the published paper. Citing papers that still rely on the revised value are found in Europe PMC open full texts, and an alert is drafted for each.',                                                                               status: 'fix'  },
   ];
 
   const BG: Record<string, string> = {
@@ -160,7 +160,7 @@ function ProblemSection() {
           </p>
           <div style={{ clear: 'both', paddingTop: 28, borderTop: '1px solid var(--gr3)', marginBottom: 40 }}>
             <p style={{ fontSize: 15, lineHeight: 1.85, fontWeight: 300, color: 'var(--gr2)', maxWidth: 600 }}>
-              ClaimDrift intercepts the cascade at the precise moment of drift. A Vertex AI multi-agent pipeline detects the semantic deviation, maps the full citation blast radius via OpenAlex, and dispatches structured alerts to every affected researcher within seconds.
+              ClaimDrift intercepts the cascade at the precise moment of drift. A 5-agent pipeline on Vertex AI Agent Engine compares the first preprint version with the published paper, traces the citing papers in Europe PMC open full texts that still rely on a revised claim (following papers that relayed it, up to 2 hops), and drafts a factual alert for each one.
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -186,11 +186,12 @@ function ProblemSection() {
 
 /* ── HOW IT WORKS ─────────────────────── */
 function HowItWorks() {
-  const AGENTS = [
-    { num: '01', tag: 'EXTRACTOR',   color: 'var(--y)',   title: 'Real-Time Source Ingestion',        body: 'Continuously monitors bioRxiv, medRxiv, and Crossref for preprint-to-publication status transitions. On detection, the Extractor parses both manuscripts into structured claim objects, preserving sentence context, author metadata, and DOI linkages for downstream comparison.', tech: ['bioRxiv API', 'medRxiv API', 'Crossref', 'Elasticsearch'] },
-    { num: '02', tag: 'ANALYZER',    color: 'var(--rd)',  title: 'Semantic Drift Scoring',             body: 'Runs sentence-level semantic embedding comparison using Gemini 1.5 Pro via Vertex AI. Each claim pair receives a cosine-distance deviation score. Claims scoring above 0.30 are flagged as moderate drift; above 0.60, high drift. The 45 percent threshold in the demonstration above represents a HIGH classification.',    tech: ['Vertex AI', 'Gemini 1.5 Pro', 'Cosine Similarity', 'Claim Extraction'] },
-    { num: '03', tag: 'SYNTHESIZER', color: 'var(--bl)',  title: 'Citation Blast Radius Mapping',      body: 'Queries the OpenAlex citation graph to traverse all downstream papers, preprints, datasets, and theses that cited the original preprint. Author identities are resolved via ORCID. The full blast radius is computed within seconds, scoped to three citation levels by default.',                                            tech: ['OpenAlex', 'ORCID', 'Graph Traversal', 'Author Resolution'] },
-    { num: '04', tag: 'ALERTS',      color: 'var(--grn)', title: 'Structured Drift Notifications',     body: 'Dispatches alert payloads to every affected author containing the drift report, the exact deviation score, a side-by-side claim comparison, and a list of their affected downstream publications. Alerts are delivered in real time via Server-Sent Events and stored in Elasticsearch for dashboard access.',              tech: ['Server-Sent Events', 'Email Dispatch', 'Elasticsearch', 'Drift Report'] },
+  const AGENTS: { num: string; tag: string; color: string; title: string; body: string; tech: string[]; wide?: boolean }[] = [
+    { num: '01', tag: 'CLAIM EXTRACTOR', color: 'var(--y)',   title: 'Claims From Both Versions',   body: 'The first preprint version (v1, from its own JATS full text) and the published paper are read section by section. Every finding is extracted with its numbers verbatim, together with the method and definition statements it depends on. The two versions are processed in parallel.', tech: ['bioRxiv / medRxiv JATS', 'Europe PMC full text', 'Gemini'] },
+    { num: '02', tag: 'DRIFT ANALYZER',  color: 'var(--rd)',  title: 'What Changed, and How Much',  body: 'Compares the two claim lists and records each change with its type and root cause. Severity is rated twice and kept apart: on the full text, and on the abstracts alone on the Brierley et al. scale. Every evidence quote is checked verbatim against the full text before it is stored.', tech: ['Gemini', 'Verbatim quote check', 'Human review queue'] },
+    { num: '03', tag: 'CITATION FINDER', color: 'var(--bl)',  title: 'Who Still Relies on the Old Value', body: 'Searches the open full text of every paper citing the preprint or its published version for the superseded value. A lead agent dispatches parallel workers that read each candidate and judge how it uses the claim: superseded, current, flagged as previous, indirect, not relying, or unclear. Papers that relayed the old value are followed for up to 2 hops. Coverage is always reported.', tech: ['Europe PMC open full text', 'MCP tools', 'Orchestrator + workers'] },
+    { num: '04', tag: 'NOTIFIER',        color: 'var(--grn)', title: 'Factual Alerts',               body: 'Drafts one alert per citing paper that relies on a revised value: the passage in that paper, the preprint text, the published text and what changed. The judgement is left to the authors. Alerts go only to the project test inbox.', tech: ['Gemini', 'Gmail API', 'Test inbox only'] },
+    { num: '05', tag: 'SUPERVISOR',      color: 'var(--or)',  title: 'Fixed Orchestration',          body: 'Runs the other four agents in a fixed order: claim extractor x2 in parallel, drift analyzer, citation finder, notifier xN in parallel. It has no model of its own. Agents only compute; storage and sending stay on Cloud Run, so any step can be retried safely.', tech: ['Vertex AI Agent Engine', 'Cloud Run', 'Elasticsearch'], wide: true },
   ];
 
   return (
@@ -200,9 +201,9 @@ function HowItWorks() {
         <h2 style={{ fontFamily: 'var(--display)', fontSize: 'clamp(40px,5vw,72px)', lineHeight: 0.9, color: 'var(--wh)' }}>HOW THE AGENTS WORK</h2>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px', background: 'var(--gr3)' }}>
-        {AGENTS.map(({ num, tag, color, title, body, tech }) => (
+        {AGENTS.map(({ num, tag, color, title, body, tech, wide }) => (
           <div key={num}
-            style={{ background: 'var(--bk2)', padding: '40px 36px', position: 'relative', overflow: 'hidden' }}
+            style={{ background: 'var(--bk2)', padding: '40px 36px', position: 'relative', overflow: 'hidden', gridColumn: wide ? '1 / -1' : undefined }}
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--bk3)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--bk2)'; }}
             data-h>
@@ -286,10 +287,10 @@ export default function ClaimDriftLanding({ stats }: { stats: DashboardStats | n
         items={[
           'Claim drift detected',
           stats ? `${stats.drift_events_total.toLocaleString()} drift events tracked` : 'Real-time drift detection',
-          stats ? `${stats.affected_citations_total.toLocaleString()} affected citations mapped` : 'Citation blast-radius mapped',
+          stats ? `${stats.affected_citations_total.toLocaleString()} citing papers judged` : 'Citing papers judged',
           stats ? `${stats.notifications_sent.toLocaleString()} authors notified` : 'Affected authors notified',
-          'Blast radius: OpenAlex traversal',
-          'Agent pipeline: Vertex AI',
+          'Citing papers: Europe PMC open full text',
+          '5 agents on Vertex AI Agent Engine',
           'Indexed: Elasticsearch',
         ]}
         bg="var(--y)" fg="var(--bk)" speed={28}
@@ -298,7 +299,7 @@ export default function ClaimDriftLanding({ stats }: { stats: DashboardStats | n
       <ProblemSection/>
 
       <Ticker
-        items={['Extractor agent','Analyzer agent','Synthesizer agent','Vertex AI orchestration','Elasticsearch indexing','Server-Sent Events','OpenAlex graph traversal']}
+        items={['Claim extractor','Drift analyzer','Citation finder','Notifier','Supervisor','Vertex AI Agent Engine','Elasticsearch','Europe PMC open full text']}
         bg="var(--bk3)" fg="var(--y)" speed={22}
       />
 
@@ -327,7 +328,7 @@ export default function ClaimDriftLanding({ stats }: { stats: DashboardStats | n
               { val: events.toLocaleString(),       label: 'Drift events tracked',          color: 'var(--y)',   sub: 'Across the indexed corpus'      },
               { val: `${avgPct}%`,                  label: 'Average materiality score',     color: 'var(--rd)',  sub: 'Higher = more consequential drift' },
               { val: notified.toLocaleString(),     label: 'Author notifications sent',     color: 'var(--grn)', sub: 'Dispatched via Gmail'           },
-              { val: citations.toLocaleString(),    label: 'Affected citations mapped',     color: 'var(--bl)',  sub: 'Blast radius via OpenAlex graph' },
+              { val: citations.toLocaleString(),    label: 'Citing papers judged',          color: 'var(--bl)',  sub: 'Europe PMC open full text' },
             ] as { val: number | string; label: string; color: string; sub: string }[]).map(({ val, label, color, sub }, i) => (
               <div key={i} style={{ background: 'var(--bk)', padding: '40px 36px', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 16, right: 16 }}>
@@ -351,17 +352,17 @@ export default function ClaimDriftLanding({ stats }: { stats: DashboardStats | n
       <section ref={netRef} style={{ background: 'var(--y)', padding: '96px 60px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5rem', alignItems: 'center' }}>
           <div>
-            <span className="specimen" style={{ display: 'block', marginBottom: 12, color: '#555' }}>Section 04 / Blast radius</span>
+            <span className="specimen" style={{ display: 'block', marginBottom: 12, color: '#555' }}>Section 04 / Citing papers</span>
             <h2 style={{ fontFamily: 'var(--display)', fontSize: 'clamp(52px,7vw,96px)', lineHeight: 0.88, color: 'var(--bk)', marginBottom: 28 }}>THE CITATION NETWORK</h2>
             <p style={{ fontSize: 16, fontWeight: 300, lineHeight: 1.8, color: '#333', maxWidth: 420, marginBottom: 36 }}>
-              One drifted claim propagates through every paper that cited the preprint. ClaimDrift maps the full blast radius using OpenAlex graph traversal and resolves affected author identities automatically.
+              One drifted claim propagates through every paper that cited the preprint. ClaimDrift searches the open full text of the citing papers in Europe PMC for the superseded value, reads each match, and follows papers that relayed the old value for up to 2 hops. Papers without an open full text are out of reach, and every run reports how much it covered.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--bk)', border: '2px solid var(--bk)' }}>
               {([
-                [stats ? stats.affected_citations_total.toLocaleString() : '796', 'Citations in blast radius'],
+                [stats ? stats.affected_citations_total.toLocaleString() : '796', 'Citing papers judged'],
                 [stats ? stats.notifications_sent.toLocaleString() : '742', 'Author notifications sent'],
-                ['3', 'Citation levels'],
-                ['< 2s', 'Time to full mapping'],
+                ['≤ 2', 'Hops through relaying papers'],
+                ['Open', 'Full text only (Europe PMC)'],
               ] as [string, string][]).map(([n, l]) => (
                 <div key={l} style={{ background: 'var(--y)', padding: '18px 22px' }}>
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 36, color: 'var(--bk)', fontWeight: 700, lineHeight: 1 }}>{n}</div>
@@ -397,7 +398,7 @@ export default function ClaimDriftLanding({ stats }: { stats: DashboardStats | n
           <div style={{ marginTop: 16, paddingTop: 40, borderTop: '1px solid var(--gr3)' }}>
             <div className="specimen" style={{ color: 'var(--wh2)', marginBottom: 20 }}>Built with</div>
             <div style={{ display: 'flex', gap: 28, justifyContent: 'center', flexWrap: 'wrap' }}>
-              {['Google Vertex AI', 'Elasticsearch', 'bioRxiv', 'medRxiv', 'OpenAlex', 'Crossref'].map(t => (
+              {['Vertex AI Agent Engine', 'Cloud Run', 'Elasticsearch', 'bioRxiv', 'medRxiv', 'Europe PMC'].map(t => (
                 <span key={t} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--wh2)', letterSpacing: '0.1em' }}>{t}</span>
               ))}
             </div>

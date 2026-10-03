@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   runOrchestration,
   NodeId,
@@ -18,49 +18,9 @@ const INITIAL_NODES: NodeView[] = [
   { id: "drift_analyzer", label: "Drift Analyzer", fanout: false, lanes: { 0: { phase: "idle" } } },
   { id: "citation_finder", label: "Citation Finder", fanout: false, lanes: { 0: { phase: "idle" } } },
   { id: "notifier", label: "Notifier", fanout: true, lanes: { 0: { phase: "idle" } } },
-  { id: "memory_synthesizer", label: "Memory Synthesizer", fanout: false, lanes: { 0: { phase: "idle" } } },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// The preprint DOI this playground's fixed case runs on — must match
-// apps/playground/orchestration.py ENVELOPE["preprint"]["doi"].
-const PREWARM_PREPRINT_DOI = "10.1101/2024.05.01.24306384";
-
-// Silently pre-warm the OpenAlex `cites:` lookup so the FIRST real run's
-// citation_finder isn't paying for a cold OpenAlex query cache. citation_finder
-// reaches OpenAlex through the Elastic `openalex_citing_works` MCP workflow,
-// which does a TWO-step chain: (1) GET /works/{doi} to map the DOI → short
-// OpenAlex work id, (2) GET /works?filter=cites:{id}. We replicate BOTH calls
-// here with the EXACT same URLs (including the `select=` query strings, which
-// are part of OpenAlex's cache key) so this prewarm hits the same cache entries
-// the workflow will. We can only warm OpenAlex's own server-side query cache —
-// NOT the Elastic node's outbound connection pool (that's server-side) — but
-// that cache is the dominant cold cost for a fixed, repeatedly-queried DOI.
-//
-// Best-effort: every error is swallowed. OpenAlex is a public, CORS-enabled,
-// unauthenticated API and this fires zero LLM calls / sends zero email, so it
-// costs nothing. If it fails (offline, OpenAlex down, CORS change), the real
-// run just pays the cold cost as before — no user-visible effect either way.
-async function prewarmOpenAlex(signal: AbortSignal): Promise<void> {
-  try {
-    const src = await fetch(
-      `https://api.openalex.org/works/https://doi.org/${PREWARM_PREPRINT_DOI}?select=id,doi,display_name`,
-      { signal, headers: { Accept: "application/json" } },
-    );
-    if (!src.ok) return;
-    const srcJson = (await src.json()) as { id?: string };
-    const workId = srcJson.id?.split("/").pop();
-    if (!workId) return;
-    await fetch(
-      `https://api.openalex.org/works?filter=cites:${workId}` +
-        `&per-page=25&select=id,doi,title,display_name,authorships,publication_year,cited_by_count`,
-      { signal, headers: { Accept: "application/json" } },
-    );
-  } catch {
-    // best-effort prewarm — ignore all failures (incl. AbortError on unmount)
-  }
-}
 
 // A node has "started" once any of its lanes left idle — i.e. at least one
 // real SSE event arrived for it. Used to drive the in-order "working" inference
@@ -105,30 +65,16 @@ export default function OrchestrationPage() {
   // citing works while only M (<N) carry the DOI/author a notifier needs, so a
   // total_found denominator strands the card at "M/N" forever (the missing
   // N−M lanes never light up). We instead count real lanes and treat the
-  // fan-out as COMPLETE once the downstream memory_synthesizer node begins —
-  // supervisor runs every notifier before memory_synthesizer, so its first
-  // event means no more notifier lanes are coming. Until then the denominator
-  // can still climb as lanes arrive (so we never under-count mid-fan-out).
-  const notifierSealed = useMemo(() => {
-    const ms = nodes.find((n) => n.id === "memory_synthesizer");
-    return Object.values(ms?.lanes ?? {}).some((l) => l.phase !== "idle");
-  }, [nodes]);
+  // fan-out as COMPLETE once the run has ended — notifier is the last node of
+  // the pipeline, so after run.complete no more notifier lanes are coming.
+  // Until then the count can still climb as lanes arrive.
+  const notifierSealed = !running;
 
-  // Pre-warm the OpenAlex citing-works cache as soon as the page mounts, while
-  // the judge is still reading "THE CASE" and entering their email. By the time
-  // they press Run, citation_finder's OpenAlex lookup is likely a cache hit
-  // rather than a cold query. Fire once on mount; abort if we unmount first.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    void prewarmOpenAlex(ctrl.signal);
-    return () => ctrl.abort();
-  }, []);
-
-  // The supervisor pipeline can run up to ~6 min; warn before any navigation
+  // A run takes several minutes (citation analysis dominates); warn before any navigation
   // that would unmount this page and kill the live SSE run. See useRunGuard.
   useRunGuard(
     running,
-    "The 5-agent pipeline is still running (~6 min). Leaving this page will stop it and you won't get the drift-alert email. Leave anyway?",
+    "The 5-agent pipeline is still running (several minutes). Leaving this page will stop it and you won't get the drift-alert email. Leave anyway?",
   );
 
   function patchLane(id: NodeId, lane: number, next: Partial<NodeLane>) {
@@ -164,7 +110,7 @@ export default function OrchestrationPage() {
             setMeta(data as unknown as OrchestrationMeta);
             break;
           case "pipeline.warming":
-            setStatus((data.detail as string) ?? "starting supervisor engine…");
+            setStatus((data.detail as string) ?? "starting pipeline…");
             break;
           case "pipeline.ready":
             setStatus(null);
@@ -246,6 +192,9 @@ export default function OrchestrationPage() {
               }),
             );
             break;
+          case "run.error":
+            setError((data.detail as string) ?? "The pipeline stopped.");
+            break;
           case "run.complete":
             setRunning(false);
             break;
@@ -288,9 +237,9 @@ export default function OrchestrationPage() {
         </h1>
         <p style={{ fontSize: 13, lineHeight: 1.7, color: "var(--gr)", maxWidth: 760 }}>
           One real preprint→published pair is run through the{" "}
-          <span style={{ color: "var(--y)" }}>full 5-agent supervisor</span>{" "}live. Watch the
+          <span style={{ color: "var(--y)" }}>full 5-agent pipeline</span>{" "}live. Watch the
           pipeline light up node-by-node — two claim extractors in parallel, then drift analysis,
-          citation discovery, the per-citation notifier fan-out, and the memory-loop write. Enter
+          citation discovery and the per-citation notifier fan-out. Enter
           your email and you&rsquo;ll receive the actual drift-alert this pipeline sends.
         </p>
 
@@ -313,38 +262,37 @@ export default function OrchestrationPage() {
             the case
           </div>
           <strong style={{ color: "var(--wh)", fontWeight: 600 }}>
-            &ldquo;Evidence that minocycline treatment confounds the interpretation
-            of neurofilament as a biomarker&rdquo;
+            &ldquo;The incubation period of 2019-nCoV infections among travellers from Wuhan,
+            China&rdquo;
           </strong>{" "}
-          (medRxiv 2024 → <em>Brain Communications</em>). Between the preprint and the
-          published version, a battery of precise quantitative findings — a{" "}
-          <em>3.5-fold plasma / 5.7-fold CSF NfL spike</em>, a <em>&gt;500&nbsp;pg/mL</em>{" "}
-          threshold, <em>1.3–4.0-fold</em> increases in mice — were de-quantified into
-          vague qualitative statements (&ldquo;NfL spiked&rdquo;, &ldquo;high NfL&rdquo;),
-          and a negative-control claim (&ldquo;dermatology patients not elevated&rdquo;)
-          was dropped entirely. The pipeline detects this drift and notifies the{" "}
-          <span style={{ color: "var(--y)" }}>real papers that cite the preprint</span>.
+          (Backer et al., medRxiv January 2020 → <em>Eurosurveillance</em>). The preprint v1
+          estimated a <em>mean incubation period of 5.8 days</em> from 34 cases; the published
+          version, with 88 cases, reports <em>6.4 days</em>. Many papers kept citing 5.8 days
+          — some used it as a model parameter. The pipeline reads both full texts, finds the
+          revision, traces the{" "}
+          <span style={{ color: "var(--y)" }}>real citing papers that still rely on 5.8 days</span>{" "}
+          and drafts an alert for each (the first few are mailed to the address you enter).
           <div style={{ marginTop: 8, fontSize: 11 }}>
             <a
-              href="https://doi.org/10.1101/2024.05.01.24306384"
+              href="https://doi.org/10.1101/2020.01.27.20018986"
               target="_blank"
               rel="noopener"
               style={{ color: "var(--bl)", textDecorationLine: "none" }}
             >
-              10.1101/2024.05.01.24306384
+              10.1101/2020.01.27.20018986
             </a>{" "}
-            <span style={{ opacity: 0.7 }}>— the medRxiv preprint (what was claimed)</span>
+            <span style={{ opacity: 0.7 }}>— the medRxiv preprint (v1: 5.8 days)</span>
             <br />
             <a
-              href="https://doi.org/10.1093/braincomms/fcaf175"
+              href="https://doi.org/10.2807/1560-7917.ES.2020.25.5.2000062"
               target="_blank"
               rel="noopener"
               style={{ color: "var(--bl)", textDecorationLine: "none" }}
             >
-              10.1093/braincomms/fcaf175
+              10.2807/1560-7917.ES.2020.25.5.2000062
             </a>{" "}
             <span style={{ opacity: 0.7 }}>
-              — the published Brain Communications paper (what was delivered)
+              — the published Eurosurveillance paper (6.4 days)
             </span>
           </div>
         </div>
@@ -486,9 +434,9 @@ export default function OrchestrationPage() {
               // so once the previous node has begun and this one hasn't reached a
               // terminal state, this node IS the one working — render it active.
               // Gated on `running`: after run.complete we must NOT keep a node
-              // "working", or memory_synthesizer (fire-and-forget — it may emit
-              // no event this path) would hang at working forever.
-              upstreamStarted={running && (i > 0 ? nodeStarted(nodes[i - 1]) : true)}
+              // "working" when it emitted no event on this path.
+              // the backend streams every node.started live, so no node is shown as working before it starts
+              upstreamStarted={false}
             />
             {i < nodes.length - 1 && <Connector />}
           </div>
@@ -570,7 +518,7 @@ export default function OrchestrationPage() {
               {running ? (
                 <span className="cd-running-row">
                   <span className="cd-spinner" />
-                  connecting to supervisor pipeline…
+                  connecting to pipeline…
                 </span>
               ) : (
                 "No events yet — enter your email and press “Run pipeline”."
@@ -652,8 +600,8 @@ function NodeColumn({
 // the DOI/author a notifier needs (the missing N−M lanes never light up). And
 // once the denominator equals the lanes we see, it carries no information — so
 // we drop it: a citation we couldn't notify simply isn't counted.
-// `sealed` (memory_synthesizer has begun → no more notifier lanes are coming)
-// is what lets us call the card DONE; until then it stays "drafting".
+// `sealed` (the run has ended → no more notifier lanes are coming) is what
+// lets us call the card DONE; until then it stays "drafting".
 function NotifierCard({
   lanes,
   sealed,
@@ -672,7 +620,7 @@ function NotifierCard({
   const errored = started.filter((l) => l.phase === "error").length;
   // The notifier has begun only once a real lane lights up.
   const hasStarted = started.length > 0;
-  // Done = the fan-out is sealed (the downstream node began, so no further
+  // Done = the fan-out is sealed (the run has ended, so no further
   // lanes will appear) and no lane is still drafting. Without `sealed` the card
   // would flash "done" in the gap between two drafts.
   const allDone = hasStarted && sealed === true && done + errored >= started.length;

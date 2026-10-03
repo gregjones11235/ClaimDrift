@@ -224,19 +224,6 @@ def main() -> None:
         }
     ]
 
-    drift_patterns = [
-        {
-            "pattern_id": "pattern-demo-001",
-            "pattern_description": "COVID-related clinical preprints may show large effect-size reductions at publication with added hedging.",
-            "pattern_type": "effect_size_reduction",
-            "domain_tags": ["covid-19", "clinical-trial", "remote-monitoring"],
-            "source_event_ids": ["demo-drift-001", "demo-drift-002"],
-            "support_count": 4,
-            "created_at": ts,
-            "last_updated_at": ts
-        }
-    ]
-
     notification_log = [
         {
             "affected_citation_id": "demo-drift-001::10.1038/demo.2024.100",
@@ -264,7 +251,6 @@ def main() -> None:
     write_json("claims", claims)
     write_json("drift_events", drift_events)
     write_json("affected_citations", affected_citations)
-    write_json("drift_patterns", drift_patterns)
     write_json("notification_log", notification_log)
     print(f"Wrote demo seed data to {OUT}")
 

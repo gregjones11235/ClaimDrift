@@ -1,5 +1,3 @@
-# BFF runtime deps. server.py itself uses only the Python standard library
-# (http.server) plus python-dotenv for loading agents/.env locally. The
-# Elasticsearch access path goes through ingestion/common/elastic.py, which is
-# also pure-stdlib (urllib). So this list is intentionally tiny.
-python-dotenv>=1.0,<2.0
+# The BFF image installs apps/requirements-cloud.txt (shared with the Playground / citation-dispatch image): the review
+# and self-check routes run the claimdrift package (MCP client, Agent Engine client, Gemini for the self-check worker).
+-r ../requirements-cloud.txt

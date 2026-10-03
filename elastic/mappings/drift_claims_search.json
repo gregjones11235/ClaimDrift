@@ -1,0 +1,20 @@
+{
+  "settings": { "refresh_interval": "1s" },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "event_id": { "type": "keyword" },
+      "claim_diff_idx": { "type": "integer" },
+      "paper_id": { "type": "keyword" },
+      "preprint_doi": { "type": "keyword" },
+      "published_doi": { "type": "keyword" },
+      "root_cause": { "type": "keyword" },
+      "severity_tier": { "type": "keyword" },
+      "text": { "type": "semantic_text", "inference_id": ".elser-2-elastic" },
+      "text_bm": { "type": "text" },
+      "preprint_text": { "type": "text", "index": false },
+      "published_text": { "type": "text", "index": false },
+      "change_description": { "type": "text", "index": false }
+    }
+  }
+}

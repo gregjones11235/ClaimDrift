@@ -53,7 +53,6 @@ INDICES: list[tuple[str, bool]] = [
     ("claims",             True),
     ("drift_events",       True),
     ("affected_citations", True),
-    ("drift_patterns",     True),
     ("notification_log",   True),
     ("dispatch_state",     False),
     ("agent_events",       False),

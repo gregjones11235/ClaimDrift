@@ -1,0 +1,13 @@
+# Python deps of the Cloud Run images that run the claimdrift package (BFF, Playground, citation-dispatch job).
+# Pinned to the versions of the local agents/ environment the system is developed and tested with.
+python-dotenv>=1.0,<2.0
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.32,<0.33
+mcp==1.27.1
+httpx==0.28.1
+google-auth==2.53.0
+google-genai==1.75.0
+# Agent Engine client: engines.call_remote -> agent_engines.get(...).stream_query
+google-cloud-aiplatform[agent-engines]==1.153.1
+# Gmail API sender (notifier.send_mail)
+google-api-python-client==2.196.0

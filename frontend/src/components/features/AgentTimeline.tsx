@@ -1,34 +1,26 @@
 "use client";
 
 import { SseEvent } from "@/types/claimdrift";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 const AGENT_COLORS: Record<string, string> = {
   claim_extractor:   "var(--y)",
   drift_analyzer:    "var(--rd)",
   citation_finder:   "var(--bl)",
   notifier:          "var(--grn)",
-  memory_synthesizer:"var(--pu)",
 };
 
 export function AgentTimeline({ events }: { events: SseEvent[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [startTime, setStartTime] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (events.length > 0 && startTime === null) {
-      const ts = new Date(events[0].timestamp).getTime();
-      if (!isNaN(ts)) setStartTime(ts);
-    }
-  }, [events, startTime]);
+  // t+0 is the first event of the stream (derived, no state needed).
+  const firstTs = events.length > 0 ? new Date(events[0].timestamp).getTime() : NaN;
+  const startTime = isNaN(firstTs) ? null : firstTs;
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [events]);
 
   if (events.length === 0) return null;
-
-  const dataEvents = events.filter((e) => e.event_type !== "heartbeat");
 
   return (
     <div ref={scrollRef} style={{ maxHeight: 480, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 0 }}>

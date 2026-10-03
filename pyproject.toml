@@ -1,0 +1,17 @@
+[project]
+name = "claimdrift"
+version = "0.1.0"
+description = "ClaimDrift: preprint-to-publication claim drift detection (5 Gemini agents on Vertex AI Agent Engine, MCP tool service, Elasticsearch)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk>=1.0,<2.0",
+    "google-cloud-aiplatform[adk,agent-engines]>=1.112",
+    "google-genai>=1.75.0",
+    "python-dotenv>=1.2.2",
+    # Direct dep: supervisor_agent/hardening.py validates sub-agent outputs
+    # against §3.x.2 minimal schemas (C2 / D5). Previously only present
+    # transitively; pin it so the deterministic schema gate can't break if the
+    # transitive provider drops.
+    "jsonschema>=4.0",
+]

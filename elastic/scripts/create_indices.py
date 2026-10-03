@@ -13,14 +13,11 @@ from ingestion.common.elastic import ElasticsearchHttpClient
 
 ROOT = Path(__file__).resolve().parents[1]
 MAPPINGS = ROOT / "mappings"
-STALE_DEFAULT_PIPELINE_INDEXES = {"claims", "drift_patterns", "preprints"}
+STALE_DEFAULT_PIPELINE_INDEXES = {"claims", "preprints"}
 
-# The curator shadow index is NOT a bootstrap index: its lifecycle is owned by
-# the pattern_curator blue-green rebuild (elastic/scripts/manage_pattern_alias.py
-# `rebuild`, which drops+recreates it each run). Creating it here would bind its
-# pattern_description to the claimdrift-elser-batch endpoint prematurely and leave
-# an empty index lying around. Skip it during the general index bootstrap.
-SKIP_INDEXES = {"drift_patterns_v2"}
+# Mapping files that should not be bootstrapped (none at present; the former
+# drift_patterns / drift_patterns_v2 pattern library was removed in P1.9).
+SKIP_INDEXES: set[str] = set()
 
 
 def normalize_index_settings(settings: dict) -> dict:
@@ -28,6 +25,16 @@ def normalize_index_settings(settings: dict) -> dict:
     for key, value in settings.items():
         normalized[key.removeprefix("index.")] = value
     return normalized
+
+
+def serverless_settings(body: dict) -> dict:
+    """Elasticsearch Serverless rejects refresh_interval below 5s (the local mappings use 1s for citation_runs and
+    notification_log). Every write path uses refresh=wait_for, so clamping costs nothing."""
+    settings = normalize_index_settings(body.get("settings", {}))
+    ri = str(settings.get("refresh_interval", ""))
+    if ri.endswith("s") and ri[:-1].isdigit() and int(ri[:-1]) < 5:
+        settings["refresh_interval"] = "5s"
+    return {**body, "settings": settings} if settings else body
 
 
 def update_existing_index_settings(client: ElasticsearchHttpClient, index_name: str, settings: dict) -> None:
@@ -77,6 +84,7 @@ def main() -> None:
         print("Skipped ingest pipeline creation for semantic_text ELSER mode.")
 
         for index_name, body in mappings:
+            body = serverless_settings(body)
             properties = body.get("mappings", {}).get("properties", {})
             try:
                 client.put_index(index_name, body)

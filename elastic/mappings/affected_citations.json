@@ -1,13 +1,15 @@
 {
-  "settings": {
-    "refresh_interval": "5s"
-  },
+  "settings": { "refresh_interval": "5s" },
   "mappings": {
     "dynamic": "strict",
     "properties": {
       "record_source": { "type": "keyword" },
       "affected_citation_id": { "type": "keyword" },
       "drift_event_id": { "type": "keyword" },
+      "target_id": { "type": "keyword" },
+      "claim_diff_idx": { "type": "integer" },
+      "run_id": { "type": "keyword" },
+      "work_id": { "type": "keyword" },
       "citing_paper_doi": { "type": "keyword" },
       "citing_paper_title": { "type": "text" },
       "citing_paper_authors": {
@@ -18,10 +20,34 @@
           "email": { "type": "keyword" }
         }
       },
+      "citing_paper_date": { "type": "date", "ignore_malformed": true },
+      "citing_paper_journal": { "type": "keyword" },
       "citation_context": { "type": "text" },
+      "cites": { "type": "keyword" },
+      "role": { "type": "keyword" },
+      "sentence": { "type": "text" },
+      "sentence_verified": { "type": "boolean" },
+      "found_via": { "type": "keyword" },
+      "found_via_detail": { "type": "keyword" },
+      "relayed_by": { "type": "keyword" },
+      "flags": { "type": "keyword" },
+      "unclear_rule": { "type": "keyword" },
+      "reason": { "type": "text" },
+      "judged_by": { "type": "keyword" },
+      "verification": { "type": "object", "enabled": false },
+      "verdict_before_verification": { "type": "object", "enabled": false },
+      "needs_notification": { "type": "boolean" },
+      "notify_priority": { "type": "keyword" },
+      "review_status": { "type": "keyword" },
+      "review_reasons": { "type": "keyword" },
+      "reviewer": { "type": "keyword" },
+      "reviewed_at": { "type": "date" },
+      "review_note": { "type": "text" },
+      "machine_verdict": { "type": "object", "enabled": false },
       "severity_tier": { "type": "keyword" },
       "severity_reasoning": { "type": "text" },
-      "scored_at": { "type": "date" }
+      "scored_at": { "type": "date" },
+      "corrected_fields": { "type": "keyword" }
     }
   }
 }

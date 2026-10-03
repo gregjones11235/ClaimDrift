@@ -29,15 +29,29 @@ const MONITOR_LINKS = [
       </svg>
     ),
   },
+];
+
+// Human review (P1.8) and author self-check (P1.10).
+const REVIEW_LINKS = [
   {
-    href: "/patterns",
-    label: "Patterns",
+    href: "/review",
+    label: "Review queue",
+    badge: true,
     icon: (
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-        <path d="M7 1C4 1 1 4 1 7s3 6 6 6"/>
-        <path d="M7 1c1.5 1.5 2.5 4 2.5 6S8.5 11.5 7 13"/>
-        <path d="M1 7h12"/>
-        <path d="M7 1c3 0 6 3 6 6s-3 6-6 6"/>
+        <path d="M2 2h10v10H2z"/>
+        <path d="m4.5 7 2 2 3-4"/>
+      </svg>
+    ),
+  },
+  {
+    href: "/selfcheck",
+    label: "Author self-check",
+    badge: false,
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+        <path d="M3 1h6l2 2v10H3z"/>
+        <path d="M5 6h4M5 8.5h4M5 11h2"/>
       </svg>
     ),
   },
@@ -50,7 +64,6 @@ const PLAYGROUND_EXPERIMENTS: {
   label: string;
   comingSoon?: boolean;
 }[] = [
-  { href: "/playground/memory-ab", label: "A/B · Memory calibration" },
   { href: "/playground/orchestration", label: "5-Agent orchestration" },
 ];
 
@@ -105,7 +118,7 @@ const EVENT_LINKS = [
   },
 ];
 
-export function Sidebar() {
+export function Sidebar({ reviewPending = null }: { reviewPending?: number | null }) {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
@@ -164,6 +177,24 @@ export function Sidebar() {
             onMouseLeave={(e) => { if (!isActive(link.href)) { (e.currentTarget as HTMLElement).style.color = "var(--gr)"; (e.currentTarget as HTMLElement).style.background = "transparent"; } }}>
             <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: isActive(link.href) ? 1 : 0.7 }}>{link.icon}</span>
             <span style={{ flex: 1 }}>{link.label}</span>
+          </Link>
+        ))}
+
+        {/* Review section */}
+        <div style={{ padding: "12px 16px 4px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--gr3)" }}>
+          Review
+        </div>
+        {REVIEW_LINKS.map((link) => (
+          <Link key={link.href} href={link.href} style={navItemStyle(isActive(link.href))}
+            onMouseEnter={(e) => { if (!isActive(link.href)) { (e.currentTarget as HTMLElement).style.color = "var(--wh2)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)"; } }}
+            onMouseLeave={(e) => { if (!isActive(link.href)) { (e.currentTarget as HTMLElement).style.color = "var(--gr)"; (e.currentTarget as HTMLElement).style.background = "transparent"; } }}>
+            <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: isActive(link.href) ? 1 : 0.7 }}>{link.icon}</span>
+            <span style={{ flex: 1 }}>{link.label}</span>
+            {link.badge && reviewPending != null && reviewPending > 0 && (
+              <span title={`${reviewPending} pending review`} style={{ fontFamily: "var(--mono)", fontSize: 10, padding: "1px 6px", border: "1px solid var(--y)", color: "var(--y)" }}>
+                {reviewPending}
+              </span>
+            )}
           </Link>
         ))}
 

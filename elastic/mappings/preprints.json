@@ -5,28 +5,67 @@
   "mappings": {
     "dynamic": "strict",
     "properties": {
-      "record_source": { "type": "keyword" },
-      "doi": { "type": "keyword" },
-      "source": { "type": "keyword" },
-      "version": { "type": "keyword" },
-      "is_final_preprint": { "type": "boolean" },
-      "published_doi": { "type": "keyword" },
+      "record_source": {
+        "type": "keyword"
+      },
+      "doi": {
+        "type": "keyword"
+      },
+      "source": {
+        "type": "keyword"
+      },
+      "version": {
+        "type": "keyword"
+      },
+      "is_final_preprint": {
+        "type": "boolean"
+      },
+      "published_doi": {
+        "type": "keyword"
+      },
       "title": {
         "type": "text",
-        "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } }
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 512
+          }
+        }
       },
-      "abstract": { "type": "semantic_text", "inference_id": ".elser-2-elastic" },
-      "conclusion": { "type": "semantic_text", "inference_id": ".elser-2-elastic" },
+      "abstract": {
+        "type": "semantic_text",
+        "inference_id": ".elser-2-elastic"
+      },
+      "conclusion": {
+        "type": "semantic_text",
+        "inference_id": ".elser-2-elastic"
+      },
       "authors": {
         "type": "nested",
         "properties": {
-          "name": { "type": "keyword" },
-          "orcid": { "type": "keyword" },
-          "affiliation": { "type": "text" }
+          "name": {
+            "type": "keyword"
+          },
+          "orcid": {
+            "type": "keyword"
+          },
+          "affiliation": {
+            "type": "text"
+          }
         }
       },
-      "posted_date": { "type": "date" },
-      "ingested_at": { "type": "date" }
+      "posted_date": {
+        "type": "date"
+      },
+      "ingested_at": {
+        "type": "date"
+      },
+      "text_source": {
+        "type": "keyword"
+      },
+      "abstract_missing": {
+        "type": "boolean"
+      }
     }
   }
 }

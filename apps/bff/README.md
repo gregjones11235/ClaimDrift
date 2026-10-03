@@ -6,7 +6,7 @@ REST views over Elasticsearch and a Server-Sent Events channel for the live agen
 
 ## Run Against Elasticsearch (default)
 
-`server.py` auto-loads `agents/.env` on startup, which provides `ELASTIC_ENDPOINT` and
+`server.py` auto-loads `.env` on startup, which provides `ELASTIC_ENDPOINT` and
 `ELASTIC_API_KEY` (the same file used by the agents, dispatcher backfill, and `elastic/scripts/*`).
 No `export` needed.
 
@@ -14,7 +14,7 @@ The BFF has no `pyproject.toml` of its own; it borrows the `agents/` uv environm
 already includes `python-dotenv`. Run it via `--project agents`:
 
 ```bash
-uv run --project agents python apps/bff/server.py
+uv run python apps/bff/server.py
 ```
 
 You should see `ClaimDrift BFF running at http://127.0.0.1:8787 (elastic data source)`. Open:
@@ -33,7 +33,7 @@ http://127.0.0.1:8787/api/events/stream?drift_event_id=<event_id>
 Pick a real `<event_id>` from the `/api/drift-events` list — the indices already hold the
 production records written by the dispatcher.
 
-Port override: `BFF_PORT=8790 uv run --project agents python apps/bff/server.py`.
+Port override: `BFF_PORT=8790 uv run python apps/bff/server.py`.
 
 ### Including demo records (optional)
 
@@ -41,17 +41,17 @@ Records seeded by `elastic/scripts/seed_demo_to_es.py` are tagged `record_source
 and excluded by default. To surface them in the API:
 
 ```bash
-BFF_INCLUDE_DEMO=1 uv run --project agents python apps/bff/server.py
+BFF_INCLUDE_DEMO=1 uv run python apps/bff/server.py
 ```
 
 ## Fallback: run without Elastic credentials (local JSON seed)
 
-For local development on a machine that has no `agents/.env` (e.g. a fresh clone, or an
+For local development on a machine that has no `.env` (e.g. a fresh clone, or an
 evaluator machine), the BFF falls back to reading `elastic/demo_seed/*.json` directly:
 
 ```bash
-uv run --project agents python elastic/scripts/seed_demo_cases.py
-uv run --project agents python apps/bff/server.py
+uv run python elastic/scripts/seed_demo_cases.py
+uv run python apps/bff/server.py
 ```
 
 `/api/health` will report `"data_source": "seed"`. In this mode `BFF_INCLUDE_DEMO` has no

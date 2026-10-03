@@ -21,7 +21,6 @@ INDEX_ID_GETTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "affected_citations": lambda row: row["affected_citation_id"],
     "claims": lambda row: row["claim_id"],
     "drift_events": lambda row: row["event_id"],
-    "drift_patterns": lambda row: row["pattern_id"],
     "notification_log": lambda row: row["affected_citation_id"],
     "preprints": lambda row: preprint_id(row["doi"], row["version"]),
 }

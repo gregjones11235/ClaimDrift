@@ -10,7 +10,7 @@
 # /api/workflows with overwrite=true: single endpoint handles both
 # create and update, no list-then-branch needed.
 #
-# Configuration: reads agents/.env at the repo root (same file used by
+# Configuration: reads .env at the repo root (same file used by
 # upsert_tool.sh and the Python code). Required keys:
 #   ELASTIC_API_KEY   Same key that works for /api/agent_builder/tools.
 #   KIBANA_URL        Kibana host for the serverless project (the `.kb.`
@@ -34,16 +34,16 @@ if [[ ! -f "$workflow_file" ]]; then
   exit 66
 fi
 
-# Load agents/.env relative to this script.
+# Load .env relative to this script.
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-env_file="${script_dir}/../../../agents/.env"
+env_file="${script_dir}/../../../.env"
 if [[ -f "$env_file" ]]; then
   # shellcheck disable=SC1090
   set -a; source "$env_file"; set +a
 fi
 
-: "${ELASTIC_API_KEY:?ELASTIC_API_KEY must be set in agents/.env}"
-: "${KIBANA_URL:?KIBANA_URL must be set in agents/.env (the .kb. host, not .es.)}"
+: "${ELASTIC_API_KEY:?ELASTIC_API_KEY must be set in .env}"
+: "${KIBANA_URL:?KIBANA_URL must be set in .env (the .kb. host, not .es.)}"
 
 # Derive workflow id from the YAML `name:` line. Apply the snake→kebab
 # slug rule Kibana uses internally.

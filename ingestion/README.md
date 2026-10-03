@@ -23,10 +23,10 @@ This package depends only on the Python standard library (`urllib`), so the
 commands below run under a bare `python3` (3.12+). Run them **from the repo
 root** so the `ingestion` package is importable. Equivalently — and matching the
 root README's convention — prefix with `uv run` to reuse the pinned interpreter
-in `agents/.venv` (`uv run python -m ingestion.run_pull …`), which sidesteps any
+in the repo-root `.venv` (`uv run python -m ingestion.run_pull …`), which sidesteps any
 "system `python3` is the wrong version / not installed" issue. Either form works;
 pick one and stay consistent. ES writes additionally need `ELASTIC_ENDPOINT` +
-`ELASTIC_API_KEY` in the environment (e.g. `set -a; source ../agents/.env; set +a`).
+`ELASTIC_API_KEY` in the environment (e.g. `set -a; source .env; set +a` from the repo root).
 
 ## Dry Run
 

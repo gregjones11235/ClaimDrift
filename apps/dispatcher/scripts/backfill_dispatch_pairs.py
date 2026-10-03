@@ -7,7 +7,7 @@ ingestion window (see 2026-05-28 incident: 3067 backfilled pairs packed into
 16.5h, workflow only dispatched ~39, watermark jumped past the rest).
 
 What it does:
-  1. Reads ELASTIC_ENDPOINT / ELASTIC_API_KEY from agents/.env (same as BFF).
+  1. Reads ELASTIC_ENDPOINT / ELASTIC_API_KEY from .env (same as BFF).
   2. Reads dispatcher URL + WF_BEARER_TOKEN from apps/dispatcher/.env.
   3. Scrolls `preprints` for pairs matching the workflow's filters:
        published_doi exists, is_final_preprint=true,
@@ -27,7 +27,7 @@ Throttling:
   know your --max-instances, start with --delay-s=20 (180/h) and watch.
 
 Usage (WSL):
-    cd ~/claim_drift && uv run --project agents \\
+    cd ~/claim_drift && uv run \\
         python apps/dispatcher/scripts/backfill_dispatch_pairs.py \\
             --since 2026-05-25T11:00:00Z \\
             --until 2026-05-26T03:46:05Z \\
@@ -57,7 +57,7 @@ from dotenv import load_dotenv
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-load_dotenv(REPO_ROOT / "agents" / ".env")
+load_dotenv(REPO_ROOT / ".env")
 load_dotenv(REPO_ROOT / "apps" / "dispatcher" / ".env")
 
 
@@ -267,9 +267,11 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    dispatcher_url = args.dispatcher_url or (
-        "https://claimdrift-dispatcher-3gz4czm2hq-uc.a.run.app/dispatch"
-    )
+    # deployed URL: `gcloud run services describe claimdrift-dispatcher --format='value(status.url)'` + /dispatch
+    dispatcher_url = args.dispatcher_url or os.environ.get("DISPATCHER_URL")
+    if not dispatcher_url:
+        print("ERROR: pass --dispatcher-url or set DISPATCHER_URL (…run.app/dispatch)", file=sys.stderr)
+        return 2
     bearer = os.environ.get("WF_BEARER_TOKEN")
     if not args.dry_run and not bearer:
         print("ERROR: WF_BEARER_TOKEN not set. Check apps/dispatcher/.env", file=sys.stderr)
