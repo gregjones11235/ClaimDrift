@@ -53,6 +53,12 @@ export function bffErrorMessage(e: unknown): string {
   return String(e);
 }
 
+// Notice title for the same error: a 400 / 422 is a problem with what was entered, not with the backend.
+export function bffErrorTitle(e: unknown): string {
+  if (e instanceof BffError && (e.status === 400 || e.status === 422)) return "Check your input";
+  return "Backend unavailable";
+}
+
 async function fetchFresh<T>(path: string, errorLabel: string): Promise<T> {
   const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw await toBffError(res, errorLabel);

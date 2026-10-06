@@ -568,7 +568,8 @@ def resolve_work(ref: str) -> dict:
     elif m:
         q = f'DOI:"{m.group(0).rstrip(".)")}"'
     else:
-        raise ValueError("enter a DOI, a PMCID (PMC...) or a Europe PMC preprint id (PPR...)")
+        raise ValueError(f"“{ref[:60]}” is not a DOI, PMCID or Europe PMC preprint id. Enter one of these, e.g. "
+                         "10.1016/S2214-109X(20)30074-7, PMC7097845 or PPR123456.")
     res = epmc.get(epmc.EPMC + "search?" + urllib.parse.urlencode({"query": q, "format": "json", "resultType": "lite"}))
     hits = res.get("resultList", {}).get("result", [])
     if not hits:

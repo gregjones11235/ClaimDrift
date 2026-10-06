@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   bffErrorMessage,
+  bffErrorTitle,
   getSelfcheckAnalyze,
   postSelfcheckAnalyze,
   postSelfcheckPublished,
@@ -26,6 +27,13 @@ import { BffNotice } from "@/components/features/BffNotice";
 import { CitesBadge, ColorBadge, VerificationBadge, VerifiedMark } from "@/components/features/Badges";
 import { SeverityPair } from "@/components/features/SeverityPanels";
 import { FULLTEXT_TIER_COLOR, ROLE_LABEL, ROOT_CAUSE_LABEL, labelOf } from "@/lib/labels";
+
+type NoticeError = { title: string; message: string };
+
+// A failed self-check call: "Check your input" for a 400 (e.g. not a DOI / PMCID), "Backend unavailable" otherwise.
+function noticeError(e: unknown): NoticeError {
+  return { message: bffErrorMessage(e), title: bffErrorTitle(e) };
+}
 
 const MAX_SENTENCES = 20;
 const POLL_MS = 3_000;
@@ -99,8 +107,8 @@ function ManuscriptCheck() {
   const [sentText, setSentText] = useState("");
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [busy, setBusy] = useState(false);
-  const [refError, setRefError] = useState<string | null>(null);
-  const [sentError, setSentError] = useState<string | null>(null);
+  const [refError, setRefError] = useState<NoticeError | null>(null);
+  const [sentError, setSentError] = useState<NoticeError | null>(null);
   const [refRes, setRefRes] = useState<SelfcheckReferencesResponse | null>(null);
   const [sentRes, setSentRes] = useState<SelfcheckSentencesResponse | null>(null);
 
@@ -117,10 +125,10 @@ function ManuscriptCheck() {
     setSentRes(null);
     await Promise.all([
       hasRefs
-        ? postSelfcheckReferences(refText).then(setRefRes, (e) => setRefError(bffErrorMessage(e)))
+        ? postSelfcheckReferences(refText).then(setRefRes, (e) => setRefError(noticeError(e)))
         : Promise.resolve(),
       hasSents
-        ? postSelfcheckSentences(sentences.slice(0, MAX_SENTENCES), mode).then(setSentRes, (e) => setSentError(bffErrorMessage(e)))
+        ? postSelfcheckSentences(sentences.slice(0, MAX_SENTENCES), mode).then(setSentRes, (e) => setSentError(noticeError(e)))
         : Promise.resolve(),
     ]);
     setBusy(false);
@@ -171,10 +179,10 @@ function ManuscriptCheck() {
         <span className="specimen">fill in either field or both</span>
       </div>
 
-      {refError && <BffNotice message={refError} />}
+      {refError && <BffNotice title={refError.title} message={refError.message} />}
       {refRes && <ReferenceResults res={refRes} />}
 
-      {sentError && <BffNotice message={sentError} />}
+      {sentError && <BffNotice title={sentError.title} message={sentError.message} />}
       {sentRes && <SentenceResults res={sentRes} />}
     </div>
   );
@@ -687,7 +695,7 @@ function SuggestedFix({ m }: { m: SelfcheckSentenceMatch }) {
 function PublishedCheck() {
   const [ref, setRef] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NoticeError | null>(null);
   const [res, setRes] = useState<SelfcheckPublishedResponse | null>(null);
 
   async function run() {
@@ -696,7 +704,7 @@ function PublishedCheck() {
     try {
       setRes(await postSelfcheckPublished(ref));
     } catch (e) {
-      setError(bffErrorMessage(e));
+      setError(noticeError(e));
       setRes(null);
     } finally {
       setBusy(false);
@@ -719,7 +727,7 @@ function PublishedCheck() {
         <span className="specimen">your paper must have open full text in Europe PMC (we read it there) · takes 10–60 s</span>
       </div>
 
-      {error && <BffNotice message={error} />}
+      {error && <BffNotice title={error.title} message={error.message} />}
 
       {res && (
         <div className="cd-panel">
