@@ -1,5 +1,3 @@
-// claim_extractor only runs on the long-document branch now, but historic
-// agent_events (and the orchestration playground) still carry it.
 export type AgentId =
   | "claim_extractor"
   | "drift_analyzer"
@@ -62,7 +60,6 @@ export type ReviewReason =
   | "severity_mismatch"
   | "high_severity_notify"
   | "withdrawn_version"
-  | "long_document_branch"
   | "reanalyzed_after_review"
   | "unclear"
   | "outgoing_notification";
@@ -309,6 +306,13 @@ export interface NotificationLog {
 
 // Whole-index rollups served by the BFF's /api/stats (ES aggregations).
 // These reflect the full population, unlike the most-recent-100 /api/drift-events page.
+// The logged-in account (claimdrift.auth); "admin" also sees the operator area (/ops).
+export interface SessionUser {
+  email: string;
+  name?: string;
+  role: "customer" | "admin";
+}
+
 export interface DashboardStats {
   drift_events_total: number;
   high_severity_count: number;
@@ -316,7 +320,8 @@ export interface DashboardStats {
   affected_citations_total: number;
   notifications_total: number;
   notifications_sent: number;
-  review_pending_total: number;
+  review_pending_total?: number; // admin sessions only (nav badge on /ops); the BFF omits it otherwise
+  human_confirmed_total?: number; // approved events + citation verdicts (customer dashboard)
   superseded_citations_total: number;
 }
 
@@ -367,8 +372,10 @@ export interface CitationRun {
     screened?: number; to_screen?: number; candidates?: number; judged?: number; orchestrator_turns?: number;
     line?: string;
   } | null;
-  unjudged?: { work_id: string; flags?: string[] | null; source?: string | null }[];
-  judged_by?: { worker?: number; batch_overflow?: number } | null;
+  unjudged?: { work_id: string; flags?: string[] | null; source?: string | null; reason?: string | null }[];
+  // worker = sent by the orchestrator, auto_dispatch = leftovers sent to workers by the program (since 2026-10-03);
+  // batch_overflow only on older runs (batch judgement of leftovers, removed)
+  judged_by?: { worker?: number; auto_dispatch?: number; batch_overflow?: number } | null;
   counts?: Partial<Record<CitesClass, number>> | null;
   summary?: string | null;
   error?: string | null;

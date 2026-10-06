@@ -50,12 +50,29 @@ export const REVIEW_STATUS_COLOR: Record<string, string> = {
   not_required: "var(--gr)",
 };
 
+// Customer-facing view of review_status: what the reader can rely on, not a task for them. A rejected item never
+// reaches a customer view (the BFF hides it).
+export const VERIFICATION_LABEL: Record<string, string> = {
+  not_required: "Auto-verified",
+  approved: "Human-confirmed",
+  pending: "Provisional",
+};
+export const VERIFICATION_COLOR: Record<string, string> = {
+  not_required: "var(--gr)",
+  approved: "var(--grn)",
+  pending: "var(--y)",
+};
+export const VERIFICATION_EXPLANATION: Record<string, string> = {
+  not_required: "Every automatic check passed (evidence quotes found verbatim, severities consistent).",
+  approved: "Confirmed by the ClaimDrift team.",
+  pending: "An automatic check did not pass; the ClaimDrift team is confirming this finding.",
+};
+
 export const REVIEW_REASON_LABEL: Record<string, string> = {
   quote_unverified: "Evidence quote not verified",
   severity_mismatch: "Abstract vs full-text severity disagree",
   high_severity_notify: "High severity with papers to notify",
   withdrawn_version: "Preprint has a withdrawn version",
-  long_document_branch: "Long-document branch (extracted claims)",
   reanalyzed_after_review: "Re-analysed after an earlier review",
   unclear: "Citation analysis could not decide",
   outgoing_notification: "Would send a notification",

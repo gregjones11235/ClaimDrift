@@ -99,7 +99,7 @@ class McpTest(unittest.TestCase):
         from claimdrift.citations.targets import case_targets
         t = case_targets()["incubation_travellers_eurosurv"]
         loc, rem = LocalCitationAccess(t), McpCitationAccess(t, self.client)
-        self.assertEqual(rem.evidence("PMC7097845", t["terms"], "x"), loc.evidence("PMC7097845", t["terms"], "x"))
+        self.assertEqual(rem.evidence("PMC7097845", ["5.8 days"], "x"), loc.evidence("PMC7097845", ["5.8 days"], "x"))
         items = [{"work_id": "PMC7097845", "quote": "this sentence is certainly not in the paper at all"}]
         self.assertEqual(rem.quotes_found(items), [False])
 

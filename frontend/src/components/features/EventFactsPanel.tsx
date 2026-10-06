@@ -1,6 +1,6 @@
 import { DriftEventNewFields } from "@/types/claimdrift";
 import { VERIFICATION_STATUS_COLOR, shortDateTime } from "@/lib/labels";
-import { ColorBadge, ReasonBadges, ReviewStatusBadge } from "./Badges";
+import { ColorBadge, ReasonBadges, VerificationBadge } from "./Badges";
 
 function Fact({ k, children }: { k: string; children: React.ReactNode }) {
   return (
@@ -14,7 +14,7 @@ function Fact({ k, children }: { k: string; children: React.ReactNode }) {
 }
 
 // How the event was produced and checked: analysis route, versions compared,
-// quote verification and human review. Renders nothing for old demo events that
+// quote verification and how far the finding is confirmed. Renders nothing for old demo events that
 // carry none of these fields.
 export function EventFactsPanel({
   event,
@@ -38,16 +38,9 @@ export function EventFactsPanel({
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 24px", padding: "6px 16px 10px" }}>
         <div>
-          {route && (
-            <Fact k="analysis route">
-              <span>{route.route === "stuffed" ? "full text in one call (stuffed)" : "extracted claims (long-document branch)"}</span>
-              {route.est_tokens != null && (
-                <span style={{ color: "var(--gr2)" }}>
-                  ~{route.est_tokens.toLocaleString()} tokens{route.limit != null ? ` / limit ${route.limit.toLocaleString()}` : ""}
-                </span>
-              )}
-              {route.forced && <span className="cd-badge cd-badge-y">forced</span>}
-              {route.prompt_version && <span style={{ color: "var(--gr2)" }}>prompt {route.prompt_version}</span>}
+          {route?.prompt_version && (
+            <Fact k="prompt version">
+              <span>{route.prompt_version}</span>
             </Fact>
           )}
           {(versionCompared || event.text_source) && (
@@ -82,21 +75,18 @@ export function EventFactsPanel({
             </Fact>
           )}
           {event.review_status && (
-            <Fact k="human review">
-              <ReviewStatusBadge status={event.review_status} />
-              {event.reviewer && (
-                <span style={{ color: "var(--gr2)" }}>
-                  by {event.reviewer} · {shortDateTime(event.reviewed_at)}
-                </span>
+            <Fact k="status">
+              <VerificationBadge status={event.review_status} />
+              {event.review_status === "approved" && event.reviewed_at && (
+                <span style={{ color: "var(--gr2)" }}>confirmed {shortDateTime(event.reviewed_at)}</span>
               )}
             </Fact>
           )}
-          {(event.review_reasons?.length ?? 0) > 0 && (
-            <Fact k="review reasons">
+          {event.review_status === "pending" && (event.review_reasons?.length ?? 0) > 0 && (
+            <Fact k="why provisional">
               <ReasonBadges reasons={event.review_reasons} />
             </Fact>
           )}
-          {event.review_note && <Fact k="review note">{event.review_note}</Fact>}
         </div>
       </div>
     </div>

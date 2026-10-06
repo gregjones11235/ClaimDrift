@@ -108,6 +108,7 @@ class SeedDataSource:
             "notifications_total": len(notifications),
             "notifications_sent": sum(1 for n in notifications if n.get("status") == "sent"),
             "review_pending_total": sum(1 for r in events + citations if r.get("review_status") == "pending"),
+            "human_confirmed_total": sum(1 for r in events + citations if r.get("review_status") == "approved"),
             "superseded_citations_total": sum(1 for c in citations if c.get("cites") == "superseded"),
         }
 
@@ -131,7 +132,12 @@ class ElasticDataSource:
         #      boolean field only on drift_events; a must_not term on indices
         #      that lack it (affected_citations/notifications/patterns/claims)
         #      simply matches nothing, so this filter is a no-op there.
-        must_not: list[dict] = [{"term": {"suspected_false_positive": True}}]
+        #   3. items an operator rejected in the review queue (review_status
+        #      "rejected", drift_events and affected_citations) — customer views
+        #      never show them. The operator review API (review_api.py) reads ES
+        #      directly and is not filtered.
+        must_not: list[dict] = [{"term": {"suspected_false_positive": True}},
+                                {"term": {"review_status": "rejected"}}]
         if not INCLUDE_DEMO_RECORDS:
             must_not.append({"term": {"record_source": "demo_seed"}})
         return {"bool": {"must": [query], "must_not": must_not}}
@@ -205,6 +211,7 @@ class ElasticDataSource:
         high_severity_count = 0
         avg_materiality_score = 0.0
         review_pending_total = 0
+        human_confirmed_total = 0
         try:
             resp = self._agg_search(
                 "drift_events",
@@ -218,6 +225,7 @@ class ElasticDataSource:
                             "filter": {"range": {"materiality_score": {"gte": 0.7}}}
                         },
                         "review_pending": {"filter": {"term": {"review_status": "pending"}}},
+                        "human_confirmed": {"filter": {"term": {"review_status": "approved"}}},
                     },
                 },
             )
@@ -226,6 +234,7 @@ class ElasticDataSource:
             avg_materiality_score = float((aggs.get("avg_materiality") or {}).get("value") or 0.0)
             high_severity_count = int((aggs.get("high_severity") or {}).get("doc_count") or 0)
             review_pending_total += int((aggs.get("review_pending") or {}).get("doc_count") or 0)
+            human_confirmed_total += int((aggs.get("human_confirmed") or {}).get("doc_count") or 0)
         except Exception as exc:  # noqa: BLE001 - never let stats 500 the dashboard
             print(f"dashboard_stats: drift_events agg failed: {exc}")
 
@@ -268,12 +277,14 @@ class ElasticDataSource:
                     "query": match,
                     "aggs": {
                         "review_pending": {"filter": {"term": {"review_status": "pending"}}},
+                        "human_confirmed": {"filter": {"term": {"review_status": "approved"}}},
                         "superseded": {"filter": {"term": {"cites": "superseded"}}},
                     },
                 },
             )
             aggs = resp.get("aggregations") or {}
             review_pending_total += int((aggs.get("review_pending") or {}).get("doc_count") or 0)
+            human_confirmed_total += int((aggs.get("human_confirmed") or {}).get("doc_count") or 0)
             superseded_citations_total = int((aggs.get("superseded") or {}).get("doc_count") or 0)
         except Exception as exc:  # noqa: BLE001
             print(f"dashboard_stats: affected_citations agg failed: {exc}")
@@ -286,6 +297,7 @@ class ElasticDataSource:
             "notifications_total": notifications_total,
             "notifications_sent": notifications_sent,
             "review_pending_total": review_pending_total,
+            "human_confirmed_total": human_confirmed_total,
             "superseded_citations_total": superseded_citations_total,
         }
 
@@ -324,11 +336,36 @@ def build_data_source() -> DataSource:
 DATA_SOURCE = build_data_source()
 
 
-def send_json(handler: BaseHTTPRequestHandler, status: int, body: object) -> None:
+def build_auth():
+    """Accounts + sessions (claimdrift.auth). Elasticsearch normally; in seed mode (no ES) an in-memory store with two
+    local demo accounts, passwords from AUTH_SEED_CUSTOMER_PASSWORD / AUTH_SEED_ADMIN_PASSWORD."""
+    from claimdrift import auth as cd_auth
+    if not SEED_ONLY:
+        return cd_auth.default()
+    a = cd_auth.Auth(cd_auth.MemoryStore())
+    a.create_user("customer@claimdrift.test", os.getenv("AUTH_SEED_CUSTOMER_PASSWORD", "customer-demo-pass"), "customer")
+    a.create_user("admin@claimdrift.test", os.getenv("AUTH_SEED_ADMIN_PASSWORD", "admin-demo-pass"), "admin")
+    return a
+
+
+AUTH = build_auth()
+
+# Routes reachable without a session. Everything else under /api needs a login; ADMIN_PREFIXES need role admin.
+# /api/stats feeds the public landing page (aggregate counts only; the pending-review count is admin-only).
+PUBLIC_GET = {"/api/health", "/api/stats"}
+PUBLIC_POST = {"/api/auth/login", "/api/auth/register", "/api/auth/logout"}
+ADMIN_PREFIXES = ("/api/review-queue", "/api/review/")
+
+
+def send_json(handler: BaseHTTPRequestHandler, status: int, body: object,
+              headers: Optional[dict[str, str]] = None) -> None:
     data = json.dumps(body).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Cache-Control", "no-store")
+    for k, v in (headers or {}).items():
+        handler.send_header(k, v)
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
     handler.wfile.write(data)
@@ -341,6 +378,40 @@ class Handler(BaseHTTPRequestHandler):
         except ConnectionResetError:
             return
 
+    # ---- auth (claimdrift.auth): the session token arrives as the cd_session cookie, forwarded by the frontend ----
+    def _session_token(self) -> Optional[str]:
+        from claimdrift.auth import token_from_cookie_header
+        return token_from_cookie_header(self.headers.get("Cookie"))
+
+    def _authorize(self, path: str, public: set[str]) -> bool:
+        """True when the request may proceed; otherwise a 401/403 has been sent."""
+        if path in public:
+            return True
+        user = AUTH.session_user(self._session_token())
+        if user is None:
+            send_json(self, 401, {"error": "unauthenticated", "message": "please log in"})
+            return False
+        if path.startswith(ADMIN_PREFIXES) and user["role"] != "admin":
+            send_json(self, 403, {"error": "forbidden", "message": "operator access only"})
+            return False
+        self.user = user
+        return True
+
+    def handle_auth_post(self, path: str, body: dict) -> None:
+        from claimdrift.auth import AuthError, clear_cookie_header, set_cookie_header
+        try:
+            if path == "/api/auth/logout":
+                AUTH.logout(self._session_token())
+                send_json(self, 200, {"ok": True}, {"Set-Cookie": clear_cookie_header()})
+                return
+            email, password = str(body.get("email") or ""), str(body.get("password") or "")
+            if path == "/api/auth/register":
+                AUTH.register(email, password, str(body.get("name") or ""))
+            token, user = AUTH.login(email, password)
+            send_json(self, 200, {"user": user}, {"Set-Cookie": set_cookie_header(token)})
+        except AuthError as exc:
+            send_json(self, exc.status, {"error": exc.error, "message": exc.message})
+
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -352,6 +423,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             path = parsed.path.rstrip("/")
+
+            if not self._authorize(path, PUBLIC_GET):
+                return
+
+            if path == "/api/auth/me":
+                send_json(self, 200, {"user": self.user})
+                return
 
             if path == "/api/health":
                 send_json(
@@ -370,7 +448,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/stats":
-                send_json(self, 200, DATA_SOURCE.dashboard_stats())
+                stats = DATA_SOURCE.dashboard_stats()
+                viewer = AUTH.session_user(self._session_token())
+                if not viewer or viewer["role"] != "admin":
+                    stats.pop("review_pending_total", None)  # operator information
+                send_json(self, 200, stats)
                 return
 
             if path == "/api/drift-events":
@@ -455,6 +537,14 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 send_json(self, 400, {"error": "body_must_be_object"})
                 return
+            if path.startswith("/api/auth/") and path not in PUBLIC_POST:
+                send_json(self, 404, {"error": "not_found"})
+                return
+            if not self._authorize(path, PUBLIC_POST):
+                return
+            if path in PUBLIC_POST:
+                self.handle_auth_post(path, body)
+                return
             parts = [unquote(p) for p in path.split("/")]
             if not path.startswith(("/api/review/", "/api/selfcheck/")):
                 send_json(self, 404, {"error": "not_found"})
@@ -532,7 +622,10 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
+        # no-transform: the frontend now proxies /api/* (next.config rewrites); this keeps any compression layer
+        # from buffering the stream.
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("X-Accel-Buffering", "no")
         self.send_header("Connection", "keep-alive")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()

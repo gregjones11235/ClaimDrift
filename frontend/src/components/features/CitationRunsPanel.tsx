@@ -138,7 +138,9 @@ export function CitationRunsPanel({
                   )}
                   {r.judged_by && (
                     <div className="specimen" style={{ color: "var(--gr2)", marginTop: 2 }}>
-                      worker {r.judged_by.worker ?? 0} · batch {r.judged_by.batch_overflow ?? 0}
+                      {r.judged_by.batch_overflow
+                        ? `worker ${r.judged_by.worker ?? 0} · batch ${r.judged_by.batch_overflow}`
+                        : `orchestrator ${r.judged_by.worker ?? 0} · auto ${r.judged_by.auto_dispatch ?? 0}`}
                     </div>
                   )}
                 </td>

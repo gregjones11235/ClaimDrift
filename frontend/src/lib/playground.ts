@@ -5,8 +5,8 @@
 // runs the supervisor orchestration live and streams its own progress events.
 // Hence its own base URL — do NOT route it through the BFF. (The memory-loop
 // A/B endpoint /api/playground/run was removed with the pattern library, P1.9.)
-export const PLAYGROUND_URL =
-  process.env.NEXT_PUBLIC_PLAYGROUND_URL ?? "http://127.0.0.1:8799";
+// The playground backend is reached through the frontend's /api/playground/* rewrite (next.config.ts), so the session
+// cookie goes along; the backend refuses a run without a logged-in session.
 
 // Shared manual SSE reader. We use fetch + a manual reader (not EventSource)
 // because EventSource cannot stream a long single GET cleanly across all the
@@ -120,6 +120,6 @@ export function runOrchestration(
   onError: (msg: string) => void,
   onDone: () => void,
 ): () => void {
-  const url = `${PLAYGROUND_URL}/api/playground/orchestrate?email=${encodeURIComponent(email)}`;
+  const url = `/api/playground/orchestrate?email=${encodeURIComponent(email)}`;
   return _streamSSE(url, onEvent, onError, onDone);
 }

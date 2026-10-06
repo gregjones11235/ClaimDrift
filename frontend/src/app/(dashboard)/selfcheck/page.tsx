@@ -22,7 +22,7 @@ import type {
   ValueVerdict,
 } from "@/types/claimdrift";
 import { BffNotice } from "@/components/features/BffNotice";
-import { CitesBadge, ColorBadge, ReviewStatusBadge, VerifiedMark } from "@/components/features/Badges";
+import { CitesBadge, ColorBadge, VerificationBadge, VerifiedMark } from "@/components/features/Badges";
 import { SeverityPair } from "@/components/features/SeverityPanels";
 import { FULLTEXT_TIER_COLOR, ROLE_LABEL, ROOT_CAUSE_LABEL, labelOf } from "@/lib/labels";
 
@@ -57,101 +57,145 @@ const runBtnStyle = (enabled: boolean): React.CSSProperties => ({
 });
 
 export default function SelfcheckPage() {
-  const [tab, setTab] = useState<"references" | "sentences" | "published">("references");
+  const [tab, setTab] = useState<"before" | "after">("before");
 
   return (
     <div style={{ maxWidth: 1180 }}>
       <p style={{ fontSize: 13, lineHeight: 1.7, color: "var(--gr)", maxWidth: 820, marginBottom: 16 }}>
-        Check a manuscript before submission: paste your reference list or the sentences where you cite preprints, and
-        ClaimDrift tells you whether a cited preprint&rsquo;s claim was revised in its published version. Only drift
-        events already in the library can be matched; a bioRxiv/medRxiv preprint that is not in the library can be
-        analysed on demand.
+        Find out whether a preprint you cite had its claim revised in the published version. Before submission, paste
+        your reference list and the sentences that cite preprints. After publication, enter your paper&rsquo;s DOI or
+        PMCID and ClaimDrift reads it for you. Only drift events already in the library can be matched; a
+        bioRxiv/medRxiv preprint that is not in the library can be analysed on demand.
       </p>
 
       <div className="cd-panel" style={{ marginBottom: 16 }}>
         <div className="cd-filter-row">
-          <button className="cd-filter-tab" data-active={tab === "references" ? "true" : "false"} onClick={() => setTab("references")}>
-            Reference list
+          <button className="cd-filter-tab" data-active={tab === "before" ? "true" : "false"} onClick={() => setTab("before")}>
+            Before submission · check my manuscript
           </button>
-          <button className="cd-filter-tab" data-active={tab === "sentences" ? "true" : "false"} onClick={() => setTab("sentences")}>
-            Citing sentences
-          </button>
-          <button className="cd-filter-tab" data-active={tab === "published" ? "true" : "false"} onClick={() => setTab("published")}>
-            Published paper
+          <button className="cd-filter-tab" data-active={tab === "after" ? "true" : "false"} onClick={() => setTab("after")}>
+            After publication · check my published paper
           </button>
         </div>
       </div>
 
       {/* Both stay mounted so switching tabs keeps input and results. */}
-      <div style={{ display: tab === "references" ? "block" : "none" }}>
-        <ReferenceCheck />
+      <div style={{ display: tab === "before" ? "block" : "none" }}>
+        <ManuscriptCheck />
       </div>
-      <div style={{ display: tab === "sentences" ? "block" : "none" }}>
-        <SentenceCheck />
-      </div>
-      <div style={{ display: tab === "published" ? "block" : "none" }}>
+      <div style={{ display: tab === "after" ? "block" : "none" }}>
         <PublishedCheck />
       </div>
     </div>
   );
 }
 
-// ── Reference list ───────────────────────────────────────────────────────────
-function ReferenceCheck() {
-  const [text, setText] = useState("");
+// ── Before submission: reference list + citing sentences, one run ────────────
+// The two inputs go to different checks (references: DOI / title lookup, no model call; sentences: hybrid retrieval +
+// one Gemini call each), so they stay two fields rather than one box split by guesswork. Either may be left empty.
+function ManuscriptCheck() {
+  const [refText, setRefText] = useState("");
+  const [sentText, setSentText] = useState("");
+  const [mode, setMode] = useState<SearchMode>("hybrid");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [res, setRes] = useState<SelfcheckReferencesResponse | null>(null);
+  const [refError, setRefError] = useState<string | null>(null);
+  const [sentError, setSentError] = useState<string | null>(null);
+  const [refRes, setRefRes] = useState<SelfcheckReferencesResponse | null>(null);
+  const [sentRes, setSentRes] = useState<SelfcheckSentencesResponse | null>(null);
+
+  const sentences = sentText.split("\n").map((x) => x.trim()).filter(Boolean);
+  const tooMany = sentences.length > MAX_SENTENCES;
+  const hasRefs = refText.trim().length > 0;
+  const hasSents = sentences.length > 0;
 
   async function run() {
     setBusy(true);
-    setError(null);
-    try {
-      setRes(await postSelfcheckReferences(text));
-    } catch (e) {
-      setError(bffErrorMessage(e));
-      setRes(null);
-    } finally {
-      setBusy(false);
-    }
+    setRefError(null);
+    setSentError(null);
+    setRefRes(null);
+    setSentRes(null);
+    await Promise.all([
+      hasRefs
+        ? postSelfcheckReferences(refText).then(setRefRes, (e) => setRefError(bffErrorMessage(e)))
+        : Promise.resolve(),
+      hasSents
+        ? postSelfcheckSentences(sentences.slice(0, MAX_SENTENCES), mode).then(setSentRes, (e) => setSentError(bffErrorMessage(e)))
+        : Promise.resolve(),
+    ]);
+    setBusy(false);
   }
 
-  const enabled = !busy && text.trim().length > 0;
+  const enabled = !busy && (hasRefs || hasSents) && !tooMany;
 
   return (
     <div>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={"One reference per line, e.g.\nSmith J, et al. Title of the preprint. medRxiv 2024. doi:10.1101/2024.05.01.24306384"}
-        style={textareaStyle}
-      />
-      <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "10px 0 18px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div>
+          <div className="specimen" style={{ marginBottom: 6, whiteSpace: "nowrap" }}>reference list</div>
+          <textarea
+            value={refText}
+            onChange={(e) => setRefText(e.target.value)}
+            placeholder={"One reference per line, e.g.\nSmith J, et al. Title of the preprint. medRxiv 2024. doi:10.1101/2024.05.01.24306384"}
+            style={textareaStyle}
+          />
+        </div>
+        <div>
+          <div className="specimen" style={{ marginBottom: 6, whiteSpace: "nowrap", color: tooMany ? "var(--rd)" : undefined }}>
+            citing sentences · {sentences.length}/{MAX_SENTENCES}{tooMany ? " · too many" : ""}
+          </div>
+          <textarea
+            value={sentText}
+            onChange={(e) => setSentText(e.target.value)}
+            placeholder={"One sentence that cites a preprint per line (max 20), e.g.\nThe basic reproduction number was estimated at 5.8 (Sanche et al.)."}
+            style={textareaStyle}
+          />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "10px 0 18px", flexWrap: "wrap" }}>
         <button onClick={run} disabled={!enabled} style={runBtnStyle(enabled)}>
-          {busy ? "Checking…" : "▶ Check references"}
+          {busy ? "Checking…" : "▶ Check manuscript"}
         </button>
-        <span className="specimen">matched by DOI, or by title when a line has no DOI</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="specimen">sentence retrieval</span>
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value as SearchMode)}
+            style={{ background: "var(--bk2)", border: "1px solid var(--gr3)", color: "var(--wh)", padding: "9px 10px", fontFamily: "var(--mono)", fontSize: 12, outline: "none" }}
+          >
+            <option value="hybrid">hybrid (BM25 + ELSER, default)</option>
+            <option value="elser">ELSER (semantic)</option>
+            <option value="bm25">BM25 (keywords)</option>
+          </select>
+        </label>
+        <span className="specimen">fill in either field or both</span>
       </div>
 
-      {error && <BffNotice message={error} />}
+      {refError && <BffNotice message={refError} />}
+      {refRes && <ReferenceResults res={refRes} />}
 
-      {res && (
-        <div className="cd-panel">
-          <div className="cd-panel-header">
-            <span className="cd-panel-label">Results</span>
-            <span className="specimen">{res.n_lines} line(s) checked</span>
-          </div>
-          <ReferenceSummary res={res} />
-          {res.results.length === 0 && (
-            <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)", fontStyle: "italic" }}>
-              No references found in the text.
-            </div>
-          )}
-          {res.results.map((r, i) => (
-            <ReferenceRow key={i} r={r} initialStatus={r.doi ? res.not_in_library_status?.[r.doi] ?? null : null} />
-          ))}
+      {sentError && <BffNotice message={sentError} />}
+      {sentRes && <SentenceResults res={sentRes} />}
+    </div>
+  );
+}
+
+// ── Reference list results ──────────────────────────────────────────────────
+function ReferenceResults({ res }: { res: SelfcheckReferencesResponse }) {
+  return (
+    <div className="cd-panel" style={{ marginBottom: 18 }}>
+      <div className="cd-panel-header">
+        <span className="cd-panel-label">Reference list</span>
+        <span className="specimen">{res.n_lines} line(s) checked</span>
+      </div>
+      <ReferenceSummary res={res} />
+      {res.results.length === 0 && (
+        <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)", fontStyle: "italic" }}>
+          No references found in the text.
         </div>
       )}
+      {res.results.map((r, i) => (
+        <ReferenceRow key={i} r={r} initialStatus={r.doi ? res.not_in_library_status?.[r.doi] ?? null : null} />
+      ))}
     </div>
   );
 }
@@ -295,7 +339,7 @@ function EventPanel({ ev }: { ev: RefEvent }) {
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--bl)" }}>↳ {ev.published_doi}</div>
         </div>
         <SeverityPair abstractClass={ev.abstract_class} fulltextTier={ev.fulltext_tier} />
-        <ReviewStatusBadge status={ev.review_status} />
+        <VerificationBadge status={ev.review_status} />
         <Link href={`/event/${ev.event_id}`} className="cd-btn" style={{ padding: "6px 12px", fontSize: 11 }}>Event →</Link>
       </div>
       {ev.drift_summary && <div style={{ fontSize: 13, fontWeight: 300, color: "var(--gr)", lineHeight: 1.6, marginBottom: 8 }}>{ev.drift_summary}</div>}
@@ -434,65 +478,16 @@ function AnalyzeNow({ doi, initialStatus }: { doi: string; initialStatus: OnDema
   );
 }
 
-// ── Citing sentences ─────────────────────────────────────────────────────────
-function SentenceCheck() {
-  const [text, setText] = useState("");
-  const [mode, setMode] = useState<SearchMode>("hybrid");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [res, setRes] = useState<SelfcheckSentencesResponse | null>(null);
-
-  const sentences = text.split("\n").map((s) => s.trim()).filter(Boolean);
-  const tooMany = sentences.length > MAX_SENTENCES;
-
-  async function run() {
-    setBusy(true);
-    setError(null);
-    try {
-      setRes(await postSelfcheckSentences(sentences.slice(0, MAX_SENTENCES), mode));
-    } catch (e) {
-      setError(bffErrorMessage(e));
-      setRes(null);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const enabled = !busy && sentences.length > 0 && !tooMany;
-
+// ── Citing sentence results ─────────────────────────────────────────────────
+function SentenceResults({ res }: { res: SelfcheckSentencesResponse }) {
   return (
     <div>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={"One citing sentence per line (max 20), e.g.\nThe basic reproduction number was estimated at 5.8 (Sanche et al.)."}
-        style={textareaStyle}
-      />
-      <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "10px 0 18px", flexWrap: "wrap" }}>
-        <button onClick={run} disabled={!enabled} style={runBtnStyle(enabled)}>
-          {busy ? "Checking…" : "▶ Check sentences"}
-        </button>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="specimen">retrieval</span>
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as SearchMode)}
-            style={{ background: "var(--bk2)", border: "1px solid var(--gr3)", color: "var(--wh)", padding: "9px 10px", fontFamily: "var(--mono)", fontSize: 12, outline: "none" }}
-          >
-            <option value="hybrid">hybrid (BM25 + ELSER, default)</option>
-            <option value="elser">ELSER (semantic)</option>
-            <option value="bm25">BM25 (keywords)</option>
-          </select>
-        </label>
-        <span className="specimen" style={{ color: tooMany ? "var(--rd)" : "var(--gr)" }}>
-          {sentences.length}/{MAX_SENTENCES} sentences{tooMany ? " — too many, remove some lines" : ""}
-        </span>
-      </div>
-
-      {error && <BffNotice message={error} />}
-
-      {res?.summary && (
-        <div className="cd-panel" style={{ marginBottom: 14 }}>
+      <div className="cd-panel" style={{ marginBottom: 14 }}>
+        <div className="cd-panel-header">
+          <span className="cd-panel-label">Citing sentences</span>
+          <span className="specimen">{res.results.length} sentence(s) checked</span>
+        </div>
+        {res.summary && (
           <div style={{ padding: "10px 16px", display: "flex", gap: 18, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, color: "var(--wh2)" }}>
               <strong style={{ color: res.summary.uses_old_value ? "var(--rd)" : "var(--grn)", fontFamily: "var(--mono)" }}>
@@ -510,10 +505,10 @@ function SentenceCheck() {
               <span className="specimen" style={{ color: "var(--rd)" }}>{res.n_ignored} sentence(s) beyond the first {MAX_SENTENCES} were not checked</span>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {res?.results.map((r, i) => <SentenceResult key={i} r={r} />)}
+      {res.results.map((r, i) => <SentenceResult key={i} r={r} />)}
     </div>
   );
 }
@@ -707,7 +702,7 @@ function PublishedCheck() {
         <button onClick={run} disabled={!enabled} style={runBtnStyle(enabled)}>
           {busy ? "Reading your paper…" : "▶ Check paper"}
         </button>
-        <span className="specimen">open full text in Europe PMC required · takes 10–60 s</span>
+        <span className="specimen">your paper must have open full text in Europe PMC (we read it there) · takes 10–60 s</span>
       </div>
 
       {error && <BffNotice message={error} />}

@@ -83,7 +83,8 @@ def describe_event(ev: dict) -> str | None:
         c = Counter(v or "invalid" for v in ev.get("verdicts") or [])
         return f"worker {ev['worker']} done in {ev['secs']}s: " + (", ".join(f"{n} {v}" for v, n in c.most_common()) or "no verdicts")
     if k == "search_more":
-        return f"search_more {ev['terms']}: {ev['added']} new candidate(s)"
+        skipped = (f", rejected {ev['rejected']}" if ev.get("rejected") else "") + (f", already searched {ev['covered']}" if ev.get("covered") else "")
+        return f"search_more {ev['terms']}: {ev['added']} new candidate(s){skipped}"
     if k == "follow_chain":
         return f"follow_chain via '{ev['intermediary']}': {ev['added']} new candidate(s)"
     if k == "verify_start":

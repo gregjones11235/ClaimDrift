@@ -1,4 +1,4 @@
-import { getNotifications } from "@/lib/api/client";
+import { getNotifications } from "@/lib/api/server";
 import { NotificationLogList } from "@/components/features/NotificationLogList";
 import Link from "next/link";
 

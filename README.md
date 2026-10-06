@@ -15,7 +15,7 @@ Built for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.c
 |---|---|---|
 | ① Drift analysis | What changed between preprint v1 and the published paper, why, and how much does it matter? | Both full texts from JATS → `claim_extractor` + `drift_analyzer` → every evidence quote verified verbatim against the source (provenance) → two severities kept apart (abstract level, full-text level) → review triggers |
 | ② Citation analysis | Which citing papers still use the superseded value? | Program pre-screen of Europe PMC citing papers → orchestrator-workers ReAct agent reads their full texts → every "superseded" verdict re-checked → coverage reported |
-| Review & notify | Should a person look first? Who gets told? | Review queue for unverified quotes, severity mismatches, high-severity notices, unclear citations; drafted notices (all mail goes to the project's test inbox) |
+| Review & notify | Should a person look first? Who gets told? | Operator review queue (`/ops/review`, not shown to customers) for unverified quotes, severity mismatches, unclear citations; customers see each finding as auto-verified, provisional or human-confirmed, and rejected items are hidden; drafted notices (all mail goes to the project's test inbox) |
 | ③ Author self-check | Does my manuscript cite a claim that was later revised? | Reference list (DOI / title) or citing sentences: ELSER + BM25 hybrid retrieval proposes candidates, one Gemini call per sentence judges them |
 
 ## Architecture
@@ -27,14 +27,14 @@ Built for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.c
 ┌─ Vertex AI Agent Engine ── [1] drift analysis ─────────────────────────────────┐
 │  supervisor (fixed DAG)                                                        │
 │    1. claim_extractor (flash) x2                                               │
-│    2. drift_analyzer (pro)                                                     │
-│    3. abstract severity (few-shot)                                             │
-│    4. verify_quote (MCP)                                                       │
-│    5. review triggers                                                          │
+│    2. drift_analyzer (pro): full-text tier + abstract severity (few-shot)      │
+│    3. verify_quote (MCP): every evidence quote checked verbatim                │
+│    4. review triggers                                                          │
 └────────────┬───────────────────────────────────────────────────────────────────┘
              │ drift_events
              ▼
 ┌─ Vertex AI Agent Engine ── [2] citation analysis: citation_finder (ReAct) ─────┐
+│  quantity (flash): what the old value measures (property + unit)               │
 │  prefetch (program): candidates + flags F1 / F2 / F3                           │
 │                                                                                │
 │  orchestrator (pro, <= 14 turns)                                               │
@@ -48,11 +48,11 @@ Built for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.c
 │    -> superseded | current | flagged_as_previous | indirect | not_relying      │
 │       | unclear                                                                │
 │  verification (pro): re-check every "superseded"                               │
-│  overflow (pro): batch-judge the rest, record coverage                         │
+│  leftovers (program): dispatched to workers up to 120 papers, the rest cut     │
 └────────────┬───────────────────────────────────────────────────────────────────┘
              │ affected_citations
              ▼
-   review queue (BFF + frontend) ──► notifier (flash) ──► Gmail
+   notifier (flash) ──► Gmail
 
    [3] author self-check (BFF):
        sentence ──► ELSER + BM25 top 10 (+ exact lookups) ──► flash judge
@@ -70,14 +70,30 @@ Built for the [Google Cloud Rapid Agent Hackathon](https://rapid-agent.devpost.c
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The five agents (each an ADK agent on Vertex AI Agent Engine; models default to `CLAIMDRIFT_MODEL_PRO` /
+`CLAIMDRIFT_MODEL_FLASH`):
+
+| Agent | Model | Role | Autonomous loop |
+|---|---|---|---|
+| `supervisor` | none (fixed code) | Runs layer ① in a fixed order (in the Playground also ② and the notices); verifies quotes, sets review triggers | No: a deterministic workflow agent |
+| `claim_extractor` | flash | Extracts the claims of one version, section by section, in parallel | No: one call per section |
+| `drift_analyzer` | pro | Compares the two claim lists: drifts, root cause, materiality and full-text tier; separately the abstract-level class (few-shot) | No: one call (+ one JSON repair turn) |
+| `citation_finder` | pro (+ flash for the quantity) | Finds the citing papers that still use a superseded value and judges how each uses it | **Yes**: orchestrator-workers ReAct loop |
+| `notifier` | flash | Drafts the notice to the authors of an affected citing paper; falls back to a template | No: one call |
+
 - **supervisor** runs a fixed sequence: `claim_extractor` (flash) reads both versions, `drift_analyzer` (pro) compares
   them in one call, every evidence quote is then checked verbatim in the source through the MCP tool service, and review
   triggers are set.
-- **citation_finder** is the one agent loop. A program pre-screens the citing papers that contain the old value; the
-  orchestrator then decides, from what the workers report, which candidates to dispatch next, whether to search again
-  with other spellings of the old value, whether to follow a chain through a paper that relayed the value, and when to
-  stop. Each worker reads its papers' full texts in a fresh context. Every "still uses the old value" verdict is checked
-  once more, and the share of candidates actually judged is recorded.
+- **citation_finder** is the one agent loop. One flash call first names what the old value measures (the property and
+  its unit). A program then pre-screens the citing papers for the value as that quantity: the value in any spelling
+  (decimal separators, trailing zeros, range forms), a unit written next to it must be the same unit, and a value
+  written without a unit counts only when the measured property is in the same sentence (for a table row: the row, its
+  column headers or the caption). The orchestrator then decides, from what the workers report, which candidates to
+  dispatch next, whether to search again with a spelling the rules did not cover (each match is read as a quantity and
+  counts only when it equals the old value), whether to follow a chain through a paper that relayed the value, and when
+  to stop. Each worker reads its papers' full texts in a fresh context. Every "still uses the old value" verdict is
+  checked once more. Candidates the orchestrator did not dispatch are sent to workers by the program until the run has
+  sent 120 papers; the rest are left unjudged and the run is marked truncated, so very large targets are cut on purpose.
 - **MCP tool service** (Cloud Run, private): the agents' only access to paper text and citing literature (full-text
   sections and tables, verbatim quote verification, Europe PMC).
 - **Author self-check** (BFF): ELSER + BM25 hybrid retrieval proposes the top 10 candidate changes for a sentence; one
@@ -101,7 +117,7 @@ Limitations: few targets, single-annotator gold sets, and recall counted only ov
 | `claimdrift/` | The Python package: pipeline (`pipeline.py`), drift analysis, citation analysis (`citations/`), review, notifier, author self-check (`selfcheck.py`), MCP server and client, prompts, CLI (`python -m claimdrift`), tests, scripts |
 | `agents/` | The five ADK agents deployed to Vertex AI Agent Engine (thin wrappers around `claimdrift.agent_handlers`) and `engines.json` (their resource names) |
 | `apps/` | Cloud Run services: `bff/`, `playground/`, `mcp/` (image of the tool service), `dispatcher/` (automatic pipeline) |
-| `frontend/` | Next.js dashboard: review queue, author self-check, playground |
+| `frontend/` | Next.js dashboard: customer views (events, author self-check, playground) and the operator review queue under `/ops` |
 | `ingestion/` | bioRxiv / medRxiv / Crossref pullers feeding the `preprints` index |
 | `elastic/` | Index mappings and index-creation scripts; `agent_builder/` holds the Elastic Workflow that triggers the automatic pipeline |
 | `deploy/` | `cloudrun.sh` (MCP, BFF, Playground, job, frontend), `pipeline.sh` (automatic pipeline) |
@@ -126,8 +142,26 @@ on Agent Engine). `CLAIMDRIFT_LOCAL=1` switches to the local stack: docker Elast
 ### Run locally
 
 ```bash
-bash dev.sh            # BFF :8787 + Playground :8799 + frontend :3000 (review: /review, self-check: /selfcheck)
+bash dev.sh            # BFF :8787 + Playground :8799 + frontend :3000 (self-check: /selfcheck, operator review: /ops/review)
 ```
+
+### Accounts
+
+Every page needs a login (no anonymous access). Anyone can register at `/register`, which creates a **customer**
+account. **Admin** (operator) accounts see the review queue under `/ops` and are created only from the command line.
+Sessions live in Elasticsearch (`auth_users`, `auth_sessions`; `claimdrift/auth.py`) and reach the browser as an
+HttpOnly cookie on the frontend's domain. The browser calls only the frontend, which proxies `/api/*` to the BFF and
+`/api/playground/*` to the playground backend. The BFF checks the session on every API route and the admin role on
+`/api/review*`. The playground backend refuses a run without a session.
+
+```bash
+uv run python -m claimdrift.auth create-user someone@example.org --role admin       # prompts for the password
+uv run python -m claimdrift.auth set-password someone@example.org
+```
+
+The two test accounts are in the gitignored `.env` (`CLAIMDRIFT_TEST_CUSTOMER_*`, `CLAIMDRIFT_TEST_ADMIN_*`). In the
+BFF's seed mode (`BFF_SEED_DATA=1`, no Elasticsearch) accounts are in memory: `customer@claimdrift.test` /
+`admin@claimdrift.test`, passwords `AUTH_SEED_CUSTOMER_PASSWORD` / `AUTH_SEED_ADMIN_PASSWORD`.
 
 ### CLI
 

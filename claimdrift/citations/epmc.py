@@ -80,6 +80,27 @@ def plain(x: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", x)))
 
 
+def _cells(row: str) -> str:
+    return " | ".join(plain(c).strip() for c in re.findall(r"<t[dh]\b.*?</t[dh]>", row, re.S))
+
+
+def table_rows(xml: str) -> list[tuple[str, str]]:
+    """Every body row of every table as (row text 'cell | cell | ...', context = caption + column headers). The flat
+    text loses which header a cell sits under; the pre-screen needs it to see what a bare number in a row measures."""
+    out = []
+    for tw in re.finditer(r"<table-wrap\b.*?</table-wrap>", xml or "", re.S):
+        t = tw.group(0)
+        cap = plain(" ".join(re.findall(r"<(?:label|caption)\b.*?</(?:label|caption)>", t, re.S))).strip()
+        head = re.search(r"<thead\b.*?</thead>", t, re.S)
+        rows = re.findall(r"<tr\b.*?</tr>", t[head.end():] if head else t, re.S)
+        header = " / ".join(_cells(r) for r in re.findall(r"<tr\b.*?</tr>", head.group(0), re.S)) if head else ""
+        if not head and rows:
+            header, rows = _cells(rows[0]), rows[1:]
+        ctx = f"{cap} {header}".strip()[:800]
+        out += [(_cells(r), ctx) for r in rows if _cells(r).strip(" |")]
+    return out
+
+
 class CitationTools:
     """Reading tools over the citing papers of ONE target (a drifted preprint + its published version)."""
 

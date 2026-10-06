@@ -134,24 +134,82 @@ def score_citations_from_es(case: str) -> dict:
     return {"runs": runs} | score_citations(case, works)
 
 
-def run_citations(case: str, tools_via: str = "mcp") -> dict:
-    """Citation analysis on a case-bank target WITHOUT the queue (for evaluation); writes nothing to ES."""
+_STRENGTH = ["superseded", "indirect", "flagged_as_previous", "unclear", "current", "not_relying"]
+
+
+def _run_target(t: dict, ckpt, tools_via: str, client) -> dict:
+    """One citation target, step by step, saving the run's state after every step (the same state the citation queue
+    keeps in citation_runs), so an interrupted run resumes from its last completed step."""
     from .citations.orchestra import Orchestra
     from .citations.runner import make_access
-    from .citations.targets import case_targets
-    t = dict(case_targets()[case]) | {"target_id": f"eval::{case}", "drift_event_id": f"eval::{case}", "paper_id": case}
+    if ckpt.exists():
+        state = json.loads(ckpt.read_text(encoding="utf-8"))
+        print(f"resuming {t['target_id']} from phase {state['phase']} (turn {state.get('turns', 0)})", file=sys.stderr, flush=True)
+        o = Orchestra(state["target"], access=make_access(state["target"], tools_via, client), state=state)
+    else:
+        o = Orchestra(t, access=make_access(t, tools_via, client))
+    while o.phase != "done":
+        o.step()
+        tmp = ckpt.with_suffix(".tmp")
+        tmp.write_text(json.dumps(o.to_state(), ensure_ascii=False, default=list), encoding="utf-8")
+        tmp.replace(ckpt)
+    return o.final
+
+
+def _merge(case: str, results: list[dict]) -> dict:
+    """One paper's targets -> one result: per citing paper the strongest verdict over its targets (superseded first)."""
+    works: dict[str, dict] = {}
+    for r in results:
+        for w in r["citing_works"]:
+            cur = works.get(w["work_id"])
+            if cur is None or _STRENGTH.index(w["cites"]) < _STRENGTH.index(cur["cites"]):
+                works[w["work_id"]] = w | {"target_id": r["target_id"]}
+    cands = {c for r in results for c in [w["work_id"] for w in r["citing_works"]] + [u["work_id"] for u in r["unjudged"]]}
+    unjudged = {u["work_id"]: u for r in results for u in r["unjudged"] if u["work_id"] not in works}
+    add = lambda key: {k: sum((r.get(key) or {}).get(k, 0) for r in results) for k in {k for r in results for k in (r.get(key) or {})}}
+    return {"case": case, "mode": "orchestra", "targets": [{k: r.get(k) for k in ("target_id", "terms", "n_candidates", "n_judged",
+            "n_unjudged", "judged_by", "calls", "tokens", "orchestrate_s", "coverage_notes")} | {"quantity": (r.get("events") or [{}])[0].get("quantity"),
+            "prefetch_secs": (r.get("prefetch") or {}).get("secs")} for r in results],
+            "n_candidates": len(cands), "n_judged": len(works), "n_unjudged": len(unjudged), "unjudged": list(unjudged.values()),
+            "coverage_complete": all(r["coverage_complete"] for r in results), "judged_by": add("judged_by"), "calls": add("calls"),
+            "tokens": add("tokens"), "orchestrate_s": round(sum(r.get("orchestrate_s") or 0 for r in results), 1),
+            "prefetch_secs": round(sum((r.get("prefetch") or {}).get("secs") or 0 for r in results), 1),
+            "citing_works": list(works.values()), "per_target": results}
+
+
+def run_citations(case: str, tools_via: str = "mcp", fresh: bool = False) -> dict:
+    """Citation analysis of a case-bank paper WITHOUT the queue (for evaluation); writes nothing to ES. The targets are
+    built exactly as in production (citations.targets.build_targets on the paper's drift event: one target per changed
+    claim with a traceable value, search terms derived from the claim text), each run step by step with a checkpoint
+    (prod_citation__<case>__<diff>.state.json; fresh=True discards them); the verdicts are merged per citing paper."""
+    from . import es
+    from .citations.targets import build_targets
+    ev = es.hits(config.INDICES["drift_events"], {"term": {"paper_id": case}}, size=1)
+    if not ev:
+        raise SystemExit(f"no drift event for {case}")
+    targets = build_targets(ev[0], case)
     client = None
     if tools_via == "mcp":
         from .mcp_client import McpClient
         client = McpClient()
+    results = []
     try:
-        res = Orchestra(t, access=make_access(t, tools_via, client)).run()
+        for t in targets:
+            idx = t["claim_diff_idx"]
+            t = t | {"target_id": f"eval::{case}::{idx}", "drift_event_id": f"eval::{case}"}
+            ckpt = RESULTS / f"prod_citation__{case}__{idx}.state.json"
+            if fresh and ckpt.exists():
+                ckpt.unlink()
+            results.append(_run_target(t, ckpt, tools_via, client))
     finally:
         if client is not None:
             client.close()
+    res = _merge(case, results)
     res["score"] = score_citations(case, res["citing_works"])
     (RESULTS / f"prod_citation__{case}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1, default=list), encoding="utf-8")
-    return {k: res[k] for k in ("n_candidates", "n_judged", "n_unjudged", "coverage_complete", "judged_by", "calls", "tokens", "orchestrate_s")} | res["score"]
+    for t in targets:
+        (RESULTS / f"prod_citation__{case}__{t['claim_diff_idx']}.state.json").unlink(missing_ok=True)
+    return {"targets": [(x["target_id"], x["terms"]) for x in res["targets"]]} | {k: res[k] for k in ("n_candidates", "n_judged", "n_unjudged", "coverage_complete", "judged_by", "calls", "tokens", "orchestrate_s")} | res["score"]
 
 
 def run_selfcheck(mode: str = "hybrid") -> dict:

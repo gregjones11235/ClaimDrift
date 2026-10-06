@@ -2,7 +2,8 @@
 
 For the preprint DOI and the published DOI separately: Europe PMC `CITES:<id>_<src> AND ("<old value>" OR <spellings>)`,
 cursor-paged; full texts downloaded in parallel and cached; the sentences with the old value extracted; deterministic
-flags set:
+flags set. A sentence (or a table row, read with its column headers and caption) holds the old value when value, unit
+and measured property agree (terms.quantity_sentences).
   F1  the old value is not in (or next to) a sentence that cites the target via the reference list
       (possibly attributed to another paper that relayed it)
   F2  the old value appears only in a table row or list
@@ -18,13 +19,15 @@ import time
 
 from .. import config
 from . import epmc
-from .terms import any_regex, query_variants
+from .terms import quantity_sentences, value_regex, value_spellings
 
 
 def spellings(terms: list[str]) -> list[str]:
+    """Europe PMC query spellings: the bare value in every rule-generated form (unit and measured property are checked
+    locally, terms.quantity_sentences)."""
     out: list[str] = []
     for t in terms:
-        out += [v for v in query_variants(t) if v not in out]
+        out += [v for v in value_spellings(t) if v not in out]
     return out
 
 
@@ -46,7 +49,8 @@ def screen_works(tools: epmc.CitationTools, hits: dict[str, dict], target: dict,
     ids = list(hits)
     with cf.ThreadPoolExecutor(workers) as ex:
         list(ex.map(tools.fetch, ids))
-    pat = any_regex(terms)
+    pat = re.compile("|".join(f"(?:{value_regex(t).pattern})" for t in terms), re.I)
+    quantity = target.get("quantity")
     cur_terms = re.findall(r"\d+\.\d+", (target.get("drift") or {}).get("current_claim") or "")[:2]
     cands, n_missing, n_nosent = {}, 0, 0
     for wid in ids:
@@ -54,7 +58,12 @@ def screen_works(tools: epmc.CitationTools, hits: dict[str, dict], target: dict,
         if not t:
             n_missing += 1
             continue
-        sents = [s for s in epmc.sentences(t) if pat.search(s)]
+        all_sents = epmc.sentences(t)
+        sents = [all_sents[i] for i in quantity_sentences(all_sents, terms, quantity)]
+        rows = epmc.table_rows(tools.fetch(wid) or "")  # a row with its column headers and caption
+        if rows:
+            hit = quantity_sentences([r for r, _ in rows], terms, quantity, contexts=[c for _, c in rows])
+            sents += [f"{rows[i][0]} [table: {rows[i][1][:200]}]" for i in hit]
         if not sents:
             n_nosent += 1
             continue

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { bffErrorMessage, getReviewCitation } from "@/lib/api/client";
+import { bffErrorMessage } from "@/lib/api/client";
+import { getReviewCitation } from "@/lib/api/server";
 import { ReviewCitationDetail } from "@/types/claimdrift";
 import { BffNotice } from "@/components/features/BffNotice";
 import { CitesBadge, ColorBadge, ReasonBadges, ReviewStatusBadge, VerifiedMark } from "@/components/features/Badges";
@@ -61,7 +62,7 @@ export default async function ReviewCitationPage({ params }: { params: Promise<{
   if (!data) {
     return (
       <div>
-        <Link href="/review?kind=citations" style={backLink}>← Review queue</Link>
+        <Link href="/ops/review?kind=citations" style={backLink}>← Review queue</Link>
         <BffNotice message={error ?? "Citation not found."} />
       </div>
     );
@@ -74,7 +75,7 @@ export default async function ReviewCitationPage({ params }: { params: Promise<{
 
   return (
     <div>
-      <Link href="/review?kind=citations" style={backLink}>← Review queue</Link>
+      <Link href="/ops/review?kind=citations" style={backLink}>← Review queue</Link>
 
       {/* Citing paper */}
       <div className="cd-panel" style={{ marginBottom: 16 }}>
@@ -117,7 +118,7 @@ export default async function ReviewCitationPage({ params }: { params: Promise<{
         <div className="cd-panel-header">
           <span className="cd-panel-label">The revised claim</span>
           {event && (
-            <Link href={`/review/events/${event.event_id}`} className="specimen specimen-b" style={{ textDecoration: "none" }}>
+            <Link href={`/ops/review/events/${event.event_id}`} className="specimen specimen-b" style={{ textDecoration: "none" }}>
               {event.title || event.preprint_doi} →
             </Link>
           )}

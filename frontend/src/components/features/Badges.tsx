@@ -5,6 +5,9 @@ import {
   REVIEW_REASON_LABEL,
   REVIEW_STATUS_COLOR,
   REVIEW_STATUS_LABEL,
+  VERIFICATION_COLOR,
+  VERIFICATION_EXPLANATION,
+  VERIFICATION_LABEL,
   labelOf,
 } from "@/lib/labels";
 
@@ -40,6 +43,17 @@ export function ReviewStatusBadge({ status }: { status: string | null | undefine
   return (
     <ColorBadge color={REVIEW_STATUS_COLOR[status] ?? "var(--gr)"}>
       {labelOf(REVIEW_STATUS_LABEL, status)}
+    </ColorBadge>
+  );
+}
+
+// Customer views: how far a finding has been checked (auto-verified / human-confirmed / provisional). The operator
+// review queue keeps ReviewStatusBadge.
+export function VerificationBadge({ status }: { status: string | null | undefined }) {
+  if (!status || !VERIFICATION_LABEL[status]) return null;
+  return (
+    <ColorBadge color={VERIFICATION_COLOR[status]} title={VERIFICATION_EXPLANATION[status]}>
+      {VERIFICATION_LABEL[status]}
     </ColorBadge>
   );
 }

@@ -10,7 +10,6 @@ interface SseState {
 }
 
 let eventSource: EventSource | null = null;
-const BFF_URL = process.env.NEXT_PUBLIC_BFF_URL ?? "http://127.0.0.1:8787";
 
 export const useSseStore = create<SseState>((set) => ({
   events: [],
@@ -23,7 +22,7 @@ export const useSseStore = create<SseState>((set) => ({
     
     set({ isListening: true, events: [] });
     
-    eventSource = new EventSource(`${BFF_URL}/api/events/stream?drift_event_id=${driftEventId}`);
+    eventSource = new EventSource(`/api/events/stream?drift_event_id=${driftEventId}`);
     
     const handler = (e: MessageEvent) => {
       try {

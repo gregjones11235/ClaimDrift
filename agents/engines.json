@@ -1,27 +1,27 @@
 {
  "claim_extractor": {
   "resource_name": "projects/648991158366/locations/us-central1/reasoningEngines/4486657802453909504",
-  "commit": "3107947-dirty",
-  "deployed_at": "2026-10-03T02:34:59+00:00"
+  "commit": "d2d0220-dirty",
+  "deployed_at": "2026-10-03T11:38:43+00:00"
  },
  "drift_analyzer": {
   "resource_name": "projects/648991158366/locations/us-central1/reasoningEngines/3775089061329371136",
-  "commit": "3107947-dirty",
-  "deployed_at": "2026-10-03T02:38:42+00:00"
+  "commit": "d2d0220-dirty",
+  "deployed_at": "2026-10-03T11:42:31+00:00"
  },
  "citation_finder": {
   "resource_name": "projects/648991158366/locations/us-central1/reasoningEngines/442425337075204096",
-  "commit": "3107947-dirty",
-  "deployed_at": "2026-10-03T02:42:03+00:00"
+  "commit": "d2d0220-dirty",
+  "deployed_at": "2026-10-03T11:45:47+00:00"
  },
  "notifier": {
   "resource_name": "projects/648991158366/locations/us-central1/reasoningEngines/6752531364974690304",
-  "commit": "3107947-dirty",
-  "deployed_at": "2026-10-03T02:46:42+00:00"
+  "commit": "d2d0220-dirty",
+  "deployed_at": "2026-10-03T11:48:37+00:00"
  },
  "supervisor": {
   "resource_name": "projects/648991158366/locations/us-central1/reasoningEngines/6634874824709636096",
-  "commit": "3107947-dirty",
-  "deployed_at": "2026-10-03T02:50:14+00:00"
+  "commit": "d2d0220-dirty",
+  "deployed_at": "2026-10-03T11:52:32+00:00"
  }
 }

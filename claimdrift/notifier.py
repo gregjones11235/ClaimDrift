@@ -11,7 +11,7 @@ event; a draft that drops either quoted version or fails falls back to the fixed
 Recipient: this project is not a commercial product, so EVERY message goes to NOTIFY_OVERRIDE_EMAIL (the project's test
 inbox), unconditionally. notification_log still records which paper/authors the notice was about.
 Delivery (send_mail): Gmail API with the sender's OAuth token (GMAIL_TOKEN_FILE, created once by
-claimdrift/scripts/gmail_oauth_local.py); without it the notice is stored as a draft ("drafted", delivery "draft_only"). send_mail is also used by the Playground, which mails the address its user typed in.
+claimdrift/scripts/gmail_oauth_local.py), retried with googleapiclient's exponential backoff; without it the notice is stored as a draft ("drafted", delivery "draft_only"). send_mail is also used by the Playground, which mails the address its user typed in.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from . import config, es, llm, store
 log = logging.getLogger("claimdrift.notifier")
 AC, NL, EV = config.INDICES["affected_citations"], config.INDICES["notification_log"], config.INDICES["drift_events"]
 NOTIFY_CLASSES = ("superseded", "indirect")
+GMAIL_RETRIES = 3
 
 
 class GateError(RuntimeError):
@@ -207,7 +208,9 @@ def _gmail_send(to: str, subject: str, body: str) -> str:
     msg = MIMEText(body)
     msg["to"], msg["subject"] = to, subject
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    return build("gmail", "v1", credentials=creds, cache_discovery=False).users().messages().send(userId="me", body={"raw": raw}).execute()["id"]
+    # num_retries: googleapiclient's own randomized exponential backoff on 5xx / 429 / rate-limit 403 (default 0 = no retry)
+    return build("gmail", "v1", credentials=creds, cache_discovery=False).users().messages().send(
+        userId="me", body={"raw": raw}).execute(num_retries=GMAIL_RETRIES)["id"]
 
 
 def notify(ac_id: str, send: bool = True) -> dict:

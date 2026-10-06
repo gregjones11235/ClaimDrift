@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Logo from "../landing/Logo";
+import { postLogout } from "@/lib/api/client";
+import type { SessionUser } from "@/types/claimdrift";
 
 /* ── nav items ── */
 const MONITOR_LINKS = [
@@ -31,27 +33,29 @@ const MONITOR_LINKS = [
   },
 ];
 
-// Human review (P1.8) and author self-check (P1.10).
-const REVIEW_LINKS = [
-  {
-    href: "/review",
-    label: "Review queue",
-    badge: true,
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-        <path d="M2 2h10v10H2z"/>
-        <path d="m4.5 7 2 2 3-4"/>
-      </svg>
-    ),
-  },
+// Customer side: author self-check (P1.10).
+const CHECK_LINKS = [
   {
     href: "/selfcheck",
     label: "Author self-check",
-    badge: false,
     icon: (
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
         <path d="M3 1h6l2 2v10H3z"/>
         <path d="M5 6h4M5 8.5h4M5 11h2"/>
+      </svg>
+    ),
+  },
+];
+
+// Operator side (/ops): the human review queue (P1.8), the ClaimDrift team's quality control. Never shown to customers.
+const OPS_LINKS = [
+  {
+    href: "/ops/review",
+    label: "Review queue",
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+        <path d="M2 2h10v10H2z"/>
+        <path d="m4.5 7 2 2 3-4"/>
       </svg>
     ),
   },
@@ -118,7 +122,15 @@ const EVENT_LINKS = [
   },
 ];
 
-export function Sidebar({ reviewPending = null }: { reviewPending?: number | null }) {
+export function Sidebar({
+  variant = "customer",
+  user,
+  reviewPending = null,
+}: {
+  variant?: "customer" | "ops";
+  user: SessionUser;
+  reviewPending?: number | null;
+}) {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
@@ -165,6 +177,28 @@ export function Sidebar({ reviewPending = null }: { reviewPending?: number | nul
       </div>
 
       {/* Nav */}
+      {variant === "ops" ? (
+      <nav style={{ padding: "12px 0", flex: 1, overflowY: "auto" }}>
+        <div style={{ padding: "8px 16px 4px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--gr3)" }}>
+          Operator
+        </div>
+        {OPS_LINKS.map((link) => (
+          <Link key={link.href} href={link.href} style={navItemStyle(isActive(link.href))}>
+            <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: isActive(link.href) ? 1 : 0.7 }}>{link.icon}</span>
+            <span style={{ flex: 1 }}>{link.label}</span>
+            {reviewPending != null && reviewPending > 0 && (
+              <span title={`${reviewPending} pending review`} style={{ fontFamily: "var(--mono)", fontSize: 10, padding: "1px 6px", border: "1px solid var(--y)", color: "var(--y)" }}>
+                {reviewPending}
+              </span>
+            )}
+          </Link>
+        ))}
+        <Link href="/dashboard" style={{ ...navItemStyle(false), marginTop: 12 }}>
+          <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.7 }}>←</span>
+          <span style={{ flex: 1 }}>Customer view</span>
+        </Link>
+      </nav>
+      ) : (
       <nav style={{ padding: "12px 0", flex: 1, overflowY: "auto" }}>
 
         {/* Monitor section */}
@@ -180,23 +214,33 @@ export function Sidebar({ reviewPending = null }: { reviewPending?: number | nul
           </Link>
         ))}
 
-        {/* Review section */}
+        {/* Check section */}
         <div style={{ padding: "12px 16px 4px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--gr3)" }}>
-          Review
+          Check
         </div>
-        {REVIEW_LINKS.map((link) => (
+        {CHECK_LINKS.map((link) => (
           <Link key={link.href} href={link.href} style={navItemStyle(isActive(link.href))}
             onMouseEnter={(e) => { if (!isActive(link.href)) { (e.currentTarget as HTMLElement).style.color = "var(--wh2)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)"; } }}
             onMouseLeave={(e) => { if (!isActive(link.href)) { (e.currentTarget as HTMLElement).style.color = "var(--gr)"; (e.currentTarget as HTMLElement).style.background = "transparent"; } }}>
             <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: isActive(link.href) ? 1 : 0.7 }}>{link.icon}</span>
             <span style={{ flex: 1 }}>{link.label}</span>
-            {link.badge && reviewPending != null && reviewPending > 0 && (
-              <span title={`${reviewPending} pending review`} style={{ fontFamily: "var(--mono)", fontSize: 10, padding: "1px 6px", border: "1px solid var(--y)", color: "var(--y)" }}>
-                {reviewPending}
-              </span>
-            )}
           </Link>
         ))}
+
+        {/* Operator area — admins only */}
+        {user.role === "admin" && (
+          <>
+            <div style={{ padding: "12px 16px 4px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: "var(--gr3)" }}>
+              Operator
+            </div>
+            {OPS_LINKS.map((link) => (
+              <Link key={link.href} href={link.href} style={navItemStyle(false)}>
+                <span style={{ width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.7 }}>{link.icon}</span>
+                <span style={{ flex: 1 }}>{link.label}</span>
+              </Link>
+            ))}
+          </>
+        )}
 
         {/* Playground — expandable section of experiments (not a plain link) */}
         <PlaygroundNav pathname={pathname} navItemStyle={navItemStyle} />
@@ -275,6 +319,9 @@ export function Sidebar({ reviewPending = null }: { reviewPending?: number | nul
         })()}
 
       </nav>
+      )}
+
+      <AccountBox user={user} />
 
       {/* GitHub */}
       <a href="https://github.com/gregjones11235/ClaimDrift" target="_blank" rel="noopener"
@@ -294,6 +341,38 @@ export function Sidebar({ reviewPending = null }: { reviewPending?: number | nul
       </div>
 
     </aside>
+  );
+}
+
+/* Logged-in account + logout. */
+function AccountBox({ user }: { user: SessionUser }) {
+  const [busy, setBusy] = useState(false);
+  async function logout() {
+    setBusy(true);
+    try {
+      await postLogout();
+    } finally {
+      window.location.assign("/login");
+    }
+  }
+  return (
+    <div style={{ padding: "10px 16px", borderTop: "1px solid var(--gr3)", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--wh2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={user.email}>
+          {user.name || user.email}
+        </div>
+        <div className="specimen" style={{ color: user.role === "admin" ? "var(--y)" : "var(--gr2)" }}>
+          {user.role === "admin" ? "operator" : "customer"}
+        </div>
+      </div>
+      <button
+        onClick={logout}
+        disabled={busy}
+        style={{ background: "transparent", border: "1px solid var(--gr3)", color: "var(--gr)", padding: "4px 10px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer" }}
+      >
+        Log out
+      </button>
+    </div>
   );
 }
 

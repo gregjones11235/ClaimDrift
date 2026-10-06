@@ -179,13 +179,13 @@ export function ReviewForm({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <select value={cites} onChange={(e) => setCites(e.target.value)} style={selectStyle} aria-label="correct cites">
               <option value="">cites: keep {currentCites ? `"${currentCites}"` : "as is"}</option>
-              {CITES_ORDER.map((c) => (
+              {CITES_ORDER.filter((c) => c !== currentCites).map((c) => (
                 <option key={c} value={c}>{c} — {CITES_LABEL[c]}</option>
               ))}
             </select>
             <select value={role} onChange={(e) => setRole(e.target.value)} style={selectStyle} aria-label="correct role">
               <option value="">role: keep {currentRole ? `"${currentRole}"` : "as is"}</option>
-              {ROLE_ORDER.map((r) => (
+              {ROLE_ORDER.filter((r) => r !== currentRole).map((r) => (
                 <option key={r} value={r}>{r} — {ROLE_LABEL[r]}</option>
               ))}
             </select>
@@ -197,13 +197,13 @@ export function ReviewForm({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <select value={abstractClass} onChange={(e) => setAbstractClass(e.target.value)} style={selectStyle} aria-label="correct abstract class">
                 <option value="">abstract-level: keep {currentAbstractClass ? `"${currentAbstractClass}"` : "as is"}</option>
-                {ABSTRACT_CLASSES.map((c) => (
+                {ABSTRACT_CLASSES.filter((c) => c !== currentAbstractClass).map((c) => (
                   <option key={c} value={c}>{c} — {ABSTRACT_CLASS_LABEL[c] ?? c}</option>
                 ))}
               </select>
               <select value={fulltextTier} onChange={(e) => setFulltextTier(e.target.value)} style={selectStyle} aria-label="correct full-text tier">
                 <option value="">full-text tier: keep {currentFulltextTier ? `"${currentFulltextTier}"` : "as is"}</option>
-                {FULLTEXT_TIERS.map((t) => (
+                {FULLTEXT_TIERS.filter((t) => t !== currentFulltextTier).map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
@@ -220,7 +220,7 @@ export function ReviewForm({
                   aria-label={`correct root cause of change ${d.idx + 1}`}
                 >
                   <option value="">root cause: keep {d.root_cause ?? "as is"}</option>
-                  {Object.keys(ROOT_CAUSE_LABEL).map((r) => (
+                  {Object.keys(ROOT_CAUSE_LABEL).filter((r) => r !== d.root_cause).map((r) => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
@@ -231,7 +231,7 @@ export function ReviewForm({
                   aria-label={`correct tier of change ${d.idx + 1}`}
                 >
                   <option value="">tier: keep {d.severity_tier ?? "as is"}</option>
-                  {FULLTEXT_TIERS.map((t) => (
+                  {FULLTEXT_TIERS.filter((t) => t !== d.severity_tier).map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>

@@ -1,10 +1,10 @@
-import { getDriftEvents, getStats } from "@/lib/api/client";
+import { getDriftEvents, getStats } from "@/lib/api/server";
 import Link from "next/link";
 import dayjs from "dayjs";
 
 import Oscilloscope from "@/components/landing/Oscilloscope";
 import { SeverityPair } from "@/components/features/SeverityPanels";
-import { ReviewStatusBadge } from "@/components/features/Badges";
+import { VerificationBadge } from "@/components/features/Badges";
 
 export default async function DashboardPage() {
   const [stats, { items: events }] = await Promise.all([
@@ -24,7 +24,7 @@ export default async function DashboardPage() {
     { label: "Tracked events",      val: stats.drift_events_total,                          sub: `${stats.high_severity_count} with full-text materiality ≥0.7`, color: "var(--y)",  oscColor: "rgba(245,197,24,.35)" },
     { label: "Avg full-text materiality", val: (stats.avg_materiality_score ?? 0).toFixed(2), sub: `across ${stats.drift_events_total} events`,          color: "var(--rd)", oscColor: "rgba(229,56,59,.4)" },
     { label: "Affected citations",   val: stats.affected_citations_total,                    sub: `${stats.superseded_citations_total ?? 0} use a superseded value · ${stats.notifications_sent}/${stats.notifications_total} notices sent`,   color: "var(--grn)", oscColor: "rgba(62,207,142,.4)" },
-    { label: "Awaiting review",      val: stats.review_pending_total ?? 0,                   sub: "events + citation verdicts",                        color: "var(--bl)", oscColor: "rgba(74,158,255,.4)" },
+    { label: "Human-confirmed",      val: stats.human_confirmed_total ?? 0,                  sub: "events + citation verdicts checked by the ClaimDrift team", color: "var(--bl)", oscColor: "rgba(74,158,255,.4)" },
   ];
 
   return (
@@ -54,7 +54,7 @@ export default async function DashboardPage() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--gr3)" }}>
-              {["drift_summary", "preprint_doi → published_doi", "severity (two scales)", "diff_type", "review", "detected_at", ""].map((h) => (
+              {["drift_summary", "preprint_doi → published_doi", "severity (two scales)", "diff_type", "status", "detected_at", ""].map((h) => (
                 <th key={h} style={{
                   fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.1em",
                   textTransform: "uppercase", color: "var(--gr2)",
@@ -97,7 +97,7 @@ export default async function DashboardPage() {
                   </td>
 
                   <td style={{ padding: "16px 20px" }}>
-                    {event.review_status ? <ReviewStatusBadge status={event.review_status} /> : <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)" }}>—</span>}
+                    {event.review_status ? <VerificationBadge status={event.review_status} /> : <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)" }}>—</span>}
                   </td>
 
                   <td style={{ padding: "16px 20px", fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)" }}>

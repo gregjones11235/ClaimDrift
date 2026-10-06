@@ -1,11 +1,12 @@
-import { getDriftEvent, getAffectedCitations, getNotifications, getCitationRuns, bffErrorMessage } from "@/lib/api/client";
+import { bffErrorMessage } from "@/lib/api/client";
+import { getDriftEvent, getAffectedCitations, getNotifications, getCitationRuns } from "@/lib/api/server";
 import { CitationRun } from "@/types/claimdrift";
 import { ClaimDiffViewer } from "@/components/features/ClaimDiffViewer";
 import { NumericalDeltaCard } from "@/components/features/NumericalDeltaCard";
 import { SeverityPanels } from "@/components/features/SeverityPanels";
 import { EventFactsPanel } from "@/components/features/EventFactsPanel";
 import { CitationRunsPanel } from "@/components/features/CitationRunsPanel";
-import { ReviewStatusBadge } from "@/components/features/Badges";
+import { VerificationBadge } from "@/components/features/Badges";
 import Link from "next/link";
 import dayjs from "dayjs";
 
@@ -64,12 +65,7 @@ export default async function DriftDetailPage({ params }: { params: Promise<{ id
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
         {diffTypes[0] && <span className={`cd-badge cd-badge-r`}>{diffTypes[0]}</span>}
         <span className="cd-badge">{event.preprint_version_compared ?? "preprint"} → published</span>
-        <ReviewStatusBadge status={event.review_status} />
-        {event.review_status && (
-          <Link href={`/review/events/${event.event_id}`} className="cd-badge cd-badge-b" style={{ textDecoration: "none" }}>
-            review →
-          </Link>
-        )}
+        <VerificationBadge status={event.review_status} />
         <span className="specimen" style={{ color: "var(--gr2)", marginLeft: "auto" }}>
           detected: {dayjs(event.detected_at).format("YYYY-MM-DD")}
         </span>
@@ -93,7 +89,7 @@ export default async function DriftDetailPage({ params }: { params: Promise<{ id
         legacyMateriality={event.materiality_score}
       />
 
-      {/* Route, versions, quote verification, review */}
+      {/* Route, versions, quote verification, confirmation status */}
       <EventFactsPanel event={event} versionCompared={isNewEvent ? event.preprint_version_compared : null} />
 
       {/* Numerical delta + diffs */}

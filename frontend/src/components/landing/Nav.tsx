@@ -6,8 +6,7 @@ interface NavProps {
   scrollY: number;
 }
 
-// On-page section link plus the external repo. (GitHub moved here from the hero
-// CTA row, which now hosts the A/B Playground entry next to Open Dashboard.)
+// On-page section link plus the external repo. (The hero CTA row holds only Open Dashboard, which asks for a login.)
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'GitHub', href: 'https://github.com/gregjones11235/ClaimDrift', external: true },

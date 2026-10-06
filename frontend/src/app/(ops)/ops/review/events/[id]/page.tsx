@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { bffErrorMessage, getReviewEvent } from "@/lib/api/client";
+import { bffErrorMessage } from "@/lib/api/client";
+import { getReviewEvent } from "@/lib/api/server";
 import { ReviewEventDetail } from "@/types/claimdrift";
 import { BffNotice } from "@/components/features/BffNotice";
 import { CitesBadge, FlagBadges, ReasonBadges, ReviewStatusBadge, VerifiedMark } from "@/components/features/Badges";
@@ -28,7 +29,7 @@ export default async function ReviewEventPage({ params }: { params: Promise<{ id
   if (!data) {
     return (
       <div>
-        <Link href="/review" style={backLink}>← Review queue</Link>
+        <Link href="/ops/review" style={backLink}>← Review queue</Link>
         <BffNotice message={error ?? "Event not found."} />
       </div>
     );
@@ -38,7 +39,7 @@ export default async function ReviewEventPage({ params }: { params: Promise<{ id
 
   return (
     <div>
-      <Link href="/review" style={backLink}>← Review queue</Link>
+      <Link href="/ops/review" style={backLink}>← Review queue</Link>
 
       {/* Header */}
       <div className="cd-panel" style={{ marginBottom: 16 }}>
@@ -117,7 +118,7 @@ export default async function ReviewEventPage({ params }: { params: Promise<{ id
           <div style={{ padding: 16, fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)", fontStyle: "italic" }}>No citation verdicts for this event.</div>
         ) : (
           citations.map((c) => (
-            <Link key={c.id} href={`/review/citations/${encodeURIComponent(c.id)}`} className="hover:bg-[rgba(245,197,24,0.03)]"
+            <Link key={c.id} href={`/ops/review/citations/${encodeURIComponent(c.id)}`} className="hover:bg-[rgba(245,197,24,0.03)]"
               style={{ display: "block", padding: "10px 16px", borderBottom: "1px solid var(--gr3)", textDecoration: "none" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, color: "var(--wh2)", flex: 1, minWidth: 240 }}>{c.title || c.work_id}</span>

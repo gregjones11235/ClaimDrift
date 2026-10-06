@@ -38,9 +38,9 @@ load_dotenv(_AGENTS / ".env")
 
 import os  # noqa: E402
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import StreamingResponse  # noqa: E402
+from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 
 import logging  # noqa: E402
 
@@ -138,11 +138,22 @@ _SSE_HEADERS = {
 from apps.playground.orchestration import orchestrate as _orchestrate_supervisor  # noqa: E402
 
 
-@app.get("/api/playground/orchestrate")
-async def playground_orchestrate(email: str = "") -> StreamingResponse:
+async def _session_user(request: Request) -> dict | None:
+    """Same accounts and sessions as the BFF (claimdrift.auth). The browser reaches this service through the
+    frontend's /api/playground rewrite, so the frontend's cd_session cookie arrives here."""
+    from claimdrift import auth
+    token = request.cookies.get(auth.COOKIE_NAME)
+    return await asyncio.to_thread(auth.default().session_user, token) if token else None
+
+
+@app.get("/api/playground/orchestrate", response_model=None)
+async def playground_orchestrate(request: Request, email: str = "") -> StreamingResponse | JSONResponse:
     """Run the full supervisor pipeline live, light up nodes, send the
     judge (?email=) their drift alert, then tear down this run's writes by
-    captured id. See orchestration.py for the teardown-isolation rationale."""
+    captured id. See orchestration.py for the teardown-isolation rationale.
+    Needs a logged-in session (decision 2026-10-03: no anonymous access): a run costs model calls and sends mail."""
+    if await _session_user(request) is None:
+        return JSONResponse({"error": "unauthenticated", "message": "please log in"}, status_code=401)
     return StreamingResponse(
         _with_keepalive(_orchestrate_supervisor(email.strip())),
         media_type="text/event-stream",

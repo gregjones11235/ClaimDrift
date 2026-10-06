@@ -61,6 +61,7 @@ ENGINES_SPEC = os.environ.get("CLAIMDRIFT_ENGINES") or (str(_ENGINES_FILE) if no
 
 MODEL_PRO = os.environ.get("CLAIMDRIFT_MODEL_PRO", "gemini-3.1-pro-preview")
 MODEL_FLASH = os.environ.get("CLAIMDRIFT_MODEL_FLASH", "gemini-3.8-flash")
+LLM_TIMEOUT_S = int(os.environ.get("CLAIMDRIFT_LLM_TIMEOUT_S", "300"))  # per Gemini call; a timeout is retried like a 503
 
 if LOCAL:
     ES_ENDPOINT = os.environ.get("CLAIMDRIFT_ES", "http://localhost:9200").rstrip("/")
@@ -84,6 +85,9 @@ EXTRACT_WORKERS = 4
 # citation orchestra caps (§3.5)
 ORCH_MAX_WORKERS, ORCH_MAX_PAPERS, ORCH_MAX_ROUNDS, ORCH_MAX_HOPS = 8, 5, 3, 2
 ORCH_BUDGET = 14
+# Papers a run sends to workers in total (orchestrator dispatches + the program's dispatch of leftovers). Candidates
+# beyond it stay unjudged and the run is reported truncated: very large targets are cut on purpose, not batch-judged.
+WORKER_CAPACITY = ORCH_MAX_ROUNDS * ORCH_MAX_WORKERS * ORCH_MAX_PAPERS
 OVERVIEW_PAGE_SIZE = 40   # P1.4: candidates per overview() page (the 12k-char tool-result cap hid everything past ~45)
 PREFETCH_WORKERS = 8
 # Large targets (Guan: ~19k citing papers, 240 with the old value in their full text): the pre-screen downloads full
@@ -105,4 +109,6 @@ INDICES = {
     "affected_citations": "affected_citations",
     "citation_runs": "citation_runs",
     "notification_log": "notification_log",
+    "auth_users": "auth_users",        # claimdrift.auth (accounts)
+    "auth_sessions": "auth_sessions",  # claimdrift.auth (sessions)
 }

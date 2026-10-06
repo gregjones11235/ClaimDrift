@@ -1,14 +1,17 @@
 """citation analysis as orchestrator-workers (§3.5, P0.5) -- the one real agent of the system: what to read next depends
 on intermediate results.
 
-  prefetch (program)    candidates = citing papers whose open full text contains the old value (prefetch.py), with flags
+  quantity (flash)      what the old value measures (property + unit), one call before the pre-screen (quantity.py)
+  prefetch (program)    candidates = citing papers whose open full text contains the old value as that quantity
+                        (prefetch.py, terms.quantity_sentences), with flags
   orchestrator (pro)    overview / dispatch / search_more / follow_chain / finish; budget 14 calls
   workers (pro)         <= 8 per dispatch, <= 5 papers each, <= 3 dispatch rounds; each in a fresh context, tools
                         get_citation_sentences / search_in_work through the MCP tool service (P1.6); 3 tool calls per paper
+  leftovers (program)   candidates the orchestrator did not send to a worker are dispatched to workers by the program,
+                        8 groups of 5 per step, until WORKER_CAPACITY papers (120) have been sent in the run; candidates
+                        beyond it stay unjudged and the run is reported truncated (very large targets are cut on purpose)
   verification (pro)    before the summary, every "superseded" verdict is checked again against its sentence and
                         reference (P1.2)
-  overflow (pro)        candidates no worker judged (capacity 3x8x5 = 120, early finish) go to batch judgement; unclear
-                        ones go to human review (P1.5)
 
 Verdict classes: superseded | current | flagged_as_previous | indirect | not_relying | unclear.
 "superseded" requires: (1) the reference list matches the target, (2) the old value is attributed to the target,
@@ -29,6 +32,8 @@ import time
 
 from .. import config, llm
 from . import epmc
+from .quantity import quantity_context
+from .terms import any_regex
 from .access import WORKER_TOOLS  # noqa: F401 -- re-exported (jobs, evaluate, selfcheck import it from here)
 
 VERDICTS = {"superseded", "current", "flagged_as_previous", "indirect", "not_relying", "unclear"}
@@ -75,11 +80,16 @@ You do not read papers yourself. Your tools:
   judged. Read every page before planning: candidates beyond the first page are NOT shown on it.
 - dispatch(groups): send groups of candidate work_ids to parallel workers; each worker judges its group in a fresh context.
   At most {mw} groups per call, at most {mp} papers per group, at most {mr} dispatch calls in total.
-- search_more(terms): pre-screen citing papers again with alternative spellings of the old value (e.g. '5·8 days', '5.8-day')
+- search_more(terms): pre-screen citing papers again with spellings of the old value the pre-screen did not cover. It
+  already searched decimal separators ('5·8'), trailing zeros ('5.80'), unit forms ('5.8-day', '5.8 d') and range forms
+  ('0-24', '0–24', '0 and 24'). Each match is read as a quantity and counts only when it equals the old value (a
+  range only as the whole range; a fraction such as '75 out of 148' when it equals the percentage) and the measured
+  property is in the same sentence or table row.
 - follow_chain(intermediary): for an intermediary paper that relayed the old value (a PMC id, or 'Author Year' + title words),
   pre-screen ITS citing papers for the old value (second hop). At most {mh} hops.
-- finish(summary): end the investigation. Candidates left unjudged are judged afterwards by a cheaper batch step and are
-  reported as such, so prefer dispatching them yourself while capacity remains.
+- finish(summary): end the investigation. Candidates you did not dispatch are then sent to workers by the program while
+  the run's worker capacity ({cap} papers) lasts, in candidate order; beyond it they stay unjudged. So dispatch the
+  candidates you consider most likely to rely on the old value first.
 Plan from the overview; prioritise unjudged candidates; follow chains only when workers report "indirect"."""
 
 VERIFY_SYSTEM = """You double-check verdicts claiming that a citing paper relies on a SUPERSEDED preprint claim.
@@ -99,17 +109,6 @@ does not settle it; set unclear_rule F1|F2|F3|M1|M2).
 Return ONLY JSON: {{"checks": [{{"work_id": "...", "verdict": "confirm|indirect|flagged_as_previous|current|not_relying|unclear",
   "condition_1": true|false, "condition_2": true|false, "condition_3": true|false, "sentence": "<VERBATIM>",
   "relayed_by": "", "unclear_rule": "", "reason": "<one line>"}}]}}"""
-
-BATCH_SYSTEM = """You judge, for each citing paper, how it cites a revised preprint claim.
-Target: {author} et al. Superseded preprint (v1) claim: {old}. Current claim: {new}.
-For EACH paper below return one verdict from the sentences shown. Return ONLY JSON:
-{{"verdicts": [{{"work_id": "...", "cites": "superseded|current|flagged_as_previous|indirect|not_relying|unclear",
-  "role": "model_input|reported_as_fact|background|unknown", "sentence": "<VERBATIM sentence from the paper>",
-  "relayed_by": "", "unclear_rule": "<F1|F2|F3|M1|M2 or empty>", "reason": "<one line>"}}]}}
-"superseded" = states the old value as the target's finding. "flagged_as_previous" = quotes it as an earlier/revised estimate.
-"indirect" = the old value is credited to another paper. "not_relying" = coincidental number / other study.
-Deterministic flags computed by the program are shown per paper; treat F1/F2/F3 as unclear unless the sentences clearly settle it.
-""" + UNCLEAR_RULES
 
 LOCAL_WORKER_SCHEMAS = [
     {"type": "function", "function": {"name": "get_citation_sentences", "description": "Sentences of one citing paper in which the target is cited (matched through its reference list), each with its neighbouring sentences.",
@@ -169,7 +168,7 @@ ORCH_TOOL_SCHEMAS = [
         "parameters": {"type": "object", "properties": {"page": {"type": "integer"}, "only_unjudged": {"type": "boolean"}}}}},
     {"type": "function", "function": {"name": "dispatch", "description": f"Send up to {config.ORCH_MAX_WORKERS} groups (each up to {config.ORCH_MAX_PAPERS} work_ids) to parallel workers.",
         "parameters": {"type": "object", "properties": {"groups": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}, "required": ["groups"]}}},
-    {"type": "function", "function": {"name": "search_more", "description": "Pre-screen citing papers again with alternative spellings (comma-separated).",
+    {"type": "function", "function": {"name": "search_more", "description": "Pre-screen citing papers again with spellings or equivalent forms the pre-screen did not cover (comma-separated).",
         "parameters": {"type": "object", "properties": {"terms": {"type": "string"}}, "required": ["terms"]}}},
     {"type": "function", "function": {"name": "follow_chain", "description": "Pre-screen the citing papers of an intermediary paper that relayed the old value (second hop).",
         "parameters": {"type": "object", "properties": {"intermediary": {"type": "string"}}, "required": ["intermediary"]}}},
@@ -189,7 +188,7 @@ PHASES = ("prescreen", "orchestrate", "overflow", "verify", "done")
 class Orchestra:
     def __init__(self, target: dict, worker_tools=None, backend_factory=llm.pro, since: str | None = None,
                  exclude: set[str] | frozenset = frozenset(), budget: int = config.ORCH_BUDGET, on_event=None,
-                 access=None, state: dict | None = None):
+                 access=None, state: dict | None = None, quantity_backend=None):
         """access: citations.access.LocalCitationAccess (default) or McpCitationAccess -- every Europe PMC operation.
         state: a dict from to_state() to resume a stepwise run (no pre-screen then).
         on_event(dict): optional progress callback (orchestrator decisions, worker tool calls and results, verification);
@@ -207,6 +206,9 @@ class Orchestra:
             return
         self.terms = list(target["terms"])
         self.since, self.exclude = since, set(exclude)
+        if "quantity" not in self.t:  # what the old value measures (one flash call); the access objects read it from the target
+            self.t["quantity"] = quantity_context(self.t, quantity_backend)
+        self._emit(kind="quantity", quantity=self.t["quantity"])
         self._emit(kind="prefetch_start")
         hits, self.prefetch_stats = self.access.list_citers(self.terms, since, exclude)
         # Best effort within PRESCREEN_MAX_WORKS: papers citing the preprint itself first (they read the v1 claim), then
@@ -220,10 +222,11 @@ class Orchestra:
         self.verdicts: dict[str, dict] = {}
         self.rounds = self.hops = 0
         self.usage = Usage()
-        self.events: list[dict] = []
+        self.events: list[dict] = [{"quantity": self.t["quantity"]}]
         self.msgs: list[dict] = []
         self.phase, self.turns, self.summary, self.orchestrate_s = "prescreen", 0, "", 0.0
         self.by_workers = self.n_overflow = 0
+        self.dispatched: set[str] = set()  # every work_id ever sent to a worker (counts against WORKER_CAPACITY)
         self.final: dict | None = None
         self.later_truncated: list[str] = []  # search_more / follow_chain searches that hit the page limit
 
@@ -235,7 +238,7 @@ class Orchestra:
                 "events": self.events, "msgs": llm.dump_messages(self.msgs), "phase": self.phase, "turns": self.turns,
                 "budget": self.budget, "summary": self.summary, "orchestrate_s": self.orchestrate_s,
                 "by_workers": self.by_workers, "n_overflow": self.n_overflow, "result": self.final,
-                "pending": self.pending, "later_truncated": self.later_truncated}
+                "pending": self.pending, "later_truncated": self.later_truncated, "dispatched": sorted(self.dispatched)}
 
     def _load(self, s: dict) -> None:
         self.t = s["target"]
@@ -248,6 +251,8 @@ class Orchestra:
         self.orchestrate_s, self.by_workers, self.n_overflow = s["orchestrate_s"], s["by_workers"], s["n_overflow"]
         self.final = s.get("result")
         self.pending, self.later_truncated = s.get("pending") or [], s.get("later_truncated") or []
+        # states saved before 2026-10-03 have no "dispatched": treat every judged paper as sent
+        self.dispatched = set(s["dispatched"]) if "dispatched" in s else set(self.verdicts)
 
     def _emit(self, **event) -> None:
         if self.on_event is not None:
@@ -296,7 +301,13 @@ class Orchestra:
             c = self.cands.get(w, {})
             papers.append(f"- {w} (flags: {', '.join(c.get('flags') or []) or 'none'}; "
                           f"pre-screen sentence: {(c.get('sentences') or [''])[0][:300]})")
-        verdicts = run_worker(self.t, papers, self.worker_tools, backend, call)
+        try:
+            verdicts = run_worker(self.t, papers, self.worker_tools, backend, call)
+        except Exception as e:  # noqa: BLE001 -- one failed worker must not end the run; its papers stay unjudged
+            self._emit(kind="worker_failed", worker=idx, error=f"{type(e).__name__}: {e}"[:300])
+            with self.lock:
+                self.events.append({"worker_failed": {"papers": list(group), "error": f"{type(e).__name__}: {e}"[:300]}})
+            verdicts = []
         self.usage.add("workers", backend)
         self._emit(kind="worker_done", worker=idx, secs=round(time.time() - t0, 1),
                    verdicts=[v.get("cites") for v in verdicts if isinstance(v, dict)])
@@ -307,34 +318,89 @@ class Orchestra:
             return {"error": f"dispatch limit reached ({config.ORCH_MAX_ROUNDS})"}
         groups = [[w for w in g if w in self.cands][:config.ORCH_MAX_PAPERS] for g in groups if isinstance(g, list)][:config.ORCH_MAX_WORKERS]
         groups = [g for g in groups if g]
+        room = config.WORKER_CAPACITY - len(self.dispatched)
+        groups = self._fit(groups, room)
         if not groups:
-            return {"error": "no known candidate work_ids in groups"}
+            return {"error": "no known candidate work_ids in groups" if room > 0 else f"worker capacity used up ({config.WORKER_CAPACITY} papers)"}
         self.rounds += 1
         t0 = time.time()
         self._emit(kind="dispatch", round=self.rounds, workers=len(groups), papers=sum(map(len, groups)))
+        results, new = self._run_workers(groups, dispatched_by="orchestrator", round_=self.rounds)
+        self.events.append({"dispatch": self.rounds, "workers": len(groups), "papers": sum(map(len, groups)), "secs": round(time.time() - t0, 1)})
+        return {"workers": len(groups), "verdicts_returned": new, "secs": round(time.time() - t0, 1),
+                "capacity_left": config.WORKER_CAPACITY - len(self.dispatched),
+                "summary": [{"work_id": v.get("work_id"), "cites": v.get("cites"), "role": v.get("role"), "relayed_by": v.get("relayed_by", "")}
+                            for vs in results for v in vs if isinstance(v, dict)]}
+
+    @staticmethod
+    def _fit(groups: list[list[str]], room: int) -> list[list[str]]:
+        """Trim groups to the remaining worker capacity (papers)."""
+        out = []
+        for g in groups:
+            if room <= 0:
+                break
+            out.append(g[:room])
+            room -= len(out[-1])
+        return out
+
+    def _run_workers(self, groups: list[list[str]], dispatched_by: str, round_: int | None = None) -> tuple[list, int]:
+        """Run the groups in parallel workers; record verdicts (one per paper, the first one wins)."""
+        for g in groups:
+            self.dispatched.update(g)
         with cf.ThreadPoolExecutor(len(groups)) as ex:
             results = list(ex.map(self._worker, groups, range(1, len(groups) + 1)))
         new = 0
         for vs in results:
             for v in vs:
                 if isinstance(v, dict) and v.get("work_id") in self.cands:
-                    self.verdicts[v["work_id"]] = {**v, "judged_by": "worker", "dispatch_round": self.rounds}
+                    self.verdicts[v["work_id"]] = {**v, "judged_by": "worker", "dispatched_by": dispatched_by,
+                                                   **({"dispatch_round": round_} if round_ else {})}
                     new += 1
-        self.events.append({"dispatch": self.rounds, "workers": len(groups), "papers": sum(map(len, groups)), "secs": round(time.time() - t0, 1)})
-        return {"workers": len(groups), "verdicts_returned": new, "secs": round(time.time() - t0, 1),
-                "summary": [{"work_id": v.get("work_id"), "cites": v.get("cites"), "role": v.get("role"), "relayed_by": v.get("relayed_by", "")}
-                            for vs in results for v in vs if isinstance(v, dict)]}
+        return results, new
+
+    def auto_dispatch(self) -> bool:
+        """One step of the program's dispatch of leftovers: candidates never sent to a worker, in candidate order, up to
+        ORCH_MAX_WORKERS groups of ORCH_MAX_PAPERS and within WORKER_CAPACITY. Returns True when more steps are needed."""
+        room = config.WORKER_CAPACITY - len(self.dispatched)
+        left = [w for w in self.cands if w not in self.verdicts and w not in self.dispatched]
+        if room <= 0 or not left:
+            return False
+        take = left[:min(room, config.ORCH_MAX_WORKERS * config.ORCH_MAX_PAPERS)]
+        groups = [take[i:i + config.ORCH_MAX_PAPERS] for i in range(0, len(take), config.ORCH_MAX_PAPERS)]
+        t0 = time.time()
+        self._emit(kind="auto_dispatch", workers=len(groups), papers=len(take))
+        _, new = self._run_workers(groups, dispatched_by="program")
+        self.n_overflow += len(take)
+        self.events.append({"auto_dispatch": {"workers": len(groups), "papers": len(take), "verdicts_returned": new,
+                                              "secs": round(time.time() - t0, 1)}})
+        room -= len(take)
+        return room > 0 and any(w not in self.verdicts and w not in self.dispatched for w in self.cands)
 
     def search_more(self, terms: str) -> dict:
-        new_terms = [x.strip() for x in str(terms).split(",") if x.strip()]
+        proposed = [x.strip() for x in str(terms).split(",") if x.strip()]
+        # The pre-screen already searched every rule-generated spelling (terms.query_variants). A proposed spelling is
+        # searched as it is; each match is read as the whole quantity it belongs to and counts only when that quantity
+        # equals the old value, with the measured property in the same sentence or table row (quantity["proposed"],
+        # terms.quantity_sentences) -- the same quantity match as the pre-screen, no separate rule for spellings.
+        q = self.t.get("quantity") or {"property_terms": [], "unit": None}
+        self.t["quantity"] = q
+        searched = any_regex(self.terms)
+        covered = [x for x in proposed if searched.search(x)]  # contains a searched spelling
+        new_terms = [x for x in proposed if x not in covered]
+        out = {"already_searched": covered}
+        if new_terms:
+            q["proposed"] = list(q.get("proposed") or []) + [x for x in new_terms if x not in (q.get("proposed") or [])]
+        if not new_terms:
+            self._emit(kind="search_more", terms=[], added=0, covered=covered)
+            return {**out, "new_candidates": 0, "n_candidates": len(self.cands)}
         found, truncated = self.access.search_more(new_terms, self.since, known=set(self.cands) | self.exclude)
         if truncated:
             self.later_truncated.append(f"search_more {','.join(new_terms)}")
         found = {w: c for w, c in found.items() if w not in self.cands}
         self.cands.update(found)
         self.terms += [t for t in new_terms if t not in self.terms]
-        self._emit(kind="search_more", terms=new_terms, added=len(found))
-        return {"new_candidates": len(found), "n_candidates": len(self.cands)}
+        self._emit(kind="search_more", terms=new_terms, added=len(found), covered=covered)
+        return {**out, "new_candidates": len(found), "n_candidates": len(self.cands)}
 
     def follow_chain(self, intermediary: str) -> dict:
         if self.hops >= config.ORCH_MAX_HOPS:
@@ -408,25 +474,6 @@ class Orchestra:
         self._emit(kind="verify_done", checked=res["checked"], changed=changed)
         return res
 
-    # ---------------------------------------------------------------- P1.5 overflow -> batch judgement
-    def batch_judge(self, wids: list[str], batch: int = 12) -> int:
-        n = 0
-        self._emit(kind="batch_start", papers=len(wids))
-        for i in range(0, len(wids), batch):
-            chunk = wids[i:i + batch]
-            backend = self.backend_factory()
-            user = "\n\n".join(f"### {w} (cites {', '.join(self.cands[w].get('cites_versions') or []) or 'via chain'}; "
-                               f"flags: {', '.join(self.cands[w].get('flags') or []) or 'none'})\n"
-                               + "\n".join(f"- {s}" for s in self.cands[w].get("sentences") or []) for w in chunk)
-            r = backend.chat([{"role": "system", "content": self._fmt(BATCH_SYSTEM)}, {"role": "user", "content": user}])
-            self.usage.add("batch", backend)
-            for v in (llm.extract_json(r["content"]) or {}).get("verdicts") or []:
-                if isinstance(v, dict) and v.get("work_id") in chunk and v["work_id"] not in self.verdicts:
-                    self.verdicts[v["work_id"]] = {**v, "judged_by": "batch_overflow"}
-                    n += 1
-        self.events.append({"batch_overflow": {"candidates": len(wids), "judged": n}})
-        return n
-
     # ---------------------------------------------------------------- run
     def _orchestrator_turn(self) -> None:
         """One orchestrator turn; moves to the overflow phase when the orchestrator finishes or the budget is spent."""
@@ -477,7 +524,8 @@ class Orchestra:
         self._emit(kind="prefetch_done", candidates=len(self.cands))
         self.msgs = [
             {"role": "system", "content": self._fmt(ORCH_SYSTEM, ps=config.OVERVIEW_PAGE_SIZE, mw=config.ORCH_MAX_WORKERS,
-                                                    mp=config.ORCH_MAX_PAPERS, mr=config.ORCH_MAX_ROUNDS, mh=config.ORCH_MAX_HOPS)},
+                                                    mp=config.ORCH_MAX_PAPERS, mr=config.ORCH_MAX_ROUNDS, mh=config.ORCH_MAX_HOPS,
+                                                    cap=config.WORKER_CAPACITY)},
             {"role": "user", "content": f"Target: {self.t.get('first_author')} et al. {len(self.cands)} candidates after pre-screening. Start with overview()."}]
         self.phase = "orchestrate"
 
@@ -487,13 +535,11 @@ class Orchestra:
             self._prescreen_batch()
         elif self.phase == "orchestrate":
             self._orchestrator_turn()
-        elif self.phase == "overflow":
-            self.by_workers = len(self.verdicts)
-            overflow = [w for w in self.cands if w not in self.verdicts]
-            self.n_overflow = len(overflow)
-            if overflow:
-                self.batch_judge(overflow)
-            self.phase = "verify"
+        elif self.phase == "overflow":  # leftovers: the program dispatches them to workers within the capacity
+            if not self.n_overflow:
+                self.by_workers = len(self.verdicts)
+            if not self.auto_dispatch():
+                self.phase = "verify"
         elif self.phase == "verify":
             self.verify_superseded()
             self.final = self.result(self.summary, self.orchestrate_s, self.by_workers, self.n_overflow)
@@ -527,8 +573,12 @@ class Orchestra:
                          f"(limit {ps.get('screen_limit')} per run; papers citing the preprint and older papers were screened first).")
         for x in self.later_truncated:
             notes.append(f"The search of {x} hit the page limit; part of its results was not examined.")
-        if unjudged:
-            notes.append(f"{len(unjudged)} candidate(s) were found but not judged.")
+        cut = [u for u in unjudged if u["work_id"] not in self.dispatched]
+        if cut:
+            notes.append(f"{len(cut)} candidate(s) were not judged: the run's worker capacity ({config.WORKER_CAPACITY} papers) "
+                         f"was used up.")
+        if len(unjudged) > len(cut):
+            notes.append(f"{len(unjudged) - len(cut)} candidate(s) were sent to a worker but got no verdict.")
         if cov["download_failed"]:
             notes.append(f"{cov['download_failed']} matching paper(s) had no downloadable full text and could not be read.")
         if cov["no_open_full_text"]:
@@ -553,13 +603,16 @@ class Orchestra:
                           "cites_versions": c.get("cites_versions") or [], "judged_by": v.get("judged_by"),
                           "verification": v.get("verification"), "verdict_before_verification": v.get("verdict_before_verification"),
                           "label_problem": None if v.get("cites") in VERDICTS else f"invalid class {v.get('cites')!r}"})
-        unjudged = [{"work_id": k, "flags": c.get("flags"), "source": c["source"]} for k, c in self.cands.items() if k not in self.verdicts]
+        unjudged = [{"work_id": k, "flags": c.get("flags"), "source": c["source"],
+                     "reason": "no verdict returned" if k in self.dispatched else "worker capacity used up"}
+                    for k, c in self.cands.items() if k not in self.verdicts]
         coverage, notes = self.coverage(unjudged)
         return {"target_id": self.t.get("target_id"), "drift_event_id": self.t.get("drift_event_id"), "mode": "orchestra",
                 "terms": self.terms, "since": self.since, "prefetch": self.prefetch_stats, "orchestrate_s": round(orchestrate_s, 1),
                 "calls": self.usage.calls, "tokens": self.usage.tokens, "n_candidates": len(self.cands),
                 "n_judged": len(self.cands) - len(unjudged), "n_unjudged": len(unjudged),
                 "coverage_complete": not unjudged and not coverage["truncated"], "coverage": coverage, "coverage_notes": notes,
-                "unjudged": unjudged, "judged_by": {"worker": by_workers, "batch_overflow": len(self.verdicts) - by_workers},
-                "n_overflow_candidates": n_overflow, "rounds_used": self.rounds, "hops_used": self.hops,
+                "unjudged": unjudged, "judged_by": {"worker": by_workers, "auto_dispatch": len(self.verdicts) - by_workers},
+                "n_auto_dispatched": n_overflow, "worker_capacity": config.WORKER_CAPACITY,
+                "n_dispatched": len(self.dispatched), "rounds_used": self.rounds, "hops_used": self.hops,
                 "events": self.events, "summary": summary, "citing_works": works}

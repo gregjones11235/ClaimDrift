@@ -12,7 +12,7 @@ Targets the cloud system by default; CLAIMDRIFT_LOCAL=1 for the local stack (cla
   selfcheck-index                        rebuild the author self-check index from drift_events
   selfcheck-sentence "<sentence>" | selfcheck-refs <file>
   eval-drift [--cases a,b] [--route stuffed|claims] [--tag T] [--no-es]
-  eval-abstract [--limit N] | eval-citations <case> [--tools mcp|local] | eval-selfcheck [--mode hybrid|elser|bm25]
+  eval-abstract [--limit N] | eval-citations <case> [--tools mcp|local] [--fresh] | eval-selfcheck [--mode hybrid|elser|bm25]
   score-citations <case>...              score the worker's affected_citations against citation_gold_v2.json
 """
 from __future__ import annotations
@@ -129,7 +129,7 @@ def cmd_eval_abstract(a) -> None:
 
 def cmd_eval_citations(a) -> None:
     from . import evaluate
-    _print(evaluate.run_citations(a.case, a.tools))
+    _print(evaluate.run_citations(a.case, a.tools, a.fresh))
 
 
 def cmd_score_citations(a) -> None:
@@ -196,6 +196,7 @@ def main(argv=None) -> None:
     p = sp.add_parser("eval-citations")
     p.add_argument("case")
     p.add_argument("--tools", choices=["mcp", "local"], default="mcp")
+    p.add_argument("--fresh", action="store_true", help="discard a saved checkpoint and start over")
     p.set_defaults(fn=cmd_eval_citations)
     p = sp.add_parser("score-citations", help="score the worker's affected_citations against citation_gold_v2.json")
     p.add_argument("cases", nargs="+")

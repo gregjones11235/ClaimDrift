@@ -1,23 +1,17 @@
 import { Sidebar } from "@/components/ui/sidebar";
 import { Topbar } from "@/components/ui/topbar";
-import { getStats } from "@/lib/api/client";
+import { requireUser } from "@/lib/api/server";
 
+// Customer area (every page needs a login). The operator review queue lives under /ops (app/(ops)); only an admin's
+// sidebar links to it.
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // Pending-review count for the nav badge. Best-effort: a BFF hiccup must not
-  // take down every dashboard page, so on failure the badge is simply hidden.
-  let reviewPending: number | null = null;
-  try {
-    reviewPending = (await getStats()).review_pending_total ?? null;
-  } catch {
-    reviewPending = null;
-  }
-
+  const user = await requireUser();
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--bk)", position: "relative" }}>
       {/* Lab grid background */}
       <div className="lab-grid-bg" />
 
-      <Sidebar reviewPending={reviewPending} />
+      <Sidebar variant="customer" user={user} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh", position: "relative", zIndex: 2, overflow: "hidden" }}>
         <Topbar />

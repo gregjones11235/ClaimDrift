@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { bffErrorMessage, getReviewQueue } from "@/lib/api/client";
+import { bffErrorMessage } from "@/lib/api/client";
+import { getReviewQueue } from "@/lib/api/server";
 import { ReviewQueue } from "@/types/claimdrift";
 import { BffNotice } from "@/components/features/BffNotice";
 import { CitesBadge, FlagBadges, ReasonBadges, ReviewStatusBadge, VerifiedMark } from "@/components/features/Badges";
@@ -40,13 +41,14 @@ export default async function ReviewQueuePage({
 
   const events = queue?.events ?? [];
   const citations = queue?.citations ?? [];
-  const href = (s: string, k: string) => `/review?status=${s}&kind=${k}`;
+  const href = (s: string, k: string) => `/ops/review?status=${s}&kind=${k}`;
 
   return (
     <div>
       <p style={{ fontSize: 13, lineHeight: 1.7, color: "var(--gr)", maxWidth: 820, marginBottom: 16 }}>
-        Drift events and citation verdicts that a person must check before they are trusted. Nothing is ever sent to a
-        citing author while a citation is not approved; sending is a separate operator step that re-checks this gate.
+        Operator view: drift events and citation verdicts where an automatic check did not pass. Customers see a pending
+        item as &ldquo;Provisional&rdquo;, an approved one as &ldquo;Human-confirmed&rdquo;; a rejected item disappears from
+        customer views and is never notified. Notices are not held back while an item is pending.
       </p>
 
       <div className="cd-panel" style={{ marginBottom: 16 }}>
@@ -87,7 +89,7 @@ export default async function ReviewQueuePage({
                 {events.map((ev) => (
                   <tr key={ev.id} className="hover:bg-[rgba(245,197,24,0.03)]" style={{ borderBottom: "1px solid var(--gr3)", position: "relative" }}>
                     <td style={{ ...td, maxWidth: 420 }}>
-                      <Link href={`/review/events/${ev.event_id}`} style={{ position: "absolute", inset: 0, zIndex: 1 }} aria-label="Open review" />
+                      <Link href={`/ops/review/events/${ev.event_id}`} style={{ position: "absolute", inset: 0, zIndex: 1 }} aria-label="Open review" />
                       <div style={{ fontSize: 14, color: "var(--wh2)", lineHeight: 1.45, marginBottom: 4 }}>{ev.title || ev.paper_id || ev.event_id}</div>
                       <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gr)" }}>{ev.preprint_doi}</div>
                       <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--bl)" }}>↳ {ev.published_doi}</div>
@@ -134,7 +136,7 @@ export default async function ReviewQueuePage({
               {citations.map((c) => (
                 <Link
                   key={c.id}
-                  href={`/review/citations/${encodeURIComponent(c.id)}`}
+                  href={`/ops/review/citations/${encodeURIComponent(c.id)}`}
                   className="hover:bg-[rgba(245,197,24,0.03)]"
                   style={{ display: "block", padding: "12px 16px", borderBottom: "1px solid var(--gr3)", textDecoration: "none", borderLeft: `3px solid ${NOTIFY_PRIORITY_COLOR[c.notify_priority ?? ""] ?? "var(--gr3)"}` }}
                 >

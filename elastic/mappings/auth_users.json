@@ -1,0 +1,23 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "email": {
+        "type": "keyword"
+      },
+      "name": {
+        "type": "keyword"
+      },
+      "role": {
+        "type": "keyword"
+      },
+      "password_hash": {
+        "type": "keyword",
+        "index": false
+      },
+      "created_at": {
+        "type": "date"
+      }
+    }
+  }
+}

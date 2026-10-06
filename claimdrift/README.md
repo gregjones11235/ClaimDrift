@@ -38,7 +38,7 @@ notify   notifier.py        gate re-checked at send time; every message goes to 
 | deploy: agents on Agent Engine | `agent_handlers.py`, `engines.py`, `serial.py`, `agents/`, `scripts/deploy_agents.py` |
 | deploy: ES data migration | `scripts/migrate_es.py` |
 | 1.7 incremental re-run | `jobs.rerun_due` (`FIRST_PDATE` since last check, already-judged papers skipped) |
-| 1.8 review UI | BFF `apps/bff/review_api.py`; frontend `/review` |
+| 1.8 review UI | BFF `apps/bff/review_api.py`; frontend `/ops/review` (operator area; customer pages show a verification badge instead) |
 | 1.9 pattern library removed | see git history of this change |
 | 1.10 author self-check | `selfcheck.py`; BFF `/api/selfcheck/*`; frontend `/selfcheck` |
 

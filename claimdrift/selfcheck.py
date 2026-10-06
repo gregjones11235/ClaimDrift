@@ -47,12 +47,7 @@ JUDGE_WORKERS = 5  # parallel judge calls per request (<= MAX_SENTENCES sentence
 
 # Numbers that are not claim values: disease/strain/gene names with digits, years, confidence levels, citation markers,
 # figure/table references, p-values. Removed from BOTH the claim texts and the author's sentence before values are read.
-_NOISE = [r"\b[A-Za-z]+(?:-[A-Za-z]+)*-\d+[A-Za-z]*\b",   # COVID-19, SARS-CoV-2, IL-6, H5N1-like forms with a hyphen
-          r"\b[A-Za-z]+\d+[A-Za-z]*\d*\b",                 # CD4, H1N1, IL6, nCoV2019
-          r"\b\d{4}-nCoV\b", r"\b(?:19|20)\d{2}\b",         # 2019-nCoV, years
-          r"\b9[05](?:\.\d+)?\s*%?\s*(?:CI|confidence|credible|UI)\b",  # 95% CI / 90% credible interval
-          r"\[[\d,\s;–-]+\]", r"\b(?:Fig(?:ure)?s?|Tables?|Refs?|Supplementary|eTable|Appendix)\.?\s*S?\d+[A-Za-z]?\b",
-          r"\b[Pp]\s*[<=>≤≥]\s*0?[.·]\d+\b"]
+from .citations.terms import NOISE_PATTERNS as _NOISE  # noqa: E402 -- shared with the citation-target derivation
 _NOISE_RE = re.compile("|".join(_NOISE))
 _NUM = r"\d{1,3}(?:,\d{3})+(?:[.·]\d+)?|\d+(?:[.·]\d+)?"
 _UNITS = {"%": "%", "percent": "%", "per cent": "%", "day": "days", "days": "days", "week": "weeks", "weeks": "weeks",

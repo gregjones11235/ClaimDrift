@@ -24,7 +24,10 @@ class Gemini:
         key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY not set (expected in .env)")
-        self.client = genai.Client(api_key=key, vertexai=False)
+        from google.genai import types
+        # without a timeout a stalled connection blocks the run forever (2026-10-03: one call hung 46 min)
+        self.client = genai.Client(api_key=key, vertexai=False,
+                                   http_options=types.HttpOptions(timeout=config.LLM_TIMEOUT_S * 1000))
         self.model, self.temperature = model, temperature
         self.calls, self.total_secs = 0, 0.0
         self.prompt_tokens = self.output_tokens = self.cached_tokens = self.last_prompt_tokens = 0
@@ -65,8 +68,10 @@ class Gemini:
                 break
             except Exception as e:  # noqa: BLE001
                 code = getattr(e, "code", None) or getattr(e, "status_code", None)
-                if code not in (429, 500, 503, 504) or attempt == 5:
-                    raise
+                if "timeout" in type(e).__name__.lower() or isinstance(e, TimeoutError):
+                    code = "timeout"
+                if code not in (429, 500, 503, 504, "timeout") or attempt == 5 or (code == "timeout" and attempt >= 2):
+                    raise  # a request that timed out 3 times is not transient
                 wait = min(60, 5 * 2 ** attempt)
                 log.warning("%s: HTTP %s (attempt %d), retrying in %ds", self.model, code, attempt + 1, wait)
                 time.sleep(wait)

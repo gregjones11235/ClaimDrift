@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { AffectedCitation } from "@/types/claimdrift";
 import {
   CITES_COLOR,
@@ -12,7 +11,7 @@ import {
   ROLE_LABEL,
   labelOf,
 } from "@/lib/labels";
-import { CitesBadge, FlagBadges, ReviewStatusBadge, VerifiedMark } from "./Badges";
+import { CitesBadge, FlagBadges, VerificationBadge, VerifiedMark } from "./Badges";
 
 // Citation analysis results, grouped by how each citing paper uses the revised claim (`cites`). An empty list is shown
 // as such (the citation-analysis panel above says why: no numeric target, not run yet, or nothing found).
@@ -28,7 +27,7 @@ export function CitationList({ citations }: { citations: AffectedCitation[] }) {
     { label: "Citing papers judged", val: citations.length, color: "var(--wh2)" },
     { label: "Use superseded value", val: count("superseded"), color: "var(--rd)" },
     { label: "Indirect / unclear", val: count("indirect") + count("unclear"), color: "var(--or)" },
-    { label: "Awaiting review", val: pending, color: "var(--y)" },
+    { label: "Provisional", val: pending, color: "var(--y)" },
   ];
 
   return (
@@ -77,7 +76,7 @@ export function CitationList({ citations }: { citations: AffectedCitation[] }) {
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <CitesBadge cites={cit.cites} />
                     {cit.role && <span className="cd-badge">{labelOf(ROLE_LABEL, cit.role)}</span>}
-                    <ReviewStatusBadge status={cit.review_status} />
+                    <VerificationBadge status={cit.review_status} />
                   </div>
                 </div>
 
@@ -114,11 +113,6 @@ export function CitationList({ citations }: { citations: AffectedCitation[] }) {
                   <FlagBadges flags={cit.flags} />
                   {cit.unclear_rule && <span className="cd-badge cd-badge-y" style={{ textTransform: "none" }}>unclear rule {cit.unclear_rule}</span>}
                   {cit.judged_by && <span className="specimen" style={{ color: "var(--gr2)" }}>judged by {cit.judged_by}</span>}
-                  {cit.review_status && cit.review_status !== "not_required" && (
-                    <Link href={`/review/citations/${encodeURIComponent(cit.affected_citation_id)}`} className="specimen specimen-b" style={{ marginLeft: "auto", textDecoration: "none" }}>
-                      review →
-                    </Link>
-                  )}
                 </div>
               </div>
             );

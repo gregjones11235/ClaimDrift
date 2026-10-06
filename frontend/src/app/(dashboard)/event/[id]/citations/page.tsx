@@ -1,4 +1,5 @@
-import { getAffectedCitations, getCitationRuns, getDriftEvent, bffErrorMessage } from "@/lib/api/client";
+import { bffErrorMessage } from "@/lib/api/client";
+import { getAffectedCitations, getCitationRuns, getDriftEvent } from "@/lib/api/server";
 import { CitationAnalysis, CitationRun } from "@/types/claimdrift";
 import { CitationList } from "@/components/features/CitationList";
 import { CitationRunsPanel } from "@/components/features/CitationRunsPanel";

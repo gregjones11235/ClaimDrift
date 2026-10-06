@@ -1,14 +1,8 @@
+// BFF calls made from the BROWSER (client components: forms, polling). They use relative /api/* URLs, which the
+// frontend rewrites to the BFF (next.config.ts), so the session cookie set on the frontend's domain is sent along.
+// Server components read through server.ts instead.
+import { unstable_rethrow } from "next/navigation";
 import {
-  DriftEventSummary,
-  DriftEvent,
-  AffectedCitation,
-  NotificationLog,
-  DashboardStats,
-  Claim,
-  CitationRun,
-  ReviewQueue,
-  ReviewEventDetail,
-  ReviewCitationDetail,
   ReviewDecisionRequest,
   ReviewDecisionResponse,
   SelfcheckReferencesResponse,
@@ -16,18 +10,9 @@ import {
   SelfcheckSentencesResponse,
   SearchMode,
   SelfcheckPublishedResponse,
+  SessionUser,
+  DriftEventSummary,
 } from "@/types/claimdrift";
-
-export const BFF_URL = process.env.NEXT_PUBLIC_BFF_URL ?? "http://127.0.0.1:8787";
-
-// All views are server-rendered, so each navigation re-fetches from the BFF.
-// `no-store` made every dashboard↔detail↔live switch re-query Elasticsearch
-// end-to-end, which is the dominant source of perceived slowness. A 30s
-// incremental cache lets rapid back-and-forth navigation reuse the last
-// response (instant), while still refreshing in the background so the numbers
-// stay accurate within half a minute. The live SSE stream is a separate
-// EventSource and is unaffected by this — it stays truly real-time.
-const REVALIDATE_SECONDS = 30;
 
 // Error carrying the BFF's {error, message} body. The review and self-check
 // routes answer 503 {error: "local_es_required"} when the BFF runs without the
@@ -43,7 +28,7 @@ export class BffError extends Error {
   }
 }
 
-async function toBffError(res: Response, errorLabel: string): Promise<BffError> {
+export async function toBffError(res: Response, errorLabel: string): Promise<BffError> {
   let code = `http_${res.status}`;
   let message = `Failed to fetch ${errorLabel}`;
   try {
@@ -59,6 +44,8 @@ async function toBffError(res: Response, errorLabel: string): Promise<BffError> 
 
 // Human-readable text for any error thrown by the functions below.
 export function bffErrorMessage(e: unknown): string {
+  // A redirect (e.g. to /login after a 401) thrown inside a page's try/catch must keep propagating.
+  unstable_rethrow(e);
   if (e instanceof BffError && e.code === "local_es_required") {
     return "This feature needs the local Elasticsearch: the BFF is running without CLAIMDRIFT_ES (local_es_required).";
   }
@@ -66,23 +53,14 @@ export function bffErrorMessage(e: unknown): string {
   return String(e);
 }
 
-async function fetchJson<T>(path: string, errorLabel: string): Promise<T> {
-  const res = await fetch(`${BFF_URL}${path}`, {
-    next: { revalidate: REVALIDATE_SECONDS },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch ${errorLabel}`);
-  return res.json();
-}
-
-// Review state changes when a reviewer decides, so these reads are never cached.
 async function fetchFresh<T>(path: string, errorLabel: string): Promise<T> {
-  const res = await fetch(`${BFF_URL}${path}`, { cache: "no-store" });
+  const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw await toBffError(res, errorLabel);
   return res.json();
 }
 
 async function postJson<T>(path: string, body: unknown, errorLabel: string): Promise<T> {
-  const res = await fetch(`${BFF_URL}${path}`, {
+  const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -92,55 +70,25 @@ async function postJson<T>(path: string, body: unknown, errorLabel: string): Pro
   return res.json();
 }
 
+// Browser-side event list (the live stream page picks an event to follow).
 export function getDriftEvents(): Promise<{ items: DriftEventSummary[]; count: number }> {
-  return fetchJson("/api/drift-events", "drift events");
+  return fetchFresh("/api/drift-events", "drift events");
 }
 
-export function getDriftEvent(id: string): Promise<DriftEvent> {
-  return fetchJson(`/api/drift-events/${id}`, "drift event");
+// ── Accounts ─────────────────────────────────────────────────────────────────
+export function postLogin(email: string, password: string): Promise<{ user: SessionUser }> {
+  return postJson("/api/auth/login", { email, password }, "login");
 }
 
-export function getClaims(id: string): Promise<{ items: Claim[]; count: number }> {
-  return fetchJson(`/api/drift-events/${id}/claims`, "claims");
+export function postRegister(email: string, password: string, name: string): Promise<{ user: SessionUser }> {
+  return postJson("/api/auth/register", { email, password, name }, "registration");
 }
 
-export function getAffectedCitations(id: string): Promise<{ items: AffectedCitation[]; count: number }> {
-  return fetchJson(`/api/drift-events/${id}/affected-citations`, "affected citations");
+export function postLogout(): Promise<{ ok: boolean }> {
+  return postJson("/api/auth/logout", {}, "logout");
 }
 
-export function getNotifications(id: string): Promise<{ items: NotificationLog[]; count: number }> {
-  return fetchJson(`/api/drift-events/${id}/notifications`, "notifications");
-}
-
-// Citation-analysis runs for an event (needs the local ES on the BFF).
-export function getCitationRuns(id: string): Promise<{ items: CitationRun[]; count: number }> {
-  return fetchFresh(`/api/drift-events/${id}/citation-runs`, "citation runs");
-}
-
-// Whole-index dashboard rollups (computed server-side via ES aggregations).
-// Use these for the summary cards instead of summing the (capped) /api/drift-events
-// page client-side — that page is limited to the most-recent 100 events.
-export function getStats(): Promise<DashboardStats> {
-  return fetchJson("/api/stats", "stats");
-}
-
-// ── Review queue (P1.8) ──────────────────────────────────────────────────────
-export function getReviewQueue(
-  kind: "all" | "events" | "citations",
-  status: string,
-): Promise<ReviewQueue> {
-  const q = new URLSearchParams({ kind, status });
-  return fetchFresh(`/api/review-queue?${q}`, "review queue");
-}
-
-export function getReviewEvent(id: string): Promise<ReviewEventDetail> {
-  return fetchFresh(`/api/review/events/${encodeURIComponent(id)}`, "review event");
-}
-
-export function getReviewCitation(id: string): Promise<ReviewCitationDetail> {
-  return fetchFresh(`/api/review/citations/${encodeURIComponent(id)}`, "review citation");
-}
-
+// ── Review decision (operator only) ──────────────────────────────────────────
 export function postReviewDecision(
   kind: "events" | "citations",
   id: string,

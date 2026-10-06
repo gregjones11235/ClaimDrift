@@ -48,9 +48,9 @@ def _paper(paper_id: str) -> PaperTools:
 
 
 def _access(first_author: str, preprint_doi: str, published_doi: str, title_fragment: str = "", current_claim: str = "",
-            terms: list[str] | None = None):
+            terms: list[str] | None = None, quantity: dict | None = None):
     """LocalCitationAccess for one target. The CitationTools behind it (Europe PMC ids + parsed full texts) are cached
-    per target; the screening fields (current claim, terms) are per call."""
+    per target; the screening fields (current claim, terms, quantity) are per call."""
     from .citations.access import LocalCitationAccess, screening_target
     from .citations.epmc import CitationTools
     ref = {"first_author": first_author or "", "preprint_doi": (preprint_doi or "").lower(),
@@ -66,7 +66,7 @@ def _access(first_author: str, preprint_doi: str, published_doi: str, title_frag
             _targets[key] = tools
             while len(_targets) > MAX_CACHED_TARGETS:
                 _targets.popitem(last=False)
-    return LocalCitationAccess(screening_target(ref, current_claim, terms or []), tools)
+    return LocalCitationAccess(screening_target(ref, current_claim, terms or [], quantity), tools)
 
 
 # ---------------------------------------------------------------- paper full text
@@ -157,10 +157,11 @@ def get_reference_list(work_id: str) -> dict:
 # ---------------------------------------------------------------- candidate search (orchestrator side)
 @mcp.tool()
 def prescreen_citers(first_author: str, preprint_doi: str, published_doi: str, terms: list[str], title_fragment: str = "",
-                     current_claim: str = "", since: str = "", exclude: list[str] | None = None) -> dict:
+                     current_claim: str = "", since: str = "", exclude: list[str] | None = None,
+                     quantity: dict | None = None) -> dict:
     """Program pre-screen: citing papers (of either version) whose open full text contains the old value, with the
     deterministic flags F1/F2/F3. Downloads and caches the full texts."""
-    cands, stats = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms).prescreen(
+    cands, stats = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms, quantity).prescreen(
         terms, since or None, exclude or ())
     return {"candidates": cands, "stats": stats}
 
@@ -177,19 +178,21 @@ def list_citers(first_author: str, preprint_doi: str, published_doi: str, terms:
 
 @mcp.tool()
 def screen_citers(first_author: str, preprint_doi: str, published_doi: str, hits: dict, terms: list[str],
-                  title_fragment: str = "", current_claim: str = "", source: str = "prefetch") -> dict:
+                  title_fragment: str = "", current_claim: str = "", source: str = "prefetch",
+                  quantity: dict | None = None) -> dict:
     """Pre-screen step 2 for one batch of list_citers hits: download and cache the full texts, keep the papers whose
     text contains the old value, with the deterministic flags F1/F2/F3."""
-    cands, counts = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms).screen(
+    cands, counts = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms, quantity).screen(
         hits, terms, source)
     return {"candidates": cands, "counts": counts}
 
 
 @mcp.tool()
 def search_more_citers(first_author: str, preprint_doi: str, published_doi: str, terms: list[str], title_fragment: str = "",
-                       current_claim: str = "", since: str = "", known: list[str] | None = None) -> dict:
+                       current_claim: str = "", since: str = "", known: list[str] | None = None,
+                       quantity: dict | None = None) -> dict:
     """Pre-screen the citing papers again with alternative spellings of the old value; `known` work_ids are skipped."""
-    a = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms)
+    a = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms, quantity)
     cands, truncated = a.search_more(terms, since or None, known or ())
     return {"candidates": cands, "truncated": truncated}
 
@@ -197,10 +200,10 @@ def search_more_citers(first_author: str, preprint_doi: str, published_doi: str,
 @mcp.tool()
 def follow_citation_chain(first_author: str, preprint_doi: str, published_doi: str, intermediary: str, terms: list[str],
                           title_fragment: str = "", current_claim: str = "", since: str = "",
-                          known: list[str] | None = None) -> dict:
+                          known: list[str] | None = None, quantity: dict | None = None) -> dict:
     """Second hop: pre-screen the citing papers of an intermediary (PMC id, or 'Author Year' + title words) for the old
     value; `known` work_ids are skipped."""
-    a = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms)
+    a = _access(first_author, preprint_doi, published_doi, title_fragment, current_claim, terms, quantity)
     r = a.follow_chain(intermediary, terms, since or None, known or ())
     return r if "error" in r else {"intermediary": r["intermediary"], "candidates": r["cands"], "truncated": r["truncated"]}
 

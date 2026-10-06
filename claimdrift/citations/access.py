@@ -26,9 +26,10 @@ def target_ref(target: dict) -> dict:
     return {k: target.get(k) or "" for k in TARGET_KEYS}
 
 
-def screening_target(ref: dict, current_claim: str, terms: list[str]) -> dict:
-    """Minimal target dict the pre-screen needs: identity + the current claim (flag F3) + the old-value terms."""
-    return {**ref, "drift": {"current_claim": current_claim or ""}, "terms": list(terms or [])}
+def screening_target(ref: dict, current_claim: str, terms: list[str], quantity: dict | None = None) -> dict:
+    """Minimal target dict the pre-screen needs: identity + the current claim (flag F3) + the old-value terms + what the
+    value measures (citations.quantity)."""
+    return {**ref, "drift": {"current_claim": current_claim or ""}, "terms": list(terms or []), "quantity": quantity or None}
 
 
 class LocalCitationAccess:
@@ -118,6 +119,10 @@ class McpCitationAccess:
         self.ref = target_ref(target)
         self.current = (target.get("drift") or {}).get("current_claim") or ""
 
+    @property
+    def quantity(self) -> dict:
+        return self.t.get("quantity") or {}  # set by the Orchestra before the pre-screen
+
     def _call(self, name: str, args: dict):
         out = self.client.call(name, {**self.ref, **args})
         if isinstance(out, dict) and "error" in out and len(out) == 1:
@@ -125,7 +130,7 @@ class McpCitationAccess:
         return out
 
     def prescreen(self, terms: list[str], since: str | None = None, exclude=()) -> tuple[dict, dict]:
-        r = self._call("prescreen_citers", {"current_claim": self.current, "terms": list(terms), "since": since or "",
+        r = self._call("prescreen_citers", {"current_claim": self.current, "quantity": self.quantity, "terms": list(terms), "since": since or "",
                                             "exclude": sorted(exclude or ())})
         return r["candidates"], r["stats"]
 
@@ -134,16 +139,16 @@ class McpCitationAccess:
         return r["hits"], r["stats"]
 
     def screen(self, hits: dict, terms: list[str], source: str = "prefetch") -> tuple[dict, dict]:
-        r = self._call("screen_citers", {"hits": hits, "terms": list(terms), "current_claim": self.current, "source": source})
+        r = self._call("screen_citers", {"hits": hits, "terms": list(terms), "current_claim": self.current, "quantity": self.quantity, "source": source})
         return r["candidates"], r["counts"]
 
     def search_more(self, terms: list[str], since: str | None = None, known=()) -> tuple[dict, bool]:
-        r = self._call("search_more_citers", {"current_claim": self.current, "terms": list(terms), "since": since or "",
+        r = self._call("search_more_citers", {"current_claim": self.current, "quantity": self.quantity, "terms": list(terms), "since": since or "",
                                               "known": sorted(known or ())})
         return r["candidates"], bool(r.get("truncated"))
 
     def follow_chain(self, intermediary: str, terms: list[str], since: str | None = None, known=()) -> dict:
-        r = self.client.call("follow_citation_chain", {**self.ref, "current_claim": self.current, "intermediary": intermediary,
+        r = self.client.call("follow_citation_chain", {**self.ref, "current_claim": self.current, "quantity": self.quantity, "intermediary": intermediary,
                                                        "terms": list(terms), "since": since or "", "known": sorted(known or ())})
         return r if "error" in r else {"intermediary": r["intermediary"], "cands": r["candidates"], "truncated": bool(r.get("truncated"))}
 

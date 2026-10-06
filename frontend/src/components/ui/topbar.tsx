@@ -21,14 +21,14 @@ export function Topbar() {
     title = "Notification Log"; sub = "notifier · test inbox only";
   } else if (pathname?.startsWith("/event/")) {
     title = "Drift Detail"; sub = "drift_analyzer · two severity scales";
-  } else if (pathname?.startsWith("/review/events/")) {
-    title = "Review · Drift Event"; sub = "human review gate";
-  } else if (pathname?.startsWith("/review/citations/")) {
-    title = "Review · Citation"; sub = "human review gate";
-  } else if (pathname === "/review") {
-    title = "Review Queue"; sub = "human review gate";
+  } else if (pathname?.startsWith("/ops/review/events/")) {
+    title = "Review · Drift Event"; sub = "operator · quality control";
+  } else if (pathname?.startsWith("/ops/review/citations/")) {
+    title = "Review · Citation"; sub = "operator · quality control";
+  } else if (pathname === "/ops/review") {
+    title = "Review Queue"; sub = "operator · quality control";
   } else if (pathname === "/selfcheck") {
-    title = "Author Self-check"; sub = "references · citing sentences";
+    title = "Author Self-check"; sub = "before submission · after publication";
   } else if (pathname?.startsWith("/playground")) {
     title = "Playground"; sub = "5-agent orchestration";
   } else if (pathname === "/live") {

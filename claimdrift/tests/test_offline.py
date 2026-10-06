@@ -55,6 +55,99 @@ class TermsTest(unittest.TestCase):
         self.assertTrue(terms.term_regex("29,500").search("about 29,500 cases"))
         self.assertTrue(terms.term_regex("0 to 24").search("range, 0 to 24 days"))
 
+    def test_old_value_terms_from_real_claims(self):
+        """Production derivation of search terms: ranges stay whole, interval estimates, years and CI levels are not values."""
+        ovt = terms.old_value_terms
+        self.assertEqual(ovt("We estimated that the mean R 0 ranges from 3.30 (95%CI: 2.73-3.96) to 5.47 (95%CI: 4.16-7.10)",
+                             "We estimated that the mean R 0 ranges from 2.24 to 3.58"), ["3.30 to 5.47"])
+        self.assertEqual(ovt("R fluctuated between 1.6–2.9 from mid-December to mid-January 2020",
+                             "R t declined from 2.35 one week before travel restrictions to 1.05"), ["1.6 to 2.9"])
+        self.assertEqual(ovt("The median incubation period was 3.0 days (range, 0 to 24.0 days).",
+                             "The median incubation period was 4 days (interquartile range, 2 to 7)."), ["0 to 24.0 days", "3.0 days"])
+        self.assertEqual(ovt("mean incubation period 5.8 (4.6 - 7.9, 95% CI) days", "6.4 days (95% CrI 5.6-7.7)"), ["5.8 days"])
+        self.assertEqual(ovt("Our results show that 2019-nCoV has substantial potential (OR 3.1717, 95% CI 1.3-7.7)", ""), ["3.1717"])
+
+    def test_range_spellings(self):
+        rx = terms.term_regex("0 to 24")
+        for s_ in ("range, 0 to 24 days", "Range (0-24)", "0–24 days", "between 0 and 24 days", "0 to 24.0 days", "0 − 24", "0- to 24-day"):
+            self.assertTrue(rx.search(s_), s_)
+        for s_ in ("10-24 days", "0 to 245", "0 to 24.5 days", "0 to 2 days", "24 days"):
+            self.assertFalse(rx.search(s_), s_)
+        v = terms.query_variants("0 to 24")
+        for want in ("0-24", "0–24", "0 and 24", "0 to 24.0"):
+            self.assertIn(want, v)
+        v = terms.query_variants("3.30 to 5.47")  # trailing zeros normalised like the local regex
+        for want in ("3.3 to 5.47", "3.3–5.47", "3.30–5.47", "3.3 and 5.47"):
+            self.assertIn(want, v)
+        self.assertIn("3 days", terms.query_variants("3.0 days"))
+
+    def test_regex_matches_every_query_spelling(self):
+        """The Europe PMC query and the local screen use the same rules: no spelling is fetched and then dropped."""
+        for t in ("5.8 days", "50.7%", "5.47", "0 to 24", "0 to 24.0 days", "29,500"):
+            rx = terms.term_regex(t)
+            for v in terms.query_variants(t):
+                self.assertTrue(rx.search(v), (t, v))
+
+    def test_quantity_match_value_unit_property(self):
+        """Value + unit + measured property: a unit next to the value must be the target's; a value without a unit
+        counts only next to the measured property."""
+        q = {"property_terms": ["incubation period", "incubation"], "unit": "days"}
+        sents = ["Guan et al. reported a median incubation period of 3.0 days (range, 0–24.0), shorter than SARS.",  # no unit, property
+                 "Total CT severity scores (range, 0–24) were summed over six lung zones.",                     # no unit, no property
+                 "Cytokine mRNA was measured over a 0–24 h period.",                                            # other unit
+                 "The incubation period ranged widely.", "It spanned 0 to 24 days in one cohort.",              # property in previous sentence
+                 "Ages 0–24 years accounted for 5% of cases."]
+        self.assertEqual(terms.quantity_sentences(sents, ["0 to 24"], q), [0, 4])
+        # without the quantity step (model call failed): a term without a unit keeps the value-only rule
+        self.assertEqual(terms.quantity_sentences(sents, ["0 to 24"], None), [0, 1, 2, 4, 5])
+        # a term written with its unit: a bare value needs the property, another unit is dropped
+        q58 = {"property_terms": ["incubation"], "unit": "days"}
+        s58 = ["Incubation was set to 5.8 (Backer et al.).", "The R0 was 5.8 in Wuhan.", "a 5.8-day incubation", "5.8 h later",
+               "median incubation 5.1 days (95% CI 4.5-5.8)", "incubation 5.8–7.0 days", "incubation 5.8 to 7 days"]
+        self.assertEqual(terms.quantity_sentences(s58, ["5.8 days"], q58), [0, 2])
+        self.assertEqual(terms.quantity_sentences(s58, ["5.8 days"], None), [2])
+        self.assertEqual(terms.value_spellings("5.8 days")[:2], ["5.8", "5·8"])
+        self.assertEqual(terms.value_term("0 to 24.0 days"), "0 to 24.0")
+
+    def test_subscript_property(self):
+        q = {"property_terms": ["r0"], "unit": "none"}
+        self.assertEqual(terms.quantity_sentences(["the true R 0 lies between 3.3 and 5.47"], ["3.30 to 5.47"], q), [0])
+
+    def test_proposed_spellings_count_when_the_quantity_is_the_old_value(self):
+        q = {"property_terms": ["incubation", "liver dysfunction", "r0"], "unit": None,
+             "proposed": ["24 days", "75 out of 148", "3.3"]}
+        old = ["0 to 24.0 days", "50.7%", "3.30 to 5.47"]
+        sents = ["The incubation period may be as long as 24 days.",      # 24 days is not the range 0-24
+                 "75 out of 148 patients had liver dysfunction.",          # 75/148 = 50.7%
+                 "75 out of 148 respondents agreed.",                       # no measured property
+                 "The R 0 was 3.3 in Wuhan.",                              # 3.3 alone is not the range 3.30-5.47
+                 "the true R0 lies between 3.3 and 5.47"]                  # the whole range (also the old term itself)
+        self.assertEqual(terms.quantity_sentences(sents, old + q["proposed"], q), [1, 4])
+        q2 = {"property_terms": ["liver dysfunction"], "unit": None, "proposed": ["half"]}
+        self.assertEqual(terms.quantity_sentences(["half of the patients had liver dysfunction"], ["50.7%", "half"], q2), [])
+        self.assertEqual(terms.value_term("75 out of 148"), "75 out of 148")
+        self.assertEqual(terms.numbers("29,500 cases"), ["29500"])
+
+    def test_table_rows_carry_headers(self):
+        from claimdrift.citations import epmc
+        xml = ("<table-wrap><label>Table 2</label><caption><title>Liver injury in COVID-19</title></caption><table>"
+               "<thead><tr><th>Study</th><th>N</th><th>Abnormal liver function, n (%)</th></tr></thead>"
+               "<tbody><tr><td>Fan et al [33]</td><td>148</td><td>75 (50.7)</td></tr><tr><td>Cai</td><td>298</td><td>44</td></tr>"
+               "</tbody></table></table-wrap>")
+        rows = epmc.table_rows(xml)
+        self.assertEqual(rows[0][0], "Fan et al [33] | 148 | 75 (50.7)")
+        self.assertIn("Abnormal liver function", rows[0][1])
+        q = {"property_terms": ["abnormal liver function"], "unit": "%"}
+        self.assertEqual(terms.quantity_sentences([r for r, _ in rows], ["50.7%"], q, contexts=[c for _, c in rows]), [0])
+        self.assertEqual(terms.quantity_sentences([r for r, _ in rows], ["50.7%"], q), [])
+
+    def test_quantity_context_parsing(self):
+        from claimdrift.citations.quantity import quantity_context
+        t = {"terms": ["0 to 24"], "drift": {"preprint_v1_claim": "median incubation period 3.0 days (range 0 to 24.0 days)"}}
+        fb = FakeBackend([json.dumps({"property_terms": ["Incubation period", "incubation"], "unit": "day"})])
+        self.assertEqual(quantity_context(t, fb), {"property_terms": ["incubation period", "incubation"], "unit": "days"})
+        self.assertIsNone(quantity_context(t, FakeBackend(["no json"])))
+
     def test_old_value_terms(self):
         self.assertEqual(terms.old_value_terms("mean incubation period 5.8 days (95% CI 4.6-7.9) from 34 cases",
                                                "mean incubation period 6.4 days (95% CI 5.6-7.7) from 88 cases")[0], "5.8 days")
@@ -262,7 +355,7 @@ class _FakeAccess:
 
 class _OrchBackend:
     """Scripted pro backend for the orchestra: orchestrator dispatches PMC1+PMC2 then finishes; workers say superseded;
-    batch judges PMC3 current; verifier confirms."""
+    the program dispatches the leftover PMC3 to a worker, which says current; verifier confirms."""
     script = [[{"name": "overview", "args": {}}], [{"name": "dispatch", "args": {"groups": [["PMC1"], ["PMC2"]]}}],
               [{"name": "finish", "args": {"summary": "done"}}]]
 
@@ -279,12 +372,12 @@ class _OrchBackend:
             return {"content": "", "tool_calls": calls, "assistant_message": {"role": "assistant", "content": "",
                     "tool_calls": [{"function": {"name": c["name"], "arguments": c["args"]}} for c in calls]}}
         if sys.startswith("You judge how specific"):
-            w = "PMC1" if "PMC1" in messages[1]["content"] else "PMC2"
-            text = json.dumps({"verdicts": [{"work_id": w, "cites": "superseded", "role": "model_input", "sentence": f"{w} uses 5.8 days"}]})
-        elif sys.startswith("You double-check"):
+            w = next(x for x in ("PMC1", "PMC2", "PMC3") if x in messages[1]["content"])
+            v = ({"work_id": w, "cites": "current", "role": "background", "sentence": "x"} if w == "PMC3" else
+                 {"work_id": w, "cites": "superseded", "role": "model_input", "sentence": f"{w} uses 5.8 days"})
+            text = json.dumps({"verdicts": [v]})
+        else:  # verifier
             text = json.dumps({"checks": [{"work_id": w, "verdict": "confirm"} for w in ("PMC1", "PMC2")]})
-        else:
-            text = json.dumps({"verdicts": [{"work_id": "PMC3", "cites": "current", "role": "background", "sentence": "x"}]})
         return {"content": text, "tool_calls": [], "assistant_message": {"role": "assistant", "content": text}}
 
     def tool_result_message(self, name, content):
@@ -297,6 +390,7 @@ class StepwiseOrchestraTest(unittest.TestCase):
 
     def _target(self):
         return {"target_id": "t", "drift_event_id": "e", "first_author": "Backer", "terms": ["5.8 days"],
+                "quantity": {"property_terms": ["incubation"], "unit": "days"},
                 "drift": {"preprint_v1_claim": "5.8 days", "current_claim": "6.4 days"}}
 
     def _strip(self, res):
@@ -316,9 +410,20 @@ class StepwiseOrchestraTest(unittest.TestCase):
         self.assertEqual(self._strip(state["result"]), self._strip(whole))
         self.assertEqual(sorted((w["work_id"], w["cites"]) for w in whole["citing_works"]),
                          [("PMC1", "superseded"), ("PMC2", "superseded"), ("PMC3", "current")])
-        self.assertEqual(whole["judged_by"], {"worker": 2, "batch_overflow": 1})
+        self.assertEqual(whole["judged_by"], {"worker": 2, "auto_dispatch": 1})
         self.assertTrue(whole["coverage_complete"])
         self.assertEqual(whole["coverage_notes"], [])
+
+    def test_leftovers_cut_at_worker_capacity(self):
+        """Beyond WORKER_CAPACITY nothing is batch-judged: the leftover stays unjudged and the run says so."""
+        from unittest import mock
+        st = {"orch": 0}
+        with mock.patch.object(config, "WORKER_CAPACITY", 2):
+            res = Orchestra(self._target(), access=_FakeAccess(), backend_factory=lambda: _OrchBackend(st)).run()
+        self.assertEqual(res["judged_by"], {"worker": 2, "auto_dispatch": 0})
+        self.assertEqual([(u["work_id"], u["reason"]) for u in res["unjudged"]], [("PMC3", "worker capacity used up")])
+        self.assertFalse(res["coverage_complete"])
+        self.assertTrue(any("worker capacity (2 papers)" in n for n in res["coverage_notes"]))
 
     def test_large_target_screened_in_batches_and_cap_reported(self):
         """Guan-sized targets: screening runs in PRESCREEN_BATCH steps; beyond PRESCREEN_MAX_WORKS nothing is dropped
@@ -333,6 +438,30 @@ class StepwiseOrchestraTest(unittest.TestCase):
         self.assertEqual(res["coverage"]["screen_capped"], 5)
         self.assertFalse(res["coverage_complete"])
         self.assertTrue(any("5 of 25 matching papers were not screened" in n for n in res["coverage_notes"]))
+
+    def test_search_more_searches_proposed_spellings(self):
+        """Proposed spellings are searched as they are (no separate rule); already-searched ones are skipped."""
+        acc = _FakeAccess()
+        acc.search_more = lambda terms_, since=None, known=(): (acc.calls.append(("more", terms_)), ({}, False))[1]
+        o = Orchestra({**self._target(), "terms": ["0 to 24"]}, access=acc, backend_factory=lambda: _OrchBackend({"orch": 0}))
+        r = o.search_more("24 days, 0-24")
+        self.assertEqual(r["already_searched"], ["0-24"])
+        self.assertIn(("more", ["24 days"]), acc.calls)
+        self.assertEqual(o.t["quantity"]["proposed"], ["24 days"])
+
+    def test_failed_worker_does_not_end_the_run(self):
+        """A worker whose model call fails (e.g. three timeouts) loses only its own papers: they stay unjudged with
+        reason "no verdict returned" and the run finishes."""
+        class Failing(_OrchBackend):
+            def chat(self, messages, tools=None):
+                if messages[0]["content"].startswith("You judge how specific") and "PMC2" in messages[1]["content"]:
+                    raise TimeoutError("stalled")
+                return super().chat(messages, tools)
+        st = {"orch": 0}
+        res = Orchestra(self._target(), access=_FakeAccess(), backend_factory=lambda: Failing(st)).run()
+        self.assertEqual([(u["work_id"], u["reason"]) for u in res["unjudged"]], [("PMC2", "no verdict returned")])
+        self.assertTrue(any("worker_failed" in e for e in res["events"]))
+        self.assertFalse(res["coverage_complete"])
 
     def test_messages_round_trip_keeps_thought_signature(self):
         from google.genai import types

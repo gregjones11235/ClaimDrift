@@ -32,6 +32,7 @@ STATS_KEYS = {
     "notifications_total",
     "notifications_sent",
     "review_pending_total",
+    "human_confirmed_total",
     "superseded_citations_total",
 }
 
@@ -51,6 +52,7 @@ class TestSeedDashboardStats(unittest.TestCase):
             "notifications_total",
             "notifications_sent",
             "review_pending_total",
+            "human_confirmed_total",
             "superseded_citations_total",
         ):
             self.assertIsInstance(self.stats[key], int, key)
@@ -101,6 +103,7 @@ class TestElasticDashboardStatsHappyPath(unittest.TestCase):
                     "avg_materiality": {"value": 0.47},
                     "high_severity": {"doc_count": 35},
                     "review_pending": {"doc_count": 4},
+                    "human_confirmed": {"doc_count": 2},
                 },
             },
             "/affected_citations/_count": {"count": 248},
@@ -117,7 +120,8 @@ class TestElasticDashboardStatsHappyPath(unittest.TestCase):
             },
             "/affected_citations/_search": {
                 "hits": {"total": {"value": 248}},
-                "aggregations": {"review_pending": {"doc_count": 7}, "superseded": {"doc_count": 21}},
+                "aggregations": {"review_pending": {"doc_count": 7}, "human_confirmed": {"doc_count": 3},
+                                 "superseded": {"doc_count": 21}},
             },
         }
         self.ds = _make_es(self.responses)
@@ -131,6 +135,7 @@ class TestElasticDashboardStatsHappyPath(unittest.TestCase):
         self.assertEqual(self.stats["notifications_total"], 220)
         self.assertEqual(self.stats["notifications_sent"], 204)
         self.assertEqual(self.stats["review_pending_total"], 11)  # 4 events + 7 citations
+        self.assertEqual(self.stats["human_confirmed_total"], 5)  # 2 events + 3 citations
         self.assertEqual(self.stats["superseded_citations_total"], 21)
 
     def test_query_shape_is_aggregation_not_full_scan(self) -> None:
@@ -173,6 +178,7 @@ class TestElasticDashboardStatsDegradesGracefully(unittest.TestCase):
         self.assertEqual(stats["notifications_total"], 0)
         self.assertEqual(stats["notifications_sent"], 0)
         self.assertEqual(stats["review_pending_total"], 0)
+        self.assertEqual(stats["human_confirmed_total"], 0)
         self.assertEqual(stats["superseded_citations_total"], 0)
         self.assertEqual(stats["avg_materiality_score"], 0.0)
 
@@ -189,5 +195,13 @@ class TestElasticDashboardStatsDegradesGracefully(unittest.TestCase):
         self.assertEqual(stats["affected_citations_total"], 99)  # survived
 
 
+class TestVisibleQueryHidesRejected(unittest.TestCase):
+    def test_rejected_items_never_reach_customer_views(self) -> None:
+        q = _make_es({}).visible_query({"match_all": {}})
+        self.assertIn({"term": {"review_status": "rejected"}}, q["bool"]["must_not"])
+        self.assertIn({"term": {"suspected_false_positive": True}}, q["bool"]["must_not"])
+
+
 if __name__ == "__main__":
     unittest.main()
+
