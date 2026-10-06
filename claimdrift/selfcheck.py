@@ -599,11 +599,21 @@ def cited_library_events(refs: str) -> list[dict]:
     return out
 
 
+def preprints_not_in_library(refs: str) -> list[str]:
+    """bioRxiv/medRxiv DOIs in a paper's reference list (ref_list_text) with no event in the library, in order of first
+    appearance. A version suffix (".../2020.02.06.20020974v2") is dropped: on-demand analysis takes the bare DOI."""
+    dois = list(dict.fromkeys(re.sub(r"v\d+$", "", m.group(0).rstrip(".)")) for m in DOI_RE.finditer(refs or "")
+                              if m.group(0).startswith("10.1101/")))
+    known = _events_by_doi(dois)
+    return [d for d in dois if d not in known]
+
+
 def check_published(ref: str, client) -> dict:
     """Author self-check of an already published paper: which revised preprint claims in the library does it cite, and
     does it rely on the old value? Reads the paper through the SAME MCP tools as the citation job
     (get_reference_list, get_citation_sentences, search_in_work, verify_citing_quote) and judges with the same worker
-    prompt (citations.orchestra.run_worker). The full text is read and cached by the tool service only."""
+    prompt (citations.orchestra.run_worker). The full text is read and cached by the tool service only. Cited
+    bioRxiv/medRxiv preprints that are not in the library are listed with a pre-check (not_in_library), as in path 1."""
     from . import llm
     from .citations.access import WORKER_TOOLS, target_ref
     from .citations.orchestra import run_worker
@@ -615,6 +625,11 @@ def check_published(ref: str, client) -> dict:
     if not refs.get("full_text"):
         return {"paper": work, "status": "no_full_text", "results": []}
     events = cited_library_events(refs.get("references") or "")
+    # cited preprints the library does not have yet: pre-checked like path 1, so the author can start an on-demand analysis
+    nil = preprints_not_in_library(refs.get("references") or "")
+    with cf.ThreadPoolExecutor(8) as ex:
+        prechecks = dict(zip(nil[:MAX_PRECHECK], ex.map(precheck_doi, nil[:MAX_PRECHECK])))
+    not_in_library = [{"doi": d, "precheck": prechecks.get(d)} for d in nil]
     jobs = []
     for ev in events:
         targets = build_targets(ev, ev.get("paper_id") or "", ev.get("preprint_title") or "", ev.get("first_author") or "")
@@ -644,6 +659,7 @@ def check_published(ref: str, client) -> dict:
     with cf.ThreadPoolExecutor(4) as ex:
         results = list(ex.map(judge, jobs))
     return {"paper": work, "status": "checked", "n_library_preprints_cited": len(events), "results": results,
+            "not_in_library": not_in_library,
             "summary": {"relies_on_old_value": sum(1 for r in results if r.get("cites") in ("superseded", "indirect")),
                         "judged": sum(1 for r in results if r.get("status") == "judged")}}
 

@@ -139,9 +139,12 @@ def selfcheck_published(body: dict) -> dict:
     if not ref:
         raise ApiError(400, "no_paper")
     try:
-        return selfcheck.check_published(ref, mcp_client())
+        res = selfcheck.check_published(ref, mcp_client())
     except ValueError as e:
         raise ApiError(400, "bad_paper", str(e)) from e
+    res["not_in_library_status"] = {r["doi"]: (selfcheck.ondemand_get(r["doi"]) or {}).get("status")
+                                    for r in res.get("not_in_library") or []}
+    return res
 
 
 def selfcheck_sentences(body: dict) -> dict:

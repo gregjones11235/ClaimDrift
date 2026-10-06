@@ -583,6 +583,9 @@ export interface SelfcheckPublishedResponse {
   status: "checked" | "not_found" | "no_full_text";
   n_library_preprints_cited?: number;
   results: SelfcheckPublishedResult[];
+  /** cited bioRxiv/medRxiv preprints with no event in the library, pre-checked for on-demand analysis */
+  not_in_library?: { doi: string; precheck: SelfcheckPrecheck | null }[];
+  not_in_library_status?: Record<string, OnDemandStatus | null>;
   summary?: { relies_on_old_value: number; judged: number };
 }
 

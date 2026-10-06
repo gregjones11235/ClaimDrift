@@ -534,6 +534,17 @@ class SelfcheckValueTest(unittest.TestCase):
         self.assertEqual(claim_values("2 to 14 days, p<0.001, Table 2, IL-6 and CD4 counts"), {"2 days", "14 days"})
         self.assertEqual(claim_values("Figure 3 [7] in 2021"), set())
 
+    def test_preprints_not_in_library(self):
+        from unittest import mock
+        from claimdrift import selfcheck
+        refs = ("1. backer ja. medrxiv 2020. doi: 10.1101/2020.01.27.20018986. 2. li q. n engl j med. 10.1056/nejmoa2001316 "
+                "3. wu jt. biorxiv 10.1101/2020.02.10.942011v2). 4. again 10.1101/2020.02.10.942011.")
+        known = {"10.1101/2020.01.27.20018986": {"event_id": "E"}}
+        with mock.patch.object(selfcheck, "_events_by_doi", lambda dois: {d: known[d] for d in dois if d in known}):
+            # journal DOIs ignored, library preprints excluded, version suffix and trailing punctuation dropped, deduplicated
+            self.assertEqual(selfcheck.preprints_not_in_library(refs), ["10.1101/2020.02.10.942011"])
+            self.assertEqual(selfcheck.preprints_not_in_library(""), [])
+
 
 if __name__ == "__main__":
     unittest.main()

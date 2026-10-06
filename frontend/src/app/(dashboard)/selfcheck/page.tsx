@@ -14,6 +14,7 @@ import type {
   OnDemandStatus,
   SearchMode,
   SelfcheckAnalyzeResponse,
+  SelfcheckPrecheck,
   SelfcheckReferenceResult,
   SelfcheckPublishedResponse,
   SelfcheckReferencesResponse,
@@ -259,8 +260,6 @@ const PRECHECK_TEXT: Record<string, string> = {
 function ReferenceRow({ r, initialStatus }: { r: SelfcheckReferenceResult; initialStatus: OnDemandStatus | null }) {
   const st = refStatus(r);
   const ev = r.event;
-  const pre = r.precheck;
-  const canAnalyse = !pre || pre.status === "ready" || pre.status === "check_failed";
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--gr3)", borderLeft: `3px solid ${st.color}` }}>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start", justifyContent: "space-between", marginBottom: ev ? 10 : 0 }}>
@@ -288,18 +287,29 @@ function ReferenceRow({ r, initialStatus }: { r: SelfcheckReferenceResult; initi
         </div>
       )}
 
-      {r.status === "not_in_library" && pre && (
-        <div className="specimen" style={{ marginTop: 6, color: pre.status === "ready" ? "var(--grn)" : "var(--gr)" }}>
-          {PRECHECK_TEXT[pre.status] ?? pre.status}
-          {pre.status === "ready" && pre.published_doi ? ` (published as ${pre.published_doi}; usually takes 2–4 minutes)` : ""}
-        </div>
-      )}
-      {r.status === "not_in_library" && r.doi && canAnalyse && <AnalyzeNow doi={r.doi} initialStatus={initialStatus} />}
+      {r.status === "not_in_library" && r.doi && <NotInLibrary doi={r.doi} pre={r.precheck ?? null} initialStatus={initialStatus} />}
 
       {ev && <EventPanel ev={ev} />}
 
       {r.status === "no_match" && (r.suggestions?.length ?? 0) > 0 && <Suggestions r={r} />}
     </div>
+  );
+}
+
+// A cited bioRxiv/medRxiv preprint the library does not have yet: the pre-check result, and "Analyse now" when the
+// pre-check says the analysis can succeed (no pre-check = more than 30 such DOIs; the analysis itself re-checks).
+function NotInLibrary({ doi, pre, initialStatus }: { doi: string; pre: SelfcheckPrecheck | null; initialStatus: OnDemandStatus | null }) {
+  const canAnalyse = !pre || pre.status === "ready" || pre.status === "check_failed";
+  return (
+    <>
+      {pre && (
+        <div className="specimen" style={{ marginTop: 6, color: pre.status === "ready" ? "var(--grn)" : "var(--gr)" }}>
+          {PRECHECK_TEXT[pre.status] ?? pre.status}
+          {pre.status === "ready" && pre.published_doi ? ` (published as ${pre.published_doi}; usually takes 2–4 minutes)` : ""}
+        </div>
+      )}
+      {canAnalyse && <AnalyzeNow doi={doi} initialStatus={initialStatus} />}
+    </>
   );
 }
 
@@ -499,7 +509,8 @@ function SentenceResults({ res }: { res: SelfcheckSentencesResponse }) {
               <strong style={{ fontFamily: "var(--mono)" }}>{res.summary.matched}</strong> related to a revised preprint claim
             </span>
             <span style={{ fontSize: 13, color: "var(--wh2)" }}>
-              <strong style={{ fontFamily: "var(--mono)" }}>{res.summary.no_match}</strong> with no match in the library
+              <strong style={{ fontFamily: "var(--mono)" }}>{res.summary.no_match}</strong> not matched to any revision in the library
+              (not a clearance — preprints outside the library are not checked here)
             </span>
             {!!res.n_ignored && (
               <span className="specimen" style={{ color: "var(--rd)" }}>{res.n_ignored} sentence(s) beyond the first {MAX_SENTENCES} were not checked</span>
@@ -527,8 +538,11 @@ function SentenceResult({ r }: { r: SelfcheckSentencesResponse["results"][number
       )}
       {r.matches.length === 0 ? (
         <div style={{ padding: 16 }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)", fontStyle: "italic" }}>
-            No drift event in the library matches this sentence — the claim it cites is not known to have been revised.
+          <div style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gr2)", fontStyle: "italic", lineHeight: 1.6 }}>
+            No revision in the library matches this sentence. This is not a clearance: sentences are only compared with
+            revisions already in the library. If the preprint you cite is not in the library, paste its reference (with
+            the DOI) in the reference list — a bioRxiv/medRxiv preprint can be analysed on demand there — then check this
+            sentence again.
           </div>
           {weak.length > 0 && (
             <button className="cd-btn" style={{ marginTop: 10, padding: "4px 10px", fontSize: 11 }} onClick={() => setShowWeak((v) => !v)}>
@@ -722,6 +736,12 @@ function PublishedCheck() {
                     <strong style={{ color: res.summary?.relies_on_old_value ? "var(--rd)" : "var(--grn)" }}>{res.summary?.relies_on_old_value ?? 0}</strong>{" "}
                     of the checked values are used in their superseded form.</>
                 : "Your paper cites none of the revised preprints in the library.")}
+            {res.status === "checked" && !!res.not_in_library?.length && (
+              <>
+                {" "}It also cites <strong style={{ color: "var(--y)" }}>{res.not_in_library.length}</strong> bioRxiv/medRxiv
+                preprint(s) that are not in the library yet — not checked; see below.
+              </>
+            )}
           </div>
           {res.results.map((r, i) => (
             <div key={i} style={{ padding: "12px 16px", borderBottom: "1px solid var(--gr3)" }}>
@@ -752,6 +772,27 @@ function PublishedCheck() {
               {r.reason && <div className="specimen">{r.relayed_by ? `via ${r.relayed_by} · ` : ""}{r.reason}</div>}
             </div>
           ))}
+          {!!res.not_in_library?.length && (
+            <>
+              <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--gr3)" }}>
+                <span className="specimen specimen-y">cited preprints not in the library</span>
+                <span className="specimen" style={{ marginLeft: 10 }}>
+                  analyse one, then check your paper again to see how you cite it
+                </span>
+              </div>
+              {res.not_in_library.map((p) => (
+                <div key={p.doi} style={{ padding: "12px 16px", borderBottom: "1px solid var(--gr3)", borderLeft: "3px solid var(--y)" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--wh2)", wordBreak: "break-word" }}>
+                      {p.precheck?.title ? `${p.precheck.title} · ` : ""}doi:{p.doi}
+                    </span>
+                    <ColorBadge color="var(--y)">Not in library</ColorBadge>
+                  </div>
+                  <NotInLibrary doi={p.doi} pre={p.precheck} initialStatus={res.not_in_library_status?.[p.doi] ?? null} />
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
